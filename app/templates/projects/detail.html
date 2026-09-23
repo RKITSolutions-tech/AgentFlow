@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}{{ project.name }} - AgentFlow{% endblock %}
+{% block content %}
+  <h1>{{ project.name }}</h1>
+  <p>{{ project.description }}</p>
+  <p><a href="{{ url_for('projects.edit_project', project_id=project.id) }}">Edit</a></p>
+
+  <h2>Repositories</h2>
+  {% if project.repositories %}
+    <table>
+      <thead><tr><th>Name</th><th>Path</th><th>Primary</th></tr></thead>
+      <tbody>
+        {% for repo in project.repositories %}
+          <tr>
+            <td>{{ repo.name }}</td>
+            <td>{{ repo.path }}</td>
+            <td>{{ "Yes" if repo.is_primary else "" }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p>No repositories yet.</p>
+  {% endif %}
+
+  <h3>Add repository</h3>
+  <form class="stacked" method="post" action="{{ url_for('projects.add_repository', project_id=project.id) }}">
+    <label>Name
+      <input type="text" name="name" required>
+    </label>
+    <label>Path
+      <input type="text" name="path" required>
+    </label>
+    <label>
+      <input type="checkbox" name="is_primary"> Primary repository
+    </label>
+    <button type="submit">Add repository</button>
+  </form>
+{% endblock %}

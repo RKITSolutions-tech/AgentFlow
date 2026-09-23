@@ -1,0 +1,96 @@
+{
+  "master": {
+    "tasks": [
+      {
+        "id": "1",
+        "title": "Build the application and project foundation",
+        "description": "Create the host-run Flask application shell, SQLite persistence, responsive navigation, and Project/repository management.",
+        "details": "Follow docs/HIGH_LEVEL_DESIGN.md and docs/DOMAIN_AND_ORCHESTRATION_DESIGN.md. Bind to loopback by default. Support creating, viewing, editing, and listing Projects. Each Project may contain one or more validated repository paths and one default repository. Reject paths outside configured allowed roots and persist records across restarts.",
+        "testStrategy": "Start the application on the host and verify loopback binding. Add one automated check that creates and reloads a Project, accepts a repository under an allowed root, and rejects a path outside allowed roots.",
+        "priority": "high",
+        "dependencies": [],
+        "status": "done",
+        "subtasks": [],
+        "updatedAt": "2026-09-22T23:05:51.035Z"
+      },
+      {
+        "id": "2",
+        "title": "Implement host execution and event streaming",
+        "description": "Implement the canonical HostExecutionProvider and reconnectable delivery of command events.",
+        "status": "done",
+        "dependencies": [
+          "1"
+        ],
+        "priority": "high",
+        "details": "Follow docs/EXECUTION_PROVIDER.md. Validate working directories, filter environments, own spawned processes, enforce timeouts, terminate process groups, and stream stdout and stderr. Persist ordered events so reconnecting clients can continue from their last event position. Return exit status and support cancellation.\n\nIMPLEMENTATION COMPLETE:\n- Created app/execution/ package: base.py (ExecutionProvider ABC), models.py (ExecutionContext/Process/ProcessEvent dataclasses + raw-SQL CRUD following app/projects/models.py pattern), host.py (HostExecutionProvider)\n- Added SQLite tables in app/db.py: execution_contexts, processes, process_events (event id doubles as the reconnect position for stream_output(process_id, after_id))\n- Working directory validated via existing validate_repository_path/ALLOWED_PROJECT_ROOTS\n- Environment filtered to safe base allowlist (PATH/HOME/LANG/LC_ALL/TERM/TZ/USER/SHELL) plus explicit overrides, not full os.environ passthrough\n- Processes spawned with start_new_session=True for process-group ownership\n- Process termination: stop_process/timeout both terminate via SIGTERM then SIGKILL after grace period\n- Fixed critical bug: grace-period liveness check now uses popen.poll() for immediate zombie detection instead of os.kill(pid,0) which succeeded on zombies, causing unnecessary 5s delays\n- All tests passing: 10/10 existing suite + new test_execution.py covering success, failure exit code, cancellation, execution timeout, path-outside-allowed-roots rejection, and event-resume-from-position",
+        "testStrategy": "Integration tests in tests/test_execution.py covering: (1) successful command execution, (2) failing command with non-zero exit code, (3) cancellation, (4) execution timeout enforcement, (5) rejection of working directories outside allowed roots, (6) event-resume-from-position allowing reconnecting clients to continue from last event. All tests pass (10/10).",
+        "subtasks": [],
+        "updatedAt": "2026-09-23T06:23:52.157Z"
+      },
+      {
+        "id": "3",
+        "title": "Create the agent contract and FakeAgent vertical slice",
+        "description": "Define the shared AgentAdapter contract and prove it with a deterministic FakeAgent end-to-end workflow.",
+        "details": "Follow docs/AGENT_ADAPTER.md. Implement scripted FakeAgent messages, file changes, failure, retry, and success. Complete the vertical slice: open a Project, start FakeAgent, stream output, modify a fixture file, show its Git diff, run a configured test, and persist prompts, replies, events, session metadata, and the result.",
+        "testStrategy": "Add one deterministic end-to-end check that runs without an external model and proves the full Project-to-FakeAgent-to-diff-to-test-to-persisted-result flow, including a scripted failure and retry.",
+        "priority": "high",
+        "dependencies": [
+          "1",
+          "2"
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": "4",
+        "title": "Implement Codex sessions",
+        "description": "Integrate Codex through HostExecutionProvider using the shared AgentAdapter contract.",
+        "details": "Detect Codex availability and version. Support session creation, listing, discovery and resume when supported, prompt input, live output, stop, and persisted prompt/reply history. Persistently map external Codex identifiers to AgentFlow session identifiers and report unsupported capabilities explicitly. Keep FakeAgent as the automated-test adapter.",
+        "testStrategy": "Use FakeAgent for deterministic automated contract tests. Add a guarded Codex smoke check that verifies availability detection and, when Codex is installed, starting, observing, stopping, and reopening a session from persisted history.",
+        "priority": "high",
+        "dependencies": [
+          "3"
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": "5",
+        "title": "Build the operational project workspace",
+        "description": "Add file, search, Git, and persistent terminal tools to the Phase 1 Project workspace.",
+        "details": "Provide repository-scoped file browsing and basic editing, search, Git status/diff/log/stage/unstage/commit, and a reconnectable tmux-backed terminal. Reuse Project repository validation and HostExecutionProvider boundaries. Link changed files to their diff and file view, and avoid loading large or binary files into the normal editor. Keep essential actions usable on desktop and mobile.",
+        "testStrategy": "Verify file and Git operations cannot escape allowed repository roots, changed-file links open the correct diff and file, large and binary files are handled safely, and a tmux terminal survives browser disconnect and reconnect. Exercise essential actions at desktop and mobile viewport sizes.",
+        "priority": "medium",
+        "dependencies": [
+          "1",
+          "2"
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": "6",
+        "title": "Add basic runs, history, and hardening",
+        "description": "Add single-Task command and test Runs with inspection, persistence, recovery, and security controls.",
+        "details": "Follow docs/RUN_AND_RALPH.md for the Phase 1 subset. Record step status, timing, logs, prompts, replies, and artifact metadata in SQLite while storing artifact content and large logs on the filesystem. Support pause/stop, restart reconciliation, Run history, and step inspection. Mark a Run blocked when its previously active process is missing after restart. Redact secrets before persistence where practical and require explicit configuration for unsafe all-interface binding.",
+        "testStrategy": "Add an integration check that runs a command or test and verifies status, timing, output references, and artifacts. Simulate restart with a missing process and verify the Run becomes blocked. Verify secret redaction, explicit unsafe-bind configuration, and usable history/step inspection on desktop and mobile.",
+        "priority": "high",
+        "dependencies": [
+          "3",
+          "5"
+        ],
+        "status": "pending",
+        "subtasks": []
+      }
+    ],
+    "metadata": {
+      "version": "1.0.0",
+      "lastModified": "2026-09-23T06:23:52.157Z",
+      "taskCount": 6,
+      "completedCount": 2,
+      "tags": [
+        "master"
+      ]
+    }
+  }
+}

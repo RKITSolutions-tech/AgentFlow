@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Edit {{ project.name }} - AgentFlow{% endblock %}
+{% block content %}
+  <h1>Edit project</h1>
+  <form class="stacked" method="post">
+    <label>Name
+      <input type="text" name="name" value="{{ project.name }}" required>
+    </label>
+    <label>Description
+      <textarea name="description" rows="4">{{ project.description }}</textarea>
+    </label>
+    <button type="submit">Save</button>
+  </form>
+{% endblock %}

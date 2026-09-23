@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}AgentFlow{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+</head>
+<body>
+  <header class="topbar">
+    <button class="nav-toggle" aria-label="Toggle navigation" aria-expanded="false" aria-controls="primary-nav">☰</button>
+    <span class="brand">AgentFlow</span>
+  </header>
+  <nav id="primary-nav" class="primary-nav">
+    <a href="{{ url_for('projects.list_projects') }}">Projects</a>
+    <a href="#" aria-disabled="true">Backlog</a>
+    <a href="#" aria-disabled="true">Sprints</a>
+    <a href="#" aria-disabled="true">Sessions</a>
+    <a href="#" aria-disabled="true">Runs</a>
+  </nav>
+  <main class="content">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <ul class="flashes">
+          {% for category, message in messages %}
+            <li class="flash flash-{{ category }}">{{ message }}</li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+    {% endwith %}
+    {% block content %}{% endblock %}
+  </main>
+  <script>
+    document.querySelector('.nav-toggle').addEventListener('click', function () {
+      var nav = document.getElementById('primary-nav');
+      var expanded = nav.classList.toggle('open');
+      this.setAttribute('aria-expanded', expanded);
+    });
+  </script>
+</body>
+</html>
