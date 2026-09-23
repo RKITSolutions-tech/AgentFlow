@@ -16,17 +16,25 @@ from app.projects import models as project_models
 
 _VERSION_TIMEOUT_SECONDS = 5.0
 
+# Process states (docs/EXECUTION_PROVIDER.md section 9) that mean a turn's
+# subprocess has exited one way or another and will never emit another event.
+_TERMINAL_PROCESS_STATUSES = frozenset({"COMPLETED", "FAILED", "STOPPED", "TIMED_OUT", "LOST"})
+
 
 class CodexAdapter(AgentAdapter):
     """Adapter for the Codex CLI.
 
     See docs/AGENT_ADAPTER.md section 17. Binary discovery and version
-    detection landed in task 4.1; this adapter now also implements session
-    lifecycle (task 4.2) by running `codex exec`/`codex exec resume`
-    synchronously through the injected ExecutionProvider and parsing the
-    captured `--json` stdout for the external session id and final message.
-    Prompt/output streaming while a turn is in flight (task 4.3) and
-    stop/persisted-history support (task 4.4) still raise NotImplementedError.
+    detection landed in task 4.1; session lifecycle (start/resume against
+    `codex exec`/`codex exec resume`) landed in task 4.2. Task 4.3 adds
+    prompt submission to an already-resumable session (`send`) and live
+    output streaming (`stream`): both a turn launched synchronously by
+    `start`/`resume` and one launched in the background by `send` are
+    translated from raw `--json` stdout into structured AgentEvents by the
+    same incremental `_sync_events` step, driven off the ExecutionProvider's
+    own event-position tracking (`stream_output(process_id, after_id)`) so a
+    reconnecting caller can resume from where it left off. Stop and
+    persisted-history support (task 4.4) still raise NotImplementedError.
     """
 
     def __init__(
@@ -53,7 +61,7 @@ class CodexAdapter(AgentAdapter):
         return self._version or ""
 
     def capabilities(self) -> frozenset[str]:
-        return frozenset({"resume", "session_discovery"})
+        return frozenset({"resume", "session_discovery", "structured_events"})
 
     def discover_sessions(self, project_id: int) -> list[AgentSession]:
         working_directory = self._primary_repository_path(project_id)
@@ -82,7 +90,9 @@ class CodexAdapter(AgentAdapter):
         process = self._execution_provider.execute(
             command, options={"context_id": int(context.execution_target)}
         )
-        return self._finish_turn(session_id, process)
+        self._begin_turn(session_id, process.id)
+        self._sync_events(session_id)
+        return models.get_agent_session(self._db, session_id)
 
     def resume(
         self, session_id: int, prompt: str | None, options: dict[str, Any] | None = None
@@ -105,10 +115,31 @@ class CodexAdapter(AgentAdapter):
         process = self._execution_provider.execute(
             command, options={"context_id": int(session.execution_target)}
         )
-        return self._finish_turn(session_id, process)
+        self._begin_turn(session_id, process.id)
+        self._sync_events(session_id)
+        return models.get_agent_session(self._db, session_id)
 
     def send(self, session_id: int, content: str) -> None:
-        raise NotImplementedError("Codex prompt submission lands in task 4.3")
+        session = models.get_agent_session(self._db, session_id)
+        if session is None:
+            raise ValueError(f"Unknown agent session {session_id}")
+        if session.external_session_id is None:
+            raise ValueError(
+                f"Agent session {session_id} has no Codex session id to resume"
+            )
+        if self._turn_in_progress(session):
+            raise ValueError(
+                f"Agent session {session_id} already has a Codex turn in progress"
+            )
+
+        models.add_agent_event(self._db, session_id, "PromptSubmitted", data=content)
+        models.set_session_status(self._db, session_id, "RUNNING")
+
+        command = [self._binary, "exec", "resume", session.external_session_id, "--json", content]
+        process = self._execution_provider.start_process(
+            command, options={"context_id": int(session.execution_target)}
+        )
+        self._begin_turn(session_id, process.id)
 
     def stop(self, session_id: int) -> None:
         raise NotImplementedError("Codex session stop lands in task 4.4")
@@ -117,51 +148,107 @@ class CodexAdapter(AgentAdapter):
         return models.get_agent_session(self._db, session_id)
 
     def stream(self, session_id: int, after_id: int | None = None) -> list[AgentEvent]:
-        raise NotImplementedError("Codex output streaming lands in task 4.3")
+        self._sync_events(session_id)
+        return models.list_agent_events(self._db, session_id, after_id=after_id)
 
-    # -- session lifecycle helpers ------------------------------------------
+    # -- turn lifecycle helpers ----------------------------------------------
 
-    def _finish_turn(self, session_id: int, process: Any) -> AgentSession:
-        events = self._execution_provider.stream_output(process.id)
-        stdout_lines = [e.data for e in events if e.stream == "stdout"]
+    def _begin_turn(self, session_id: int, process_id: int) -> None:
+        """Records the process backing a newly launched turn.
 
-        session_external_id: str | None = None
-        last_agent_message: str | None = None
+        Resets the per-turn translation cursor so `_sync_events` starts
+        reading this process's output from the beginning, regardless of
+        whether the previous turn's process id is still around.
+        """
+        metadata = dict(models.get_agent_session(self._db, session_id).metadata)
+        metadata["process_id"] = process_id
+        metadata["process_event_cursor"] = None
+        metadata["last_stderr_line"] = None
+        metadata["turn_finalized"] = False
+        models.set_session_metadata(self._db, session_id, metadata)
 
-        for line in stdout_lines:
-            try:
-                payload = json.loads(line)
-            except (json.JSONDecodeError, TypeError):
+    def _turn_in_progress(self, session: AgentSession) -> bool:
+        process_id = session.metadata.get("process_id")
+        if process_id is None or session.metadata.get("turn_finalized"):
+            return False
+        process = self._execution_provider.process_status(process_id)
+        return process is not None and process.status not in _TERMINAL_PROCESS_STATUSES
+
+    def _sync_events(self, session_id: int) -> None:
+        """Translates newly available `--json` stdout lines into AgentEvents.
+
+        Safe to call repeatedly (from `stream()` polling, or right after a
+        synchronous `start`/`resume` call): the per-session
+        `process_event_cursor` means each raw ProcessEvent is only ever
+        translated once, and `turn_finalized` stops re-checking a process
+        once its outcome has already been recorded.
+        """
+        session = models.get_agent_session(self._db, session_id)
+        metadata = dict(session.metadata)
+        process_id = metadata.get("process_id")
+        if process_id is None or metadata.get("turn_finalized"):
+            return
+
+        cursor = metadata.get("process_event_cursor")
+        raw_events = self._execution_provider.stream_output(process_id, after_id=cursor)
+
+        task_completed = False
+        last_stderr = metadata.get("last_stderr_line")
+
+        for raw in raw_events:
+            cursor = raw.id
+            if raw.stream == "stderr":
+                last_stderr = raw.data
+                continue
+
+            payload = self._parse_json_line(raw.data)
+            if payload is None:
                 continue
 
             event_type = payload.get("type")
-            if event_type == "session_meta" and session_external_id is None:
-                meta = payload.get("payload", {})
-                session_external_id = meta.get("session_id")
+            if event_type == "session_meta":
+                if session.external_session_id is None:
+                    ext_id = payload.get("payload", {}).get("session_id")
+                    if ext_id is not None:
+                        models.set_external_session_id(self._db, session_id, ext_id)
             elif event_type == "event_msg":
                 inner = payload.get("payload", {})
-                if inner.get("type") == "task_complete":
-                    last_agent_message = inner.get("last_agent_message", "")
+                inner_type = inner.get("type")
+                if inner_type == "agent_message":
+                    models.add_agent_event(
+                        self._db, session_id, "AgentText", data=inner.get("message", "")
+                    )
+                elif inner_type == "task_complete":
+                    models.add_agent_event(
+                        self._db,
+                        session_id,
+                        "AgentComplete",
+                        data=inner.get("last_agent_message", ""),
+                    )
+                    models.set_session_status(self._db, session_id, "COMPLETED")
+                    task_completed = True
 
-        if session_external_id is not None:
-            current = models.get_agent_session(self._db, session_id)
-            if current.external_session_id is None:
-                models.set_external_session_id(self._db, session_id, session_external_id)
+        metadata["process_event_cursor"] = cursor
+        metadata["last_stderr_line"] = last_stderr
 
-        if last_agent_message is not None:
-            models.add_agent_event(
-                self._db, session_id, "AgentComplete", data=last_agent_message
-            )
-            models.set_session_status(self._db, session_id, "COMPLETED")
+        if task_completed:
+            metadata["turn_finalized"] = True
         else:
-            stderr_lines = [e.data for e in events if e.stream == "stderr"]
-            error_detail = stderr_lines[-1] if stderr_lines else (
-                f"codex exec exited with code {process.exit_code}"
-            )
-            models.add_agent_event(self._db, session_id, "AgentError", data=error_detail)
-            models.set_session_status(self._db, session_id, "FAILED")
+            process = self._execution_provider.process_status(process_id)
+            if process is not None and process.status in _TERMINAL_PROCESS_STATUSES:
+                error_detail = last_stderr or f"codex exec exited with code {process.exit_code}"
+                models.add_agent_event(self._db, session_id, "AgentError", data=error_detail)
+                models.set_session_status(self._db, session_id, "FAILED")
+                metadata["turn_finalized"] = True
 
-        return models.get_agent_session(self._db, session_id)
+        models.set_session_metadata(self._db, session_id, metadata)
+
+    @staticmethod
+    def _parse_json_line(line: str) -> dict[str, Any] | None:
+        try:
+            return json.loads(line)
+        except (json.JSONDecodeError, TypeError):
+            return None
 
     def _primary_repository_path(self, project_id: int) -> str | None:
         project = project_models.get_project(self._db, project_id)

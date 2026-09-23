@@ -86,9 +86,10 @@
               2
             ],
             "details": "Implement prompt_input() and stream_output() methods in CodexAdapter that send prompts to active Codex sessions and receive streamed responses. Wire output streaming through HostExecutionProvider's event system to deliver to clients. Handle partial output chunks and maintain output ordering. Ensure streaming works with reconnecting clients using event position tracking.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "Integration tests sending prompts and verifying output is streamed correctly. Tests verifying output chunks are delivered in order. Event position tests ensuring clients can reconnect and resume from last seen output. FakeAgent contract compliance tests.",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2026-09-23T18:33:51.742Z"
           },
           {
             "id": 4,
@@ -115,7 +116,7 @@
             "parentId": "undefined"
           }
         ],
-        "updatedAt": "2026-09-23T12:23:40.291Z"
+        "updatedAt": "2026-09-23T18:33:51.742Z"
       },
       {
         "id": "5",
@@ -166,7 +167,7 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-09-23T12:23:40.291Z",
+      "lastModified": "2026-09-23T18:33:51.742Z",
       "taskCount": 7,
       "completedCount": 3,
       "tags": [
