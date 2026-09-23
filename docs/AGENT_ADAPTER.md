@@ -229,6 +229,29 @@ prompt/reply capture
 session discovery where supported
 ```
 
+Requirements and degraded-mode behaviour (implemented in `app/agents/codex.py`,
+task 4.5):
+
+- The `codex` binary must be resolvable (`shutil.which`) and already
+  authenticated (`codex login`); AgentFlow does not manage Codex
+  authentication itself.
+- `capabilities()` is a static declaration of what `CodexAdapter` as a class
+  supports (`resume`, `session_discovery`, `structured_events`) — it
+  describes the adapter type, not whether the binary is currently
+  reachable. `available()`/`version()` (section "binary discovery") answer
+  the "is it usable right now" question separately, via cached
+  `shutil.which`/`codex --version` detection.
+- If the binary can't actually be launched when `start`/`resume`/`send` try
+  to run it (missing, permissions, etc.), the adapter does not let the raw
+  `OSError` escape: it records an `AgentError` event and marks the session
+  `FAILED`, the same way any other turn failure is reported.
+- Session discovery reads `$CODEX_HOME/sessions/**/rollout-*.jsonl`
+  (`CODEX_HOME` defaults to `~/.codex`) to import native Codex sessions
+  whose `cwd` matches the Project's primary repository path; it is a
+  best-effort filesystem scan, not a `codex` subprocess call, so it degrades
+  gracefully (returns only already-tracked sessions) when that directory
+  doesn't exist.
+
 ## 18. Other Agents
 
 Claude, Gemini and OpenCode should follow after the adapter interface has been proven with FakeAgent and Codex.

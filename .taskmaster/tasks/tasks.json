@@ -52,7 +52,7 @@
         "dependencies": [
           "3"
         ],
-        "status": "in-progress",
+        "status": "done",
         "subtasks": [
           {
             "id": 1,
@@ -111,13 +111,14 @@
             "dependencies": [
               4
             ],
-            "details": "Add capability reporting mechanism to CodexAdapter (e.g., supported_capabilities property or get_capabilities() method) that explicitly lists which operations are supported based on Codex version and availability. Create error handling that gracefully handles unsupported operations (resume if not available, discovery if not available). Run full contract compliance tests. Verify FakeAgent remains unchanged and functional as the automated-test adapter. Document any Codex-specific requirements.",
-            "status": "pending",
+            "details": "Add capability reporting mechanism to CodexAdapter (e.g., supported_capabilities property or get_capabilities() method) that explicitly lists which operations are supported based on Codex version and availability. Create error handling that gracefully handles unsupported operations (resume if not available, discovery if not available). Run full contract compliance tests. Verify FakeAgent remains unchanged and functional as the automated-test adapter. Document any Codex-specific requirements.\n<info added on 2026-09-23T18:55:35.524Z>\nImplemented graceful degraded-mode handling in app/agents/codex.py where start()/resume()/send() now catch OSError from ExecutionProvider.execute()/start_process() (e.g., missing/unauthenticated codex binary) via a new _fail_launch() helper, emitting an AgentError event and setting FAILED status instead of allowing raw OSError to escape, matching the existing turn-failure convention. The capabilities() method left as a static adapter-type declaration (resume, session_discovery, structured_events), kept separate from available()/version() (runtime reachability checks) so unit tests don't depend on real environment detection. The discover_sessions() method already graceful (filesystem-only scan of CODEX_HOME, no subprocess call). Added comprehensive tests in tests/test_codex_adapter.py: contract-compliance test verifying CodexAdapter.__abstractmethods__ is empty, FakeExecutionProvider.fail_next_launch() helper, and 3 tests covering start/resume/send paths hitting missing-binary OSError. Documented Codex-specific requirements in docs/AGENT_ADAPTER.md section 17 (codex login auth, CODEX_HOME environment, degraded-mode behaviour). Full test suite passes (35 tests green), including guarded real-binary smoke test since codex is installed on host.\n</info added on 2026-09-23T18:55:35.524Z>",
+            "status": "done",
             "testStrategy": "Contract compliance tests verifying all AgentAdapter methods are implemented or explicitly report as unsupported. Tests verifying graceful handling of unsupported operations. Guarded Codex smoke test that verifies availability detection, session start/stop, output observation, and history reopening when Codex is installed. Full FakeAgent end-to-end test ensuring test automation is unaffected.",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2026-09-23T18:55:45.789Z"
           }
         ],
-        "updatedAt": "2026-09-23T18:39:01.430Z"
+        "updatedAt": "2026-09-23T18:55:45.789Z"
       },
       {
         "id": "5",
@@ -168,9 +169,9 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-09-23T18:39:01.431Z",
+      "lastModified": "2026-09-23T18:55:45.789Z",
       "taskCount": 7,
-      "completedCount": 3,
+      "completedCount": 4,
       "tags": [
         "master"
       ]

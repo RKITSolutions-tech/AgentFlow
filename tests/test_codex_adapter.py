@@ -42,6 +42,7 @@ class FakeExecutionProvider(ExecutionProvider):
         self._processes: dict[int, exec_models.Process] = {}
         self._pending_terminal: dict[int, tuple[str, int]] = {}
         self._next_process_id = 1
+        self._fail_next_launch: OSError | None = None
 
     def queue_turn(
         self, stdout_lines: list[str], exit_code: int = 0, stderr_lines: list[str] | None = None
@@ -49,6 +50,10 @@ class FakeExecutionProvider(ExecutionProvider):
         self._turns.append(
             {"stdout": stdout_lines, "stderr": stderr_lines or [], "exit_code": exit_code}
         )
+
+    def fail_next_launch(self, exc: OSError) -> None:
+        """Simulates the Codex binary itself failing to launch (e.g. missing)."""
+        self._fail_next_launch = exc
 
     def finish_process(self, process_id: int) -> exec_models.Process:
         status, exit_code = self._pending_terminal[process_id]
@@ -82,6 +87,10 @@ class FakeExecutionProvider(ExecutionProvider):
         return self.finish_process(process.id)
 
     def start_process(self, command, options=None):
+        if self._fail_next_launch is not None:
+            exc, self._fail_next_launch = self._fail_next_launch, None
+            raise exc
+
         self.commands.append(command)
         turn = self._turns.pop(0)
 
@@ -655,6 +664,98 @@ def test_stop_without_turn_in_progress_still_marks_stopped(app):
         adapter.stop(session.id)
 
         assert agent_models.get_agent_session(db, session.id).status == "STOPPED"
+
+
+def test_codex_adapter_implements_full_agent_adapter_contract():
+    from app.agents.base import AgentAdapter
+
+    assert CodexAdapter.__abstractmethods__ == frozenset()
+    assert issubclass(CodexAdapter, AgentAdapter)
+
+
+def test_start_reports_missing_binary_as_failed_session_not_raw_oserror(app):
+    with app.app_context():
+        db = get_db()
+        project_id, working_directory = _make_project(db, app)
+
+        provider = FakeExecutionProvider()
+        provider.fail_next_launch(FileNotFoundError(2, "No such file or directory", "codex"))
+        adapter = CodexAdapter(db, provider)
+        context = AgentContext(
+            project_id=project_id,
+            working_directory=working_directory,
+            execution_provider="host",
+            execution_target="1",
+        )
+
+        session = adapter.start(context, "do the thing")
+
+        assert session.status == "FAILED"
+        events = agent_models.list_agent_events(db, session.id)
+        assert [e.event_type for e in events] == ["PromptSubmitted", "AgentError"]
+        assert "Codex CLI is not available" in events[1].data
+
+
+def test_resume_reports_missing_binary_as_failed_session_not_raw_oserror(app):
+    with app.app_context():
+        db = get_db()
+        project_id, working_directory = _make_project(db, app)
+
+        provider = FakeExecutionProvider()
+        provider.queue_turn(
+            [
+                _session_meta_line("ext-session-missing", working_directory),
+                _task_complete_line("first turn done"),
+            ]
+        )
+        adapter = CodexAdapter(db, provider)
+        context = AgentContext(
+            project_id=project_id,
+            working_directory=working_directory,
+            execution_provider="host",
+            execution_target="1",
+        )
+        session = adapter.start(context, "start it")
+
+        provider.fail_next_launch(FileNotFoundError(2, "No such file or directory", "codex"))
+        resumed = adapter.resume(session.id, prompt="keep going")
+
+        assert resumed.status == "FAILED"
+        events = agent_models.list_agent_events(db, session.id)
+        assert events[-1].event_type == "AgentError"
+        assert "Codex CLI is not available" in events[-1].data
+
+
+def test_send_reports_missing_binary_as_failed_session_not_raw_oserror(app):
+    with app.app_context():
+        db = get_db()
+        project_id, working_directory = _make_project(db, app)
+
+        provider = FakeExecutionProvider()
+        provider.queue_turn(
+            [
+                _session_meta_line("ext-session-missing-2", working_directory),
+                _task_complete_line("first turn done"),
+            ]
+        )
+        adapter = CodexAdapter(db, provider)
+        context = AgentContext(
+            project_id=project_id,
+            working_directory=working_directory,
+            execution_provider="host",
+            execution_target="1",
+        )
+        session = adapter.start(context, "start it")
+
+        provider.fail_next_launch(FileNotFoundError(2, "No such file or directory", "codex"))
+        result = adapter.send(session.id, "keep going")
+
+        assert result is None
+        failed_session = agent_models.get_agent_session(db, session.id)
+        assert failed_session.status == "FAILED"
+        events = agent_models.list_agent_events(db, session.id)
+        assert events[-1].event_type == "AgentError"
+        assert "Codex CLI is not available" in events[-1].data
 
 
 @pytest.mark.skipif(shutil.which("codex") is None, reason="Codex CLI not installed on this host")

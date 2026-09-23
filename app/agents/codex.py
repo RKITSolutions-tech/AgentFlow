@@ -37,6 +37,13 @@ class CodexAdapter(AgentAdapter):
     `stop()`. Prompt/reply history is already persisted as AgentEvents
     (`app/agents/models.py`), keyed by session id and timestamp; `stream()`
     is also the history-retrieval path, so no separate schema is needed.
+    Task 4.5 finalizes the integration: `capabilities()` declares what this
+    adapter type supports (resume, session discovery, structured events) so
+    orchestration/UI can adapt (docs/AGENT_ADAPTER.md section 11); if the
+    Codex binary can't actually be launched (missing, unauthenticated,
+    permissions), `start`/`resume`/`send` report that the same way any other
+    turn failure is reported (`AgentError` + `FAILED` session, see
+    `_fail_launch`) instead of letting a raw `OSError` escape.
     """
 
     def __init__(
@@ -89,9 +96,13 @@ class CodexAdapter(AgentAdapter):
         models.add_agent_event(self._db, session_id, "PromptSubmitted", data=prompt)
 
         command = [self._binary, "exec", "--json", prompt]
-        process = self._execution_provider.execute(
-            command, options={"context_id": int(context.execution_target)}
-        )
+        try:
+            process = self._execution_provider.execute(
+                command, options={"context_id": int(context.execution_target)}
+            )
+        except OSError as exc:
+            self._fail_launch(session_id, exc)
+            return models.get_agent_session(self._db, session_id)
         self._begin_turn(session_id, process.id)
         self._sync_events(session_id)
         return models.get_agent_session(self._db, session_id)
@@ -114,9 +125,13 @@ class CodexAdapter(AgentAdapter):
         command = [self._binary, "exec", "resume", session.external_session_id, "--json"]
         if prompt:
             command.append(prompt)
-        process = self._execution_provider.execute(
-            command, options={"context_id": int(session.execution_target)}
-        )
+        try:
+            process = self._execution_provider.execute(
+                command, options={"context_id": int(session.execution_target)}
+            )
+        except OSError as exc:
+            self._fail_launch(session_id, exc)
+            return models.get_agent_session(self._db, session_id)
         self._begin_turn(session_id, process.id)
         self._sync_events(session_id)
         return models.get_agent_session(self._db, session_id)
@@ -140,9 +155,13 @@ class CodexAdapter(AgentAdapter):
         models.set_session_status(self._db, session_id, "RUNNING")
 
         command = [self._binary, "exec", "resume", session.external_session_id, "--json", content]
-        process = self._execution_provider.start_process(
-            command, options={"context_id": int(session.execution_target)}
-        )
+        try:
+            process = self._execution_provider.start_process(
+                command, options={"context_id": int(session.execution_target)}
+            )
+        except OSError as exc:
+            self._fail_launch(session_id, exc)
+            return
         self._begin_turn(session_id, process.id)
 
     def stop(self, session_id: int) -> None:
@@ -173,6 +192,22 @@ class CodexAdapter(AgentAdapter):
         return models.list_agent_events(self._db, session_id, after_id=after_id)
 
     # -- turn lifecycle helpers ----------------------------------------------
+
+    def _fail_launch(self, session_id: int, exc: OSError) -> None:
+        """Records a graceful failure when the Codex CLI itself can't be launched.
+
+        `ExecutionProvider.execute`/`start_process` re-raise `OSError` (e.g.
+        the binary going missing between `available()` and launch, or a
+        permissions problem) rather than producing a Process to poll, so
+        this is the one failure mode `_sync_events` can never observe. It is
+        reported the same way any other turn failure is: an `AgentError`
+        event and a `FAILED` session, rather than letting a raw `OSError`
+        escape the adapter.
+        """
+        models.add_agent_event(
+            self._db, session_id, "AgentError", data=f"Codex CLI is not available: {exc}"
+        )
+        models.set_session_status(self._db, session_id, "FAILED")
 
     def _begin_turn(self, session_id: int, process_id: int) -> None:
         """Records the process backing a newly launched turn.
