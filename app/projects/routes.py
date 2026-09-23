@@ -27,6 +27,27 @@ def new_project():
 
         db = get_db()
         project_id = models.create_project(db, name, description)
+
+        repo_name = request.form.get("repo_name", "").strip()
+        repo_path = request.form.get("repo_path", "").strip()
+
+        if repo_path:
+            if not repo_name:
+                flash("Repository name is required when providing a path.", "error")
+                return render_template("projects/new.html"), 400
+
+            try:
+                models.add_repository(
+                    db,
+                    project_id,
+                    repo_name,
+                    repo_path,
+                    current_app.config["ALLOWED_PROJECT_ROOTS"],
+                    is_primary=True,
+                )
+            except PathNotAllowedError as exc:
+                flash(str(exc), "error")
+
         return redirect(url_for("projects.view_project", project_id=project_id))
 
     return render_template("projects/new.html")

@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}{{ project.name }} - Sessions - AgentFlow{% endblock %}
+{% block content %}
+  <h1>{{ project.name }} - Sessions</h1>
+
+  <h2>Active Sessions</h2>
+  {% if sessions %}
+    <table>
+      <thead><tr><th>Agent</th><th>Status</th><th>Started</th><th>Action</th></tr></thead>
+      <tbody>
+        {% for session in sessions %}
+          <tr>
+            <td>{{ session.agent_type|upper }}</td>
+            <td>{{ session.status }}</td>
+            <td>{{ session.started_at }}</td>
+            <td><a href="{{ url_for('sessions.view_session', session_id=session.id) }}">Open</a></td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p>No active sessions.</p>
+  {% endif %}
+
+  <h2>Start New Session</h2>
+  <form class="stacked" method="post" action="{{ url_for('sessions.create_session', project_id=project.id) }}">
+    <label>Agent Type
+      <select name="agent_type">
+        <option value="codex">Codex</option>
+        <option value="fake">Fake (Testing)</option>
+      </select>
+    </label>
+    {% if project.repositories %}
+      <label>Repository
+        <select name="repo_id">
+          {% for repo in project.repositories %}
+            <option value="{{ repo.id }}" {% if repo.is_primary %}selected{% endif %}>
+              {{ repo.name }}{% if repo.is_primary %} (primary){% endif %}
+            </option>
+          {% endfor %}
+        </select>
+      </label>
+    {% endif %}
+    <button type="submit">Start Session</button>
+  </form>
+{% endblock %}

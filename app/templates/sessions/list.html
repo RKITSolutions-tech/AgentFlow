@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Sessions - AgentFlow{% endblock %}
+{% block content %}
+  <h1>Sessions</h1>
+  <p>Select a project to view or start a session.</p>
+
+  <table>
+    <thead><tr><th>Project</th><th>Repositories</th><th>Action</th></tr></thead>
+    <tbody>
+      {% for project in projects %}
+        <tr>
+          <td>{{ project.name }}</td>
+          <td>{{ project.repositories|length }}</td>
+          <td><a href="{{ url_for('sessions.project_sessions', project_id=project.id) }}">View sessions</a></td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}
