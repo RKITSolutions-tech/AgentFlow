@@ -39,8 +39,6 @@
     const promptInput = document.getElementById('promptInput');
     const chatForm = document.getElementById('chatForm');
 
-    console.log('Chat script loaded. Form element:', chatForm);
-
     function addMessage(content, role = 'assistant') {
       const msgDiv = document.createElement('div');
       msgDiv.style.marginBottom = '0.75rem';
@@ -134,16 +132,13 @@
 
     if (chatForm) {
       chatForm.addEventListener('submit', (e) => {
-        console.log('Form submit event triggered');
         e.preventDefault();
         const prompt = promptInput.value.trim();
-        console.log('Prompt:', prompt);
         if (!prompt) return;
 
         const formData = new FormData();
         formData.append('prompt', prompt);
 
-        console.log('Sending POST request to /sessions/' + sessionId + '/send');
         fetch(`/sessions/${sessionId}/send`, {
           method: 'POST',
           body: formData,
@@ -161,8 +156,6 @@
           alert(`Error sending prompt: ${err.message}`);
         });
       });
-    } else {
-      console.error('Chat form element not found!');
     }
 
     loadHistory();
