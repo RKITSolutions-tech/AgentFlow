@@ -65,6 +65,27 @@ textarea.editor {
   padding: 0.5rem;
 }
 
+.search-form input { max-width: 100%; }
+.search-results { list-style: none; padding: 0; }
+.search-result {
+  padding: 0.5rem 0;
+  border-bottom: 1px solid #e5e7eb;
+}
+.search-result-path {
+  display: block;
+  font-weight: 600;
+  word-break: break-all;
+}
+.search-result-line {
+  margin: 0.25rem 0 0;
+  padding: 0.4rem;
+  background: #f3f4f6;
+  border-radius: 4px;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 @media (max-width: 640px) {
   .nav-toggle { display: block; }
   .primary-nav {

@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Search {{ repo.name }} - AgentFlow{% endblock %}
+{% block content %}
+  <p><a href="{{ url_for('workspace.browse', project_id=project.id, repo_id=repo.id) }}">&larr; {{ repo.name }}</a></p>
+  <h1>Search {{ repo.name }}</h1>
+
+  <form class="stacked search-form" method="get" action="{{ url_for('workspace.search_files', project_id=project.id, repo_id=repo.id) }}">
+    <label>Query
+      <input type="text" name="q" value="{{ query }}" placeholder="text to find" autofocus>
+    </label>
+    <label>File type <small>(e.g. py, js, md)</small>
+      <input type="text" name="type" value="{{ file_type }}" placeholder="optional">
+    </label>
+    <label>Path pattern <small>(glob, e.g. *.py)</small>
+      <input type="text" name="path" value="{{ path_pattern }}" placeholder="optional">
+    </label>
+    <button type="submit">Search</button>
+  </form>
+
+  {% if error %}
+    <p class="file-warning">{{ error }}</p>
+  {% elif results is not none %}
+    <p>{{ results|length }} result{{ "" if results|length == 1 else "s" }}</p>
+    <ul class="search-results">
+      {% for match in results %}
+        <li class="search-result">
+          <a class="search-result-path" href="{{ url_for('workspace.view_file', project_id=project.id, repo_id=repo.id, path=match.relative_path) }}">{{ match.relative_path }}:{{ match.line_number }}</a>
+          <pre class="search-result-line">{{ match.line_text }}</pre>
+        </li>
+      {% else %}
+        <li>No matches found.</li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+{% endblock %}

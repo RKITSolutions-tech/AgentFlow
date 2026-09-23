@@ -3,6 +3,7 @@
 {% block content %}
   <p><a href="{{ url_for('projects.view_project', project_id=project.id) }}">&larr; {{ project.name }}</a></p>
   <h1>{{ repo.name }}</h1>
+  <p><a href="{{ url_for('workspace.search_files', project_id=project.id, repo_id=repo.id) }}">Search this repository</a></p>
 
   <nav class="breadcrumbs" aria-label="Path">
     <a href="{{ url_for('workspace.browse', project_id=project.id, repo_id=repo.id) }}">{{ repo.name }}</a>

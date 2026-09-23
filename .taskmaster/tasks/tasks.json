@@ -152,9 +152,10 @@
               1
             ],
             "details": "Implement search feature that: (1) accepts search queries via UI input field, (2) executes searches via HostExecutionProvider using standard tools (grep/ripgrep), (3) displays results as clickable file:line references, (4) supports filtering by file type and path patterns, (5) caches search results briefly for performance, (6) validates all file paths remain within allowed repository roots, (7) respects .gitignore patterns when searching, (8) works efficiently on large repositories, (9) provides mobile-friendly result list display.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "Unit tests for search query sanitization, integration tests verifying: search finds expected text matches, results link correctly to files, filtering works by type/path, results respect .gitignore, path validation prevents escape attempts, performance acceptable on large repos, mobile result display works.",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2026-09-23T20:04:17.796Z"
           },
           {
             "id": 3,
@@ -197,7 +198,7 @@
             "parentId": "undefined"
           }
         ],
-        "updatedAt": "2026-09-23T19:29:09.435Z"
+        "updatedAt": "2026-09-23T20:04:17.796Z"
       },
       {
         "id": "6",
@@ -234,7 +235,7 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-09-23T19:29:09.435Z",
+      "lastModified": "2026-09-23T20:04:17.796Z",
       "taskCount": 7,
       "completedCount": 4,
       "tags": [
