@@ -62,6 +62,39 @@ CREATE TABLE IF NOT EXISTS process_events (
     data TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS agent_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    agent_type TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'GENERAL',
+    external_session_id TEXT,
+    execution_provider TEXT NOT NULL DEFAULT 'host',
+    execution_target TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'STARTING',
+    metadata TEXT NOT NULL DEFAULT '{}',
+    started_at TEXT NOT NULL DEFAULT (datetime('now')),
+    last_activity_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS agent_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id INTEGER NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE,
+    event_type TEXT NOT NULL,
+    data TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS agent_results (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id INTEGER NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE,
+    status TEXT NOT NULL,
+    git_diff TEXT NOT NULL DEFAULT '',
+    test_status TEXT,
+    test_exit_code INTEGER,
+    test_output TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 """
 
 
