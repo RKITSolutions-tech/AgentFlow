@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Edit {{ file.relative_path }} - {{ repo.name }} - AgentFlow{% endblock %}
+{% block content %}
+  <nav class="breadcrumbs" aria-label="Path">
+    <a href="{{ url_for('workspace.browse', project_id=project.id, repo_id=repo.id) }}">{{ repo.name }}</a>
+    {% for crumb in breadcrumbs %}
+      / <a href="{{ url_for('workspace.browse', project_id=project.id, repo_id=repo.id, path=crumb.path) }}">{{ crumb.name }}</a>
+    {% endfor %}
+  </nav>
+
+  <h1>Edit {{ file.relative_path }}</h1>
+
+  <form class="stacked" method="post" action="{{ url_for('workspace.edit_file', project_id=project.id, repo_id=repo.id, path=file.relative_path) }}">
+    <input type="hidden" name="path" value="{{ file.relative_path }}">
+    <textarea name="content" class="editor" rows="24" spellcheck="false">{{ file.content }}</textarea>
+    <button type="submit">Save</button>
+    <a href="{{ url_for('workspace.view_file', project_id=project.id, repo_id=repo.id, path=file.relative_path) }}">Cancel</a>
+  </form>
+{% endblock %}

@@ -12,7 +12,7 @@
       <tbody>
         {% for repo in project.repositories %}
           <tr>
-            <td>{{ repo.name }}</td>
+            <td><a href="{{ url_for('workspace.browse', project_id=project.id, repo_id=repo.id) }}">{{ repo.name }}</a></td>
             <td>{{ repo.path }}</td>
             <td>{{ "Yes" if repo.is_primary else "" }}</td>
           </tr>

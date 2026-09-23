@@ -107,6 +107,22 @@ def get_project(db: sqlite3.Connection, project_id: int) -> Project | None:
     return _hydrate_project(db, row)
 
 
+def get_repository(db: sqlite3.Connection, project_id: int, repo_id: int) -> Repository | None:
+    row = db.execute(
+        "SELECT * FROM repositories WHERE id = ? AND project_id = ?",
+        (repo_id, project_id),
+    ).fetchone()
+    if row is None:
+        return None
+    return Repository(
+        id=row["id"],
+        project_id=row["project_id"],
+        name=row["name"],
+        path=row["path"],
+        is_primary=bool(row["is_primary"]),
+    )
+
+
 def _hydrate_project(db: sqlite3.Connection, row: sqlite3.Row) -> Project:
     repo_rows = db.execute(
         "SELECT * FROM repositories WHERE project_id = ? ORDER BY is_primary DESC, name",

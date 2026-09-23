@@ -131,8 +131,73 @@
           "1",
           "2"
         ],
-        "status": "pending",
-        "subtasks": []
+        "status": "in-progress",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement repository-scoped file browsing and editing",
+            "description": "Build file browser UI component that displays repository directory structure with safe access controls. Implement basic file viewer and editor with safeguards against large and binary file loading.",
+            "dependencies": [],
+            "details": "Create file browser component that: (1) respects Project repository validation boundaries using existing security.py checks, (2) displays directory tree with breadcrumb navigation, (3) implements file viewer with syntax highlighting for text files, (4) detects and safely handles large files (>5MB) and binary files by preventing full load into editor, (5) supports basic editing for text files with save functionality, (6) ensures mobile viewport responsiveness, (7) integrates with HostExecutionProvider to validate all file access paths.\n<info added on 2026-09-23T19:29:01.858Z>\nCompleted implementation of file browsing, viewing, and editing for repository-scoped workspace access. Implementation includes: (1) app/workspace/files.py with resolve_path() leveraging validate_repository_path() scoped to repository root, list_directory(), read_file() with binary detection via null-byte check and 5MB MAX_FILE_SIZE threshold, and write_file(); (2) app/projects/models.py extended with get_repository(db, project_id, repo_id); (3) app/workspace/routes.py Blueprint 'workspace' at /projects/<project_id>/repos/<repo_id>/files with /view and /edit GET+POST routes, 404s on unknown project/repo or path traversal attempts; (4) templates in app/templates/workspace/{browse,view,edit}.html with mobile-safe CSS in app.css; (5) integration linked from projects/detail.html repo table and Blueprint registered in app/__init__.py; (6) comprehensive test coverage in tests/test_workspace.py including directory listing, subdirectory navigation, view/edit round-trip, binary file rejection, oversized file rejection, path traversal rejection, and unknown repo 404s (full suite 45 tests passing); (7) manual smoke testing via curl on dev server confirmed browse/view/edit-save round trip. Next subtasks: search (5.2), Git ops (5.3), tmux terminal (5.4), final integration (5.5).\n</info added on 2026-09-23T19:29:01.858Z>",
+            "status": "done",
+            "testStrategy": "Unit tests for path validation against allowed roots, integration tests verifying: file browser displays correct directory structure, binary/large files show warning instead of loading, editor save operations persist changes via HostExecutionProvider, mobile viewport renders correctly without horizontal scroll, path traversal attempts are rejected.",
+            "parentId": "undefined",
+            "updatedAt": "2026-09-23T19:29:09.435Z"
+          },
+          {
+            "id": 2,
+            "title": "Implement project-wide file search functionality",
+            "description": "Add file search interface allowing full-text search across repository with result linking and filtering options.",
+            "dependencies": [
+              1
+            ],
+            "details": "Implement search feature that: (1) accepts search queries via UI input field, (2) executes searches via HostExecutionProvider using standard tools (grep/ripgrep), (3) displays results as clickable file:line references, (4) supports filtering by file type and path patterns, (5) caches search results briefly for performance, (6) validates all file paths remain within allowed repository roots, (7) respects .gitignore patterns when searching, (8) works efficiently on large repositories, (9) provides mobile-friendly result list display.",
+            "status": "pending",
+            "testStrategy": "Unit tests for search query sanitization, integration tests verifying: search finds expected text matches, results link correctly to files, filtering works by type/path, results respect .gitignore, path validation prevents escape attempts, performance acceptable on large repos, mobile result display works.",
+            "parentId": "undefined"
+          },
+          {
+            "id": 3,
+            "title": "Implement Git operations (status, diff, log, staging)",
+            "description": "Build Git interface supporting status view, diff visualization, commit history, and staging/unstaging workflow.",
+            "dependencies": [
+              1
+            ],
+            "details": "Create Git operations component that: (1) displays git status showing modified/untracked files, (2) implements diff viewer showing file changes with side-by-side or unified view, (3) displays commit log with author, date, message, and ability to view commit details, (4) supports staging/unstaging individual files or hunks, (5) integrates changed-file links to open diff and file view, (6) validates all file paths via existing Project repository validation, (7) executes git commands via HostExecutionProvider with proper working directory boundaries, (8) provides desktop and mobile-optimized UI for diff inspection, (9) handles merge conflicts and detached HEAD state.",
+            "status": "pending",
+            "testStrategy": "Unit tests for git command construction and output parsing, integration tests verifying: status reflects actual repository state, diffs display correctly for modified files, commit log loads and displays properly, staging/unstaging persists changes, changed-file links open correct views, mobile diff viewport is readable, operations respect repository boundaries and cannot escape allowed roots.",
+            "parentId": "undefined"
+          },
+          {
+            "id": 4,
+            "title": "Implement persistent tmux-backed terminal with reconnection",
+            "description": "Build reconnectable terminal UI backed by tmux sessions that survives browser disconnection and reconnection.",
+            "dependencies": [
+              2,
+              3
+            ],
+            "details": "Implement persistent terminal that: (1) creates tmux sessions managed by HostExecutionProvider, (2) streams terminal output via server-sent events or WebSocket, (3) accepts user input and sends to tmux session, (4) supports multiple terminal tabs/panes within a session, (5) persists terminal session ID in browser storage and resumes on reconnect, (6) validates working directory against allowed repository roots, (7) maintains scrollback buffer accessible after reconnect, (8) supports killing/restarting tmux sessions, (9) provides mobile-friendly terminal interface with touch keyboard support, (10) respects environment filtering from HostExecutionProvider configuration.",
+            "status": "pending",
+            "testStrategy": "Integration tests verifying: tmux session created and persists across requests, output streams correctly, input sent to terminal executes commands, browser disconnect doesn't lose session state, reconnect resumes from previous position, multiple tabs work independently, mobile keyboard interaction functions, working directory validation prevents escape, session cleanup on logout/timeout.",
+            "parentId": "undefined"
+          },
+          {
+            "id": 5,
+            "title": "Integrate file/Git/search/terminal into workspace UI and add integration tests",
+            "description": "Combine all components into cohesive workspace interface and verify all operations respect security boundaries and work on desktop/mobile.",
+            "dependencies": [
+              1,
+              2,
+              3,
+              4
+            ],
+            "details": "Integrate all workspace components by: (1) creating unified workspace layout combining file browser, search, Git status, diffs, and terminal, (2) ensuring navigation between views is seamless and state persists, (3) linking changed files from Git status to diff and file views, (4) implementing responsive layout that adapts to desktop and mobile viewports, (5) adding project/repository context display and switching, (6) creating comprehensive integration test suite covering: file operations cannot escape repository roots, Git operations reflect actual state, search respects boundaries, terminal working directory is validated, large/binary files handled safely, all views function on both desktop (1920x1080) and mobile (375x667) viewports, browser reconnection preserves state across all components.",
+            "status": "pending",
+            "testStrategy": "Full integration test suite exercising: (1) Create project and validate repository paths are enforced, (2) Browse files and verify can't navigate outside allowed roots, (3) Search for text and verify results link correctly, (4) Perform git operations and verify status is accurate, (5) Make file changes, verify diff displays correctly, stage/unstage and verify state persists, (6) Open terminal, run commands, verify output, disconnect browser, reconnect and verify terminal state restored, (7) Test all essential actions at desktop and mobile viewport sizes, (8) Verify large files (>10MB) show warning instead of loading, binary files detected correctly, (9) Verify no sensitive data leak in terminal output or file contents.",
+            "parentId": "undefined"
+          }
+        ],
+        "updatedAt": "2026-09-23T19:29:09.435Z"
       },
       {
         "id": "6",
@@ -169,7 +234,7 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-09-23T18:55:45.789Z",
+      "lastModified": "2026-09-23T19:29:09.435Z",
       "taskCount": 7,
       "completedCount": 4,
       "tags": [

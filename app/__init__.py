@@ -12,8 +12,10 @@ def create_app(config: Config | None = None) -> Flask:
     app.teardown_appcontext(close_db)
 
     from app.projects.routes import bp as projects_bp
+    from app.workspace.routes import bp as workspace_bp
 
     app.register_blueprint(projects_bp)
+    app.register_blueprint(workspace_bp)
 
     @app.get("/health")
     def health():
