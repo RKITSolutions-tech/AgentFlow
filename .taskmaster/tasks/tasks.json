@@ -98,10 +98,11 @@
             "dependencies": [
               3
             ],
-            "details": "Implement stop() method in CodexAdapter to cleanly terminate Codex sessions. Add database schema for persisting prompt/reply history keyed by (project, session_id, timestamp). Store full prompts and replies in SQLite. Implement retrieval methods to fetch history for active sessions. Ensure history persists across session restarts and is available for resume scenarios.",
-            "status": "pending",
+            "details": "Implement stop() method in CodexAdapter to cleanly terminate Codex sessions. Add database schema for persisting prompt/reply history keyed by (project, session_id, timestamp). Store full prompts and replies in SQLite. Implement retrieval methods to fetch history for active sessions. Ensure history persists across session restarts and is available for resume scenarios.\n<info added on 2026-09-23T18:38:52.678Z>\nImplemented CodexAdapter.stop(): looks up the session (ValueError if unknown), if a turn is in progress calls execution_provider.stop_process(process_id) and sets metadata.turn_finalized=True (so a later stream()/_sync_events call doesn't resurrect the killed process as an AgentError/FAILED turn), then sets session status STOPPED and appends an AgentStatus/STOPPED event, mirroring FakeAgentAdapter.stop(). Guarded send() to raise ValueError when session.status == STOPPED (can't accept further input), while resume() remains the deliberate way to reopen a stopped session. Persisted prompt/reply history: leveraged existing agent_events table (session_id, event_type, data, created_at) plus agent_sessions.project_id—no new schema needed, as this already satisfies the (project, session_id, timestamp) requirement; models.list_agent_events()/CodexAdapter.stream() are the existing retrieval path used for history-after-restart. Added FakeExecutionProvider.stop_process() test double support, replaced stale NotImplementedError test with test_stop_terminates_running_turn_and_blocks_further_input, test_stop_without_turn_in_progress_still_marks_stopped, test_stop_unknown_session_raises in tests/test_codex_adapter.py, and added test_fake_agent_stop_then_resume to tests/test_agents.py per FakeAgent contract test strategy. Full suite: 31 passed.\n</info added on 2026-09-23T18:38:52.678Z>",
+            "status": "done",
             "testStrategy": "Integration tests verifying sessions stop cleanly and can't accept further input. Tests verifying prompt/reply history is persisted and retrievable. Tests simulating session restart and verifying history is available. FakeAgent contract tests ensuring stop doesn't break test automation.",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2026-09-23T18:39:01.430Z"
           },
           {
             "id": 5,
@@ -116,7 +117,7 @@
             "parentId": "undefined"
           }
         ],
-        "updatedAt": "2026-09-23T18:33:51.742Z"
+        "updatedAt": "2026-09-23T18:39:01.430Z"
       },
       {
         "id": "5",
@@ -167,7 +168,7 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-09-23T18:33:51.742Z",
+      "lastModified": "2026-09-23T18:39:01.431Z",
       "taskCount": 7,
       "completedCount": 3,
       "tags": [

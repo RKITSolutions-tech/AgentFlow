@@ -129,3 +129,41 @@ def test_fake_agent_vertical_slice(app):
         persisted_session = agent_models.get_agent_session(db, session.id)
         assert persisted_session.project_id == project_id
         assert persisted_session.agent_type == "fake"
+
+
+def test_fake_agent_stop_then_resume(app):
+    """stop() must not break the scripted resume() flow used by tests."""
+    with app.app_context():
+        db = get_db()
+
+        working_directory = str(Path(app.config["allowed_root"]))
+        project_id = project_models.create_project(db, "Stop Vertical Slice Project")
+        project_models.add_repository(
+            db,
+            project_id,
+            "repo",
+            working_directory,
+            app.config["ALLOWED_PROJECT_ROOTS"],
+            is_primary=True,
+        )
+
+        adapter = FakeAgentAdapter(db)
+        agent_context = AgentContext(
+            project_id=project_id,
+            working_directory=working_directory,
+            execution_provider="host",
+            execution_target="",
+        )
+
+        script = [{"action": "message", "text": "Reading fixture.txt"}]
+
+        session = adapter.start(agent_context, "Update fixture.txt", {"script": script})
+        assert session.status == "COMPLETED"
+
+        adapter.stop(session.id)
+        stopped = agent_models.get_agent_session(db, session.id)
+        assert stopped.status == "STOPPED"
+        assert agent_models.list_agent_events(db, session.id)[-1].event_type == "AgentStatus"
+
+        resumed = adapter.resume(session.id, prompt=None)
+        assert resumed.status == "COMPLETED"

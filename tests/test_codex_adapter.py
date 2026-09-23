@@ -135,7 +135,11 @@ class FakeExecutionProvider(ExecutionProvider):
         return process
 
     def stop_process(self, process_id):
-        raise NotImplementedError
+        process = self._processes.get(process_id)
+        if process is None:
+            return
+        self._processes[process_id] = replace(process, status="STOPPED", exit_code=None)
+        self._pending_terminal.pop(process_id, None)
 
     def signal_process(self, process_id, sig):
         raise NotImplementedError
@@ -234,11 +238,13 @@ def test_available_false_when_binary_times_out(monkeypatch):
     assert adapter.available() is False
 
 
-def test_stop_raises_not_implemented():
-    adapter = CodexAdapter()
+def test_stop_unknown_session_raises(app):
+    with app.app_context():
+        db = get_db()
+        adapter = CodexAdapter(db, FakeExecutionProvider())
 
-    with pytest.raises(NotImplementedError):
-        adapter.stop(session_id=1)
+        with pytest.raises(ValueError):
+            adapter.stop(session_id=1)
 
 
 def test_capabilities_include_resume_discovery_and_structured_events():
@@ -567,6 +573,88 @@ def test_stream_reports_error_once_process_exits_without_task_complete(app):
         assert events[-1].event_type == "AgentError"
         assert events[-1].data == "boom"
         assert agent_models.get_agent_session(db, session.id).status == "FAILED"
+
+
+def test_stop_terminates_running_turn_and_blocks_further_input(app):
+    with app.app_context():
+        db = get_db()
+        project_id, working_directory = _make_project(db, app)
+
+        provider = FakeExecutionProvider()
+        provider.queue_turn(
+            [
+                _session_meta_line("ext-session-6", working_directory),
+                _task_complete_line("first turn done"),
+            ]
+        )
+        adapter = CodexAdapter(db, provider)
+        context = AgentContext(
+            project_id=project_id,
+            working_directory=working_directory,
+            execution_provider="host",
+            execution_target="1",
+        )
+        session = adapter.start(context, "start it")
+
+        # Queue a turn that never completes, then stop it mid-flight.
+        provider.queue_turn([_agent_message_line("thinking...")])
+        adapter.send(session.id, "keep going")
+        process_id = agent_models.get_agent_session(db, session.id).metadata["process_id"]
+
+        adapter.stop(session.id)
+
+        assert provider.process_status(process_id).status == "STOPPED"
+        stopped_session = agent_models.get_agent_session(db, session.id)
+        assert stopped_session.status == "STOPPED"
+        events = agent_models.list_agent_events(db, session.id)
+        assert events[-1].event_type == "AgentStatus"
+        assert events[-1].data == "STOPPED"
+
+        # A stopped session cannot accept further input via send()...
+        with pytest.raises(ValueError):
+            adapter.send(session.id, "one more thing")
+
+        # ...but calling stream() afterwards must not resurrect the killed
+        # process into an AgentError/FAILED turn.
+        adapter.stream(session.id)
+        assert agent_models.get_agent_session(db, session.id).status == "STOPPED"
+
+        # ...and remains explicitly reopenable via resume().
+        provider.queue_turn(
+            [
+                _session_meta_line("ext-session-6", working_directory),
+                _task_complete_line("reopened"),
+            ]
+        )
+        resumed = adapter.resume(session.id, prompt="pick back up")
+        assert resumed.status == "COMPLETED"
+
+
+def test_stop_without_turn_in_progress_still_marks_stopped(app):
+    with app.app_context():
+        db = get_db()
+        project_id, working_directory = _make_project(db, app)
+
+        provider = FakeExecutionProvider()
+        provider.queue_turn(
+            [
+                _session_meta_line("ext-session-7", working_directory),
+                _task_complete_line("all done"),
+            ]
+        )
+        adapter = CodexAdapter(db, provider)
+        context = AgentContext(
+            project_id=project_id,
+            working_directory=working_directory,
+            execution_provider="host",
+            execution_target="1",
+        )
+        session = adapter.start(context, "start it")
+        assert session.status == "COMPLETED"
+
+        adapter.stop(session.id)
+
+        assert agent_models.get_agent_session(db, session.id).status == "STOPPED"
 
 
 @pytest.mark.skipif(shutil.which("codex") is None, reason="Codex CLI not installed on this host")

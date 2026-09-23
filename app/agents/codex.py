@@ -33,8 +33,10 @@ class CodexAdapter(AgentAdapter):
     translated from raw `--json` stdout into structured AgentEvents by the
     same incremental `_sync_events` step, driven off the ExecutionProvider's
     own event-position tracking (`stream_output(process_id, after_id)`) so a
-    reconnecting caller can resume from where it left off. Stop and
-    persisted-history support (task 4.4) still raise NotImplementedError.
+    reconnecting caller can resume from where it left off. Task 4.4 adds
+    `stop()`. Prompt/reply history is already persisted as AgentEvents
+    (`app/agents/models.py`), keyed by session id and timestamp; `stream()`
+    is also the history-retrieval path, so no separate schema is needed.
     """
 
     def __init__(
@@ -123,6 +125,8 @@ class CodexAdapter(AgentAdapter):
         session = models.get_agent_session(self._db, session_id)
         if session is None:
             raise ValueError(f"Unknown agent session {session_id}")
+        if session.status == "STOPPED":
+            raise ValueError(f"Agent session {session_id} has been stopped")
         if session.external_session_id is None:
             raise ValueError(
                 f"Agent session {session_id} has no Codex session id to resume"
@@ -142,7 +146,24 @@ class CodexAdapter(AgentAdapter):
         self._begin_turn(session_id, process.id)
 
     def stop(self, session_id: int) -> None:
-        raise NotImplementedError("Codex session stop lands in task 4.4")
+        """Terminates any in-flight turn and marks the session STOPPED.
+
+        `resume()` remains valid afterwards (it is how a stopped session is
+        deliberately reopened); it is `send()` that must reject further
+        input once a session is STOPPED.
+        """
+        session = models.get_agent_session(self._db, session_id)
+        if session is None:
+            raise ValueError(f"Unknown agent session {session_id}")
+
+        if self._turn_in_progress(session):
+            self._execution_provider.stop_process(session.metadata["process_id"])
+            metadata = dict(session.metadata)
+            metadata["turn_finalized"] = True
+            models.set_session_metadata(self._db, session_id, metadata)
+
+        models.set_session_status(self._db, session_id, "STOPPED")
+        models.add_agent_event(self._db, session_id, "AgentStatus", data="STOPPED")
 
     def status(self, session_id: int) -> AgentSession:
         return models.get_agent_session(self._db, session_id)
