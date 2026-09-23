@@ -282,3 +282,48 @@ approval integration
 richer structured tool-event display
 visual execution integration
 ```
+
+## 22. Context Files and Preloading
+
+Agents should not have to rediscover a Project's structure and conventions
+from scratch each session (e.g. reading adapter source files to infer the
+`AgentAdapter` contract, as happened before this section existed). AgentFlow
+should preload sessions with explicit context files, the same way Claude
+Code itself auto-loads `CLAUDE.md`.
+
+This is part of the context/prompt service described in section 8 — adapters
+remain unaware of *how* context was assembled; they only ever receive the
+final effective prompt.
+
+Two tiers:
+
+```text
+project-level context file(s)
+  - analogous to CLAUDE.md
+  - configured per Project (repository-checked-in or Project metadata)
+  - loaded automatically into every session's effective prompt for
+    that Project
+
+on-demand context files
+  - additional docs, style guides, or subdirectory-scoped context files
+  - not preloaded into every prompt (avoids bloating every session with
+    the full universe of docs)
+  - resolvable/fetchable within a session when relevant
+```
+
+The context-file system itself should be agent-agnostic: it applies the
+same way whether the underlying adapter is Codex, Claude, Gemini, or
+OpenCode, even though some agent CLIs also have their own native
+instruction-file conventions (e.g. Codex's own config/instructions files),
+which adapters may additionally surface but should not be relied on as the
+only mechanism.
+
+Open questions to resolve before implementation:
+
+```text
+where project-level context files live (repository file vs Project metadata)
+how on-demand files are surfaced (pre-injected on request vs an
+  agent-callable lookup/tool)
+whether context-file assembly is purely an AgentFlow-side prompt
+  composition step, or partly delegated to adapters with native support
+```

@@ -13,6 +13,7 @@ This archive contains the AgentFlow design documents produced to date.
 7. `EXECUTION_PROVIDER.md`
 8. `AGENT_ADAPTER.md`
 9. `PHASED_DELIVERY_PLAN.md`
+10. `TASK_INTELLIGENCE.md`
 
 ## Delivery Priority
 

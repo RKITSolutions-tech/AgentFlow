@@ -2,7 +2,7 @@
   "master": {
     "tasks": [
       {
-        "id": "1",
+        "id": 1,
         "title": "Build the application and project foundation",
         "description": "Create the host-run Flask application shell, SQLite persistence, responsive navigation, and Project/repository management.",
         "details": "Follow docs/HIGH_LEVEL_DESIGN.md and docs/DOMAIN_AND_ORCHESTRATION_DESIGN.md. Bind to loopback by default. Support creating, viewing, editing, and listing Projects. Each Project may contain one or more validated repository paths and one default repository. Reject paths outside configured allowed roots and persist records across restarts.",
@@ -14,7 +14,7 @@
         "updatedAt": "2026-09-22T23:05:51.035Z"
       },
       {
-        "id": "2",
+        "id": 2,
         "title": "Implement host execution and event streaming",
         "description": "Implement the canonical HostExecutionProvider and reconnectable delivery of command events.",
         "status": "done",
@@ -28,7 +28,7 @@
         "updatedAt": "2026-09-23T06:23:52.157Z"
       },
       {
-        "id": "3",
+        "id": 3,
         "title": "Create the agent contract and FakeAgent vertical slice",
         "description": "Define the shared AgentAdapter contract and prove it with a deterministic FakeAgent end-to-end workflow.",
         "details": "Follow docs/AGENT_ADAPTER.md. Implement scripted FakeAgent messages, file changes, failure, retry, and success. Complete the vertical slice: open a Project, start FakeAgent, stream output, modify a fixture file, show its Git diff, run a configured test, and persist prompts, replies, events, session metadata, and the result.",
@@ -43,7 +43,7 @@
         "updatedAt": "2026-09-23T08:15:51.212Z"
       },
       {
-        "id": "4",
+        "id": 4,
         "title": "Implement Codex sessions",
         "description": "Integrate Codex through HostExecutionProvider using the shared AgentAdapter contract.",
         "details": "Detect Codex availability and version. Support session creation, listing, discovery and resume when supported, prompt input, live output, stop, and persisted prompt/reply history. Persistently map external Codex identifiers to AgentFlow session identifiers and report unsupported capabilities explicitly. Keep FakeAgent as the automated-test adapter.",
@@ -52,11 +52,72 @@
         "dependencies": [
           "3"
         ],
-        "status": "pending",
-        "subtasks": []
+        "status": "in-progress",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Detect Codex availability and version",
+            "description": "Implement detection logic to check if Codex is available on the host system and determine its installed version.",
+            "dependencies": [],
+            "details": "Create a CodexAdapter class that extends AgentAdapter. Implement availability detection by attempting to import or invoke Codex. Capture and parse version information. Store availability state and version in the adapter instance. Handle cases where Codex is not installed gracefully without raising exceptions.\n<info added on 2026-09-23T09:17:39.475Z>\nImplemented CodexAdapter in app/agents/codex.py with available() and version() methods that detect the codex binary via shutil.which and parse 'codex --version' output (e.g., 'codex-cli 0.147.0' -> '0.147.0'), caching results on first call. Detection failures (missing binary, non-zero exit, timeout) are handled gracefully without raising exceptions, returning available()=False instead. Remaining AgentAdapter methods (discover_sessions, start, resume, send, stop, status, stream) raise NotImplementedError with pointers to subtasks 4.2-4.4 for future implementation. Tests in tests/test_codex_adapter.py cover missing binary, successful detection, caching verification, failed version command, timeout, NotImplementedError stubs, and a guarded smoke test against Codex CLI 0.147.0. All 18 tests passed.\n</info added on 2026-09-23T09:17:39.475Z>",
+            "status": "done",
+            "testStrategy": "Unit tests verifying detection with/without Codex installed. FakeAgent tests ensuring the contract is properly implemented. Guarded smoke test that checks availability detection when Codex is present.",
+            "updatedAt": "2026-09-23T09:17:48.238Z",
+            "parentId": "undefined"
+          },
+          {
+            "id": 2,
+            "title": "Implement Codex session lifecycle (create, list, resume)",
+            "description": "Implement session creation, discovery/listing, and resumption capabilities through the AgentAdapter contract.",
+            "dependencies": [
+              1
+            ],
+            "details": "Add methods to CodexAdapter for: creating new Codex sessions, listing active/discoverable sessions, and resuming existing sessions. Map external Codex session identifiers to AgentFlow session IDs in a persistent mapping table. Support resumption only when Codex reports the capability. Validate that FakeAgent remains the automated-test adapter and is unaffected.",
+            "status": "pending",
+            "testStrategy": "Integration tests for session creation and listing. Tests verifying resume works when supported and is skipped when unsupported. FakeAgent contract tests ensuring session lifecycle doesn't interfere with test automation. Verify external-to-internal ID mapping persists across restarts.",
+            "parentId": "undefined"
+          },
+          {
+            "id": 3,
+            "title": "Implement prompt input and live output streaming",
+            "description": "Add prompt input handling and real-time output streaming from Codex sessions through the AgentAdapter contract.",
+            "dependencies": [
+              2
+            ],
+            "details": "Implement prompt_input() and stream_output() methods in CodexAdapter that send prompts to active Codex sessions and receive streamed responses. Wire output streaming through HostExecutionProvider's event system to deliver to clients. Handle partial output chunks and maintain output ordering. Ensure streaming works with reconnecting clients using event position tracking.",
+            "status": "pending",
+            "testStrategy": "Integration tests sending prompts and verifying output is streamed correctly. Tests verifying output chunks are delivered in order. Event position tests ensuring clients can reconnect and resume from last seen output. FakeAgent contract compliance tests.",
+            "parentId": "undefined"
+          },
+          {
+            "id": 4,
+            "title": "Implement session stop and persisted history",
+            "description": "Add session termination support and persistent storage of prompt/reply history.",
+            "dependencies": [
+              3
+            ],
+            "details": "Implement stop() method in CodexAdapter to cleanly terminate Codex sessions. Add database schema for persisting prompt/reply history keyed by (project, session_id, timestamp). Store full prompts and replies in SQLite. Implement retrieval methods to fetch history for active sessions. Ensure history persists across session restarts and is available for resume scenarios.",
+            "status": "pending",
+            "testStrategy": "Integration tests verifying sessions stop cleanly and can't accept further input. Tests verifying prompt/reply history is persisted and retrievable. Tests simulating session restart and verifying history is available. FakeAgent contract tests ensuring stop doesn't break test automation.",
+            "parentId": "undefined"
+          },
+          {
+            "id": 5,
+            "title": "Report unsupported capabilities and finalize integration",
+            "description": "Explicitly report unsupported Codex capabilities and complete CodexAdapter integration with comprehensive testing.",
+            "dependencies": [
+              4
+            ],
+            "details": "Add capability reporting mechanism to CodexAdapter (e.g., supported_capabilities property or get_capabilities() method) that explicitly lists which operations are supported based on Codex version and availability. Create error handling that gracefully handles unsupported operations (resume if not available, discovery if not available). Run full contract compliance tests. Verify FakeAgent remains unchanged and functional as the automated-test adapter. Document any Codex-specific requirements.",
+            "status": "pending",
+            "testStrategy": "Contract compliance tests verifying all AgentAdapter methods are implemented or explicitly report as unsupported. Tests verifying graceful handling of unsupported operations. Guarded Codex smoke test that verifies availability detection, session start/stop, output observation, and history reopening when Codex is installed. Full FakeAgent end-to-end test ensuring test automation is unaffected.",
+            "parentId": "undefined"
+          }
+        ],
+        "updatedAt": "2026-09-23T09:17:48.238Z"
       },
       {
-        "id": "5",
+        "id": 5,
         "title": "Build the operational project workspace",
         "description": "Add file, search, Git, and persistent terminal tools to the Phase 1 Project workspace.",
         "details": "Provide repository-scoped file browsing and basic editing, search, Git status/diff/log/stage/unstage/commit, and a reconnectable tmux-backed terminal. Reuse Project repository validation and HostExecutionProvider boundaries. Link changed files to their diff and file view, and avoid loading large or binary files into the normal editor. Keep essential actions usable on desktop and mobile.",
@@ -70,7 +131,7 @@
         "subtasks": []
       },
       {
-        "id": "6",
+        "id": 6,
         "title": "Add basic runs, history, and hardening",
         "description": "Add single-Task command and test Runs with inspection, persistence, recovery, and security controls.",
         "details": "Follow docs/RUN_AND_RALPH.md for the Phase 1 subset. Record step status, timing, logs, prompts, replies, and artifact metadata in SQLite while storing artifact content and large logs on the filesystem. Support pause/stop, restart reconciliation, Run history, and step inspection. Mark a Run blocked when its previously active process is missing after restart. Redact secrets before persistence where practical and require explicit configuration for unsafe all-interface binding.",
@@ -82,16 +143,37 @@
         ],
         "status": "pending",
         "subtasks": []
+      },
+      {
+        "id": "7",
+        "title": "Review Phase 1 design decisions and consolidate Phase 2 planning",
+        "description": "Audit all design documents (AGENT_ADAPTER.md, EXECUTION_PROVIDER.md, HIGH_LEVEL_DESIGN.md, TASK_INTELLIGENCE.md, and implementation notes) to identify deferred decisions and open questions from Phase 1 work, then consolidate findings into Phase 2 planning artifacts.",
+        "status": "pending",
+        "dependencies": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ],
+        "priority": "medium",
+        "details": "Systematically review:\n\n1. docs/AGENT_ADAPTER.md section 22 and surrounding context regarding project-level context files (analogous to CLAUDE.md), on-demand context file surfacing, and the three open design questions:\n   - Where do project-level context files live and how are they discovered?\n   - How are on-demand context files surfaced to agents?\n   - Should assembly of context be AgentFlow-side or delegated to adapters?\n\n2. docs/EXECUTION_PROVIDER.md for deferred considerations or unresolved architectural points.\n\n3. docs/HIGH_LEVEL_DESIGN.md for deferred features or design uncertainties.\n\n4. docs/TASK_INTELLIGENCE.md, particularly section 9, which lists open questions regarding the Task Master-inspired requirement-elaboration, decomposition, and dependency-provenance design (backlog free text -> AI-elaborated PlanningProposal -> reviewed Task, AI-suggested dependency edges tagged and gated behind review, complexity-driven decomposition folded into Planning Profile selection). Document which open questions from section 9 have been resolved during Phase 1 and which remain for Phase 2.\n\n5. All update-subtask notes from tasks 1-6 implementation (accessible via task-master show 1.1, 1.2, etc.) to capture any additional points flagged but postponed during Phase 1 work.\n\n6. Consolidate findings into one of the following outcomes:\n   - Update docs/PHASED_DELIVERY_PLAN.md Phase 2 feature list to include newly clarified requirements.\n   - Update docs/TASK_INTELLIGENCE.md with resolved open questions and rationale.\n   - Create a dedicated Phase 2 design task if significant unresolved architectural questions warrant focused design work before implementation.\n\nEnsure no raised concerns or deferred decisions from Phase 1 are lost; create a single source of truth for Phase 2 direction.",
+        "testStrategy": "Verification involves:\n\n1. Confirm all sections of AGENT_ADAPTER.md, EXECUTION_PROVIDER.md, HIGH_LEVEL_DESIGN.md, and TASK_INTELLIGENCE.md have been read and reviewed.\n\n2. Verify that section 9 of docs/TASK_INTELLIGENCE.md has been examined and all listed open questions have been addressed (either resolved, incorporated into Phase 2 plans, or explicitly deferred with justification).\n\n3. Verify that update-subtask notes from tasks 1-6 subtasks have been examined for deferred points (run task-master show 1.1 through 6.* and review all notes).\n\n4. Ensure docs/PHASED_DELIVERY_PLAN.md Phase 2 section has been updated with newly identified requirements and that docs/TASK_INTELLIGENCE.md has been updated with resolved questions, OR that a new Phase 2 design task has been created with clear design questions.\n\n5. Create a summary document or task describing:\n   - All open questions identified (e.g., the three context file questions, and those from TASK_INTELLIGENCE.md section 9).\n   - Which questions have been resolved or incorporated into Phase 2 plans.\n   - Which questions remain open and require design discussion.\n   - Rationale for deferrals to Phase 2 or beyond.\n\n6. Verify the summary is added to the Phase 2 design task or planning document so Phase 2 implementation tasks can reference and resolve them.",
+        "subtasks": null
       }
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-09-23T08:15:51.212Z",
+      "lastModified": "2026-09-23T09:17:48.238Z",
       "taskCount": 6,
       "completedCount": 3,
       "tags": [
         "master"
-      ]
+      ],
+      "created": "2026-09-23T09:22:48.314Z",
+      "description": "Tasks for master context",
+      "updated": "2026-09-23T09:23:09.135Z"
     }
   }
 }
