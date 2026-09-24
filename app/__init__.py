@@ -15,11 +15,13 @@ def create_app(config: Config | None = None) -> Flask:
     from app.workspace.routes import bp as workspace_bp
     from app.api import bp as api_bp
     from app.sessions.routes import bp as sessions_bp
+    from app.settings.routes import bp as settings_bp
 
     app.register_blueprint(projects_bp)
     app.register_blueprint(workspace_bp)
     app.register_blueprint(api_bp)
     app.register_blueprint(sessions_bp)
+    app.register_blueprint(settings_bp)
 
     @app.get("/health")
     def health():

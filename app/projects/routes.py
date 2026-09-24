@@ -1,12 +1,16 @@
 from __future__ import annotations
 
-from flask import Blueprint, current_app, flash, redirect, render_template, request, url_for
+from flask import Blueprint, current_app, flash, jsonify, redirect, render_template, request, url_for
 
 from app.db import get_db
 from app.projects import models
 from app.security import PathNotAllowedError
 
 bp = Blueprint("projects", __name__, url_prefix="/projects")
+
+
+def _wants_json() -> bool:
+    return request.headers.get("X-Requested-With") == "XMLHttpRequest"
 
 
 @bp.get("")
@@ -106,3 +110,44 @@ def add_repository(project_id: int):
         flash(str(exc), "error")
 
     return redirect(url_for("projects.view_project", project_id=project_id))
+
+
+@bp.post("/<int:project_id>/delete")
+def delete_project(project_id: int):
+    from app.agents.codex import CodexAdapter
+    from app.agents.fake import FakeAgentAdapter
+    from app.agents.models import list_agent_sessions_for_project
+    from app.execution.host import HostExecutionProvider
+
+    db = get_db()
+    project = models.get_project(db, project_id)
+    if project is None:
+        if _wants_json():
+            return jsonify({"error": "Project not found"}), 404
+        return redirect(url_for("projects.list_projects"))
+
+    running_sessions = [
+        s for s in list_agent_sessions_for_project(db, project_id)
+        if s.status in ("RUNNING", "STARTING")
+    ]
+    if running_sessions:
+        execution_provider = HostExecutionProvider(
+            current_app.config["DATABASE_PATH"], current_app.config["ALLOWED_PROJECT_ROOTS"]
+        )
+        for session in running_sessions:
+            try:
+                if session.agent_type.lower() == "codex":
+                    adapter = CodexAdapter(db=db, execution_provider=execution_provider)
+                else:
+                    adapter = FakeAgentAdapter(db=db)
+                adapter.stop(session.id)
+            except Exception:
+                pass
+
+    models.delete_project(db, project_id)
+
+    if _wants_json():
+        return jsonify({"status": "deleted", "message": f"Removed {project.name}."}), 200
+
+    flash(f"Removed {project.name}.", "info")
+    return redirect(url_for("projects.list_projects"))

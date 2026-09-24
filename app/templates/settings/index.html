@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}Settings - AgentFlow{% endblock %}
+{% block content %}
+  <h1>Settings</h1>
+  <p style="color: #666;">
+    Control which models are offered when starting a session or (later)
+    configuring a pipeline step. Disabled or removed models simply stop
+    appearing in those pickers.
+  </p>
+
+  {% for provider, entries in models_by_provider.items() %}
+    <h2>{{ provider|capitalize }} models</h2>
+    <table class="table-compact" {% if not entries %}hidden{% endif %}>
+      <thead><tr><th>Model id</th><th>Included</th><th>Actions</th></tr></thead>
+      <tbody>
+        {% for entry in entries %}
+          <tr data-row>
+            <td>{{ entry.model_id }}</td>
+            <td>
+              <input type="checkbox" {% if entry.enabled %}checked{% endif %}
+                     data-model-toggle="{{ url_for('settings.toggle_model', catalog_id=entry.id) }}"
+                     aria-label="Include {{ entry.model_id }}">
+            </td>
+            <td class="row-actions">
+              <button type="button" class="link-danger"
+                      data-ajax-action="{{ url_for('settings.delete_model', catalog_id=entry.id) }}"
+                      data-confirm="Remove {{ entry.model_id }} from the catalog?">
+                Remove
+              </button>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% if not entries %}<p>No {{ provider }} models yet.</p>{% endif %}
+
+    <form class="stacked" method="post" action="{{ url_for('settings.add_model') }}">
+      <input type="hidden" name="provider" value="{{ provider }}">
+      <label>Add {{ provider|capitalize }} model id
+        <input type="text" name="model_id" placeholder="e.g. {{ 'gpt-5.6-luna' if provider == 'openai' else 'claude-sonnet-5' }}">
+      </label>
+      <button type="submit">Add</button>
+    </form>
+  {% endfor %}
+
+  <script>
+    document.addEventListener("change", function (event) {
+      var checkbox = event.target.closest("[data-model-toggle]");
+      if (!checkbox) return;
+
+      var url = checkbox.dataset.modelToggle;
+      var previous = checkbox.checked;
+      checkbox.disabled = true;
+
+      fetch(url, { method: "POST", headers: { "X-Requested-With": "XMLHttpRequest" } })
+        .then(function (response) {
+          if (!response.ok) throw new Error("Request failed");
+          return response.json();
+        })
+        .catch(function () {
+          checkbox.checked = !previous;
+          agentflowFlash("Could not update model.", "error");
+        })
+        .finally(function () {
+          checkbox.disabled = false;
+        });
+    });
+  </script>
+{% endblock %}

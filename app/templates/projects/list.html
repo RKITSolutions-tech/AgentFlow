@@ -3,19 +3,34 @@
 {% block content %}
   <h1>Projects</h1>
   <p><a href="{{ url_for('projects.new_project') }}">New project</a></p>
-  {% if projects %}
-    <table>
-      <thead><tr><th>Name</th><th>Repositories</th></tr></thead>
-      <tbody>
-        {% for project in projects %}
-          <tr>
-            <td><a href="{{ url_for('projects.view_project', project_id=project.id) }}">{{ project.name }}</a></td>
-            <td>{{ project.repositories | length }}</td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  {% else %}
-    <p>No projects yet.</p>
-  {% endif %}
+  <table class="table-compact" id="projects-table" {% if not projects %}hidden{% endif %}>
+    <thead><tr><th>Name</th><th>Repositories</th><th>Actions</th></tr></thead>
+    <tbody>
+      {% for project in projects %}
+        <tr data-row>
+          <td><a href="{{ url_for('projects.view_project', project_id=project.id) }}">{{ project.name }}</a></td>
+          <td>{{ project.repositories | length }}</td>
+          <td class="row-actions">
+            <a href="{{ url_for('projects.edit_project', project_id=project.id) }}">Edit</a>
+            <button type="button" class="link-danger"
+                    data-ajax-action="{{ url_for('projects.delete_project', project_id=project.id) }}"
+                    data-confirm="Remove {{ project.name }}? This deletes its repositories and sessions too."
+                    data-on-removed="projects:row-removed">
+              Delete
+            </button>
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p id="no-projects-message" {% if projects %}hidden{% endif %}>No projects yet.</p>
+  <script>
+    window.addEventListener("projects:row-removed", function () {
+      var table = document.getElementById("projects-table");
+      if (table.querySelectorAll("tbody tr").length === 0) {
+        table.hidden = true;
+        document.getElementById("no-projects-message").hidden = false;
+      }
+    });
+  </script>
 {% endblock %}

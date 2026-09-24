@@ -4,32 +4,60 @@
   <h1>{{ project.name }} - Sessions</h1>
 
   <h2>Active Sessions</h2>
-  {% if sessions %}
-    <table>
-      <thead><tr><th>Agent</th><th>Status</th><th>Started</th><th>Action</th></tr></thead>
-      <tbody>
-        {% for session in sessions %}
-          <tr>
-            <td>{{ session.agent_type|upper }}</td>
-            <td>{{ session.status }}</td>
-            <td>{{ session.started_at }}</td>
-            <td><a href="{{ url_for('sessions.view_session', session_id=session.id) }}">Open</a></td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  {% else %}
-    <p>No active sessions.</p>
-  {% endif %}
+  <table class="table-compact" id="sessions-table" {% if not sessions %}hidden{% endif %}>
+    <thead><tr><th>Agent</th><th>Status</th><th>Started</th><th>Actions</th></tr></thead>
+    <tbody>
+      {% for session in sessions %}
+        <tr data-row>
+          <td>{{ session.agent_type|upper }}</td>
+          <td>{{ session.status }}</td>
+          <td>{{ session.started_at }}</td>
+          <td class="row-actions">
+            <a href="{{ url_for('sessions.view_session', session_id=session.id) }}">Open</a>
+            <button type="button" class="link-danger"
+                    data-ajax-action="{{ url_for('sessions.delete_session', session_id=session.id) }}"
+                    data-confirm="Delete this session? This cannot be undone."
+                    data-on-removed="sessions:row-removed">
+              Delete
+            </button>
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p id="no-sessions-message" {% if sessions %}hidden{% endif %}>No active sessions.</p>
+  <script>
+    window.addEventListener("sessions:row-removed", function () {
+      var table = document.getElementById("sessions-table");
+      if (table.querySelectorAll("tbody tr").length === 0) {
+        table.hidden = true;
+        document.getElementById("no-sessions-message").hidden = false;
+      }
+    });
+  </script>
 
   <h2>Start New Session</h2>
-  <form class="stacked" method="post" action="{{ url_for('sessions.create_session', project_id=project.id) }}">
+  <form class="stacked" id="startSessionForm" method="post" action="{{ url_for('sessions.create_session', project_id=project.id) }}">
     <label>Agent Type
-      <select name="agent_type">
+      <select name="agent_type" id="agentTypeSelect">
         <option value="codex">Codex</option>
         <option value="fake">Fake (Testing)</option>
       </select>
     </label>
+    <label id="modelField">Model
+      <select name="model">
+        <option value="">(agent default)</option>
+        {% for m in openai_models %}
+          <option value="{{ m.model_id }}">{{ m.model_id }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    {% if not openai_models %}
+      <p style="color: #666; font-size: 0.85rem; margin-top: -0.5rem;">
+        No OpenAI models enabled in <a href="{{ url_for('settings.index') }}">Settings</a> — the
+        Codex CLI's own default model will be used.
+      </p>
+    {% endif %}
     {% if project.repositories %}
       <label>Repository
         <select name="repo_id">
@@ -43,4 +71,17 @@
     {% endif %}
     <button type="submit">Start Session</button>
   </form>
+  <script>
+    (function () {
+      var agentSelect = document.getElementById("agentTypeSelect");
+      var modelField = document.getElementById("modelField");
+
+      function updateModelVisibility() {
+        modelField.hidden = agentSelect.value !== "codex";
+      }
+
+      agentSelect.addEventListener("change", updateModelVisibility);
+      updateModelVisibility();
+    })();
+  </script>
 {% endblock %}

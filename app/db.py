@@ -95,7 +95,40 @@ CREATE TABLE IF NOT EXISTS agent_results (
     test_output TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS model_catalog (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    provider TEXT NOT NULL,
+    model_id TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(provider, model_id)
+);
 """
+
+# Starter catalog, seeded once (see `_seed_model_catalog`) so the model
+# picker isn't empty on a fresh install. Admins add/remove/enable entries
+# from the Settings page afterwards; there is no API to enumerate a
+# provider's valid model ids, so this list is maintained by hand.
+_DEFAULT_MODEL_CATALOG = [
+    ("openai", "gpt-5.5"),
+    ("openai", "gpt-5.6-sol"),
+    ("openai", "gpt-5.6-luna"),
+    ("anthropic", "claude-opus-5"),
+    ("anthropic", "claude-sonnet-5"),
+    ("anthropic", "claude-fable-5"),
+    ("anthropic", "claude-haiku-4-5-20251001"),
+]
+
+
+def _seed_model_catalog(db: sqlite3.Connection) -> None:
+    if db.execute("SELECT 1 FROM model_catalog LIMIT 1").fetchone():
+        return
+    db.executemany(
+        "INSERT OR IGNORE INTO model_catalog (provider, model_id) VALUES (?, ?)",
+        _DEFAULT_MODEL_CATALOG,
+    )
+    db.commit()
 
 
 def get_db() -> sqlite3.Connection:
@@ -120,6 +153,7 @@ def init_db(app: Flask) -> None:
         db = get_db()
         db.executescript(SCHEMA)
         db.commit()
+        _seed_model_catalog(db)
 
     app.cli.add_command(init_db_command)
 
@@ -130,4 +164,5 @@ def init_db_command() -> None:
     db = get_db()
     db.executescript(SCHEMA)
     db.commit()
+    _seed_model_catalog(db)
     click.echo("Initialized the database.")

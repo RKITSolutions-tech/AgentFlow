@@ -18,6 +18,7 @@ class AgentContext:
     working_directory: str
     execution_provider: str = "host"
     execution_target: str = ""
+    model: str | None = None
 
 
 class AgentAdapter(ABC):

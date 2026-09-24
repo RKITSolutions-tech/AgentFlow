@@ -43,6 +43,36 @@ real external CLI installed (e.g. Codex) use
 `@pytest.mark.skipif(shutil.which(...) is None, ...)` rather than failing
 when the tool is absent.
 
+## Temporary UI and Mobile Rules
+
+Until the UI direction settles, every new or amended user-facing page should:
+
+- Design for mobile and desktop at the same time; check narrow screens around
+  375px and desktop around 1280px before calling the page done.
+- Reuse `app/static/app.css` and existing semantic HTML first. Do not add
+  Bootstrap or another UI dependency unless repeated components make the
+  smaller local CSS path worse.
+- Keep touch targets easy to tap, forms usable without horizontal scrolling,
+  and long paths/output wrapped or scrollable.
+- Treat tables, modals, chat/input bars and navigation as mobile risk areas;
+  give each an explicit responsive behavior when touched.
+- Move new inline styles into CSS unless the value is truly one-off.
+- Data tables use the shared `.table-compact` class (`app/static/app.css`)
+  for dense row spacing instead of ad hoc per-page padding/font-size rules;
+  put row-level actions in a `.row-actions` cell so they wrap on narrow
+  screens and stay touch-sized on coarse pointers automatically.
+- In-page actions on a list/table (delete, stop, etc.) should be AJAX, not a
+  full-page form post + redirect: mark the trigger with
+  `data-ajax-action="<url>"` (plus optional `data-confirm="..."` and
+  `data-on-removed="<event-name>"`) per the delegated handler in
+  `app/static/app.js`, and have the row carry `data-row` so it's removed
+  from the DOM on success. Routes backing these detect the AJAX call via the
+  `X-Requested-With: XMLHttpRequest` header and return JSON
+  (`{"status": ..., "message": ...}` / `{"error": ...}`) instead of
+  redirecting; keep the redirect/flash behavior for any non-JS fallback.
+  Reserve full-page redirects for actions that genuinely navigate away
+  (e.g. deleting the thing the current page is about).
+
 ## Task Master AI Instructions
 **Import Task Master's development workflow commands and guidelines, treat as if import is in the main CLAUDE.md file.**
 @./.taskmaster/CLAUDE.md

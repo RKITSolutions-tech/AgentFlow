@@ -167,18 +167,46 @@ class FakeExecutionProvider(ExecutionProvider):
 
 
 def _session_meta_line(session_id: str, cwd: str) -> str:
+    """First line of a Codex rollout file (`~/.codex/sessions/**/rollout-*.jsonl`).
+
+    Distinct from the `--json` exec stream format below: this is what
+    `_import_native_sessions` reads, and it still uses `session_meta`.
+    """
     return json.dumps({"type": "session_meta", "payload": {"session_id": session_id, "cwd": cwd}})
 
 
-def _task_complete_line(message: str) -> str:
-    return json.dumps(
-        {"type": "event_msg", "payload": {"type": "task_complete", "last_agent_message": message}}
-    )
+def _thread_started_line(thread_id: str) -> str:
+    """First line of a `codex exec --json` stdout stream."""
+    return json.dumps({"type": "thread.started", "thread_id": thread_id})
 
 
 def _agent_message_line(message: str) -> str:
     return json.dumps(
-        {"type": "event_msg", "payload": {"type": "agent_message", "message": message}}
+        {"type": "item.completed", "item": {"id": "item_0", "type": "agent_message", "text": message}}
+    )
+
+
+def _turn_completed_line() -> str:
+    return json.dumps({"type": "turn.completed", "usage": {}})
+
+
+def _task_complete_line(message: str) -> list[str]:
+    """A turn that finishes with `message` as its final agent reply.
+
+    Two lines, matching the real CLI: the reply arrives as an
+    `item.completed` `agent_message`, then `turn.completed` closes the turn
+    (it carries no message text of its own).
+    """
+    return [_agent_message_line(message), _turn_completed_line()]
+
+
+def _turn_failed_line(message: str) -> str:
+    return json.dumps({"type": "turn.failed", "error": {"message": message}})
+
+
+def _error_item_line(message: str) -> str:
+    return json.dumps(
+        {"type": "item.completed", "item": {"id": "item_0", "type": "error", "message": message}}
     )
 
 
@@ -260,7 +288,7 @@ def test_capabilities_include_resume_discovery_and_structured_events():
     adapter = CodexAdapter()
 
     assert adapter.capabilities() == frozenset(
-        {"resume", "session_discovery", "structured_events"}
+        {"resume", "session_discovery", "structured_events", "model_selection"}
     )
 
 
@@ -287,8 +315,8 @@ def test_start_happy_path(app):
         provider = FakeExecutionProvider()
         provider.queue_turn(
             [
-                _session_meta_line("ext-session-1", working_directory),
-                _task_complete_line("all done"),
+                _thread_started_line("ext-session-1"),
+                *_task_complete_line("all done"),
             ]
         )
         adapter = CodexAdapter(db, provider)
@@ -306,9 +334,10 @@ def test_start_happy_path(app):
         assert provider.commands[0] == ["codex", "exec", "--json", "do the thing"]
 
         events = agent_models.list_agent_events(db, session.id)
-        assert [e.event_type for e in events] == ["PromptSubmitted", "AgentComplete"]
+        assert [e.event_type for e in events] == ["PromptSubmitted", "AgentText", "AgentComplete"]
         assert events[0].data == "do the thing"
         assert events[1].data == "all done"
+        assert events[2].data == "all done"
 
 
 def test_start_failure_path(app):
@@ -318,7 +347,7 @@ def test_start_failure_path(app):
 
         provider = FakeExecutionProvider()
         provider.queue_turn(
-            [_session_meta_line("ext-session-2", working_directory)],
+            [_thread_started_line("ext-session-2")],
             exit_code=1,
             stderr_lines=["boom"],
         )
@@ -338,6 +367,51 @@ def test_start_failure_path(app):
         assert events[1].data == "boom"
 
 
+def test_start_marks_failed_on_explicit_turn_failed_event(app):
+    """Regression test for a real Codex CLI 0.147.0 turn rejection.
+
+    Reproduces the sequence actually observed when a session's configured
+    model was unsupported for the account: Codex still exits 0 up through
+    `item.completed`, but reports the rejection via a structured
+    `turn.failed` event rather than a nonzero exit code or stderr line, so
+    `_sync_events` must key off `turn.failed` itself rather than only the
+    process-exit fallback.
+    """
+    with app.app_context():
+        db = get_db()
+        project_id, working_directory = _make_project(db, app)
+
+        provider = FakeExecutionProvider()
+        provider.queue_turn(
+            [
+                _thread_started_line("ext-session-rejected"),
+                _error_item_line("Model metadata for `gpt-5.4-mini` not found."),
+                _turn_failed_line(
+                    "The 'gpt-5.4-mini' model is not supported when using Codex with a "
+                    "ChatGPT account."
+                ),
+            ],
+            exit_code=1,
+        )
+        adapter = CodexAdapter(db, provider)
+        context = AgentContext(
+            project_id=project_id,
+            working_directory=working_directory,
+            execution_provider="host",
+            execution_target="1",
+        )
+
+        session = adapter.start(context, "do the thing")
+
+        assert session.status == "FAILED"
+        events = agent_models.list_agent_events(db, session.id)
+        assert [e.event_type for e in events] == ["PromptSubmitted", "AgentError", "AgentError"]
+        assert events[1].data == "Model metadata for `gpt-5.4-mini` not found."
+        assert events[2].data == (
+            "The 'gpt-5.4-mini' model is not supported when using Codex with a ChatGPT account."
+        )
+
+
 def test_resume_reuses_external_session_id(app):
     with app.app_context():
         db = get_db()
@@ -346,8 +420,8 @@ def test_resume_reuses_external_session_id(app):
         provider = FakeExecutionProvider()
         provider.queue_turn(
             [
-                _session_meta_line("ext-session-3", working_directory),
-                _task_complete_line("first turn done"),
+                _thread_started_line("ext-session-3"),
+                *_task_complete_line("first turn done"),
             ]
         )
         adapter = CodexAdapter(db, provider)
@@ -361,8 +435,8 @@ def test_resume_reuses_external_session_id(app):
 
         provider.queue_turn(
             [
-                _session_meta_line("ext-session-3", working_directory),
-                _task_complete_line("second turn done"),
+                _thread_started_line("ext-session-3"),
+                *_task_complete_line("second turn done"),
             ]
         )
         resumed = adapter.resume(session.id, prompt="keep going")
@@ -381,11 +455,79 @@ def test_resume_reuses_external_session_id(app):
         events = agent_models.list_agent_events(db, session.id)
         assert [e.event_type for e in events] == [
             "PromptSubmitted",
+            "AgentText",
             "AgentComplete",
             "PromptSubmitted",
+            "AgentText",
             "AgentComplete",
         ]
         assert events[-1].data == "second turn done"
+
+
+def test_start_passes_model_flag_and_persists_it_for_later_turns(app):
+    with app.app_context():
+        db = get_db()
+        project_id, working_directory = _make_project(db, app)
+
+        provider = FakeExecutionProvider()
+        provider.queue_turn(
+            [
+                _thread_started_line("ext-session-model"),
+                *_task_complete_line("first turn done"),
+            ]
+        )
+        adapter = CodexAdapter(db, provider)
+        context = AgentContext(
+            project_id=project_id,
+            working_directory=working_directory,
+            execution_provider="host",
+            execution_target="1",
+            model="gpt-5.6-luna",
+        )
+        session = adapter.start(context, "start it")
+
+        assert provider.commands[0] == [
+            "codex",
+            "exec",
+            "--json",
+            "-m",
+            "gpt-5.6-luna",
+            "start it",
+        ]
+        assert session.metadata["model"] == "gpt-5.6-luna"
+
+        # resume() and send() reuse the model recorded at start() time, since
+        # neither takes an AgentContext of its own.
+        provider.queue_turn(
+            [
+                _thread_started_line("ext-session-model"),
+                *_task_complete_line("second turn done"),
+            ]
+        )
+        adapter.resume(session.id, prompt="keep going")
+        assert provider.commands[1] == [
+            "codex",
+            "exec",
+            "resume",
+            "ext-session-model",
+            "--json",
+            "-m",
+            "gpt-5.6-luna",
+            "keep going",
+        ]
+
+        provider.queue_turn([_agent_message_line("still working")])
+        adapter.send(session.id, "one more")
+        assert provider.commands[2] == [
+            "codex",
+            "exec",
+            "resume",
+            "ext-session-model",
+            "--json",
+            "-m",
+            "gpt-5.6-luna",
+            "one more",
+        ]
 
 
 def test_resume_without_external_session_id_raises(app):
@@ -443,9 +585,9 @@ def test_start_surfaces_agent_message_lines_as_agent_text(app):
         provider = FakeExecutionProvider()
         provider.queue_turn(
             [
-                _session_meta_line("ext-session-text", working_directory),
+                _thread_started_line("ext-session-text"),
                 _agent_message_line("thinking..."),
-                _task_complete_line("all done"),
+                *_task_complete_line("all done"),
             ]
         )
         adapter = CodexAdapter(db, provider)
@@ -462,9 +604,12 @@ def test_start_surfaces_agent_message_lines_as_agent_text(app):
         assert [e.event_type for e in events] == [
             "PromptSubmitted",
             "AgentText",
+            "AgentText",
             "AgentComplete",
         ]
         assert events[1].data == "thinking..."
+        assert events[2].data == "all done"
+        assert events[3].data == "all done"
 
 
 def test_send_requires_existing_external_session_id(app):
@@ -495,8 +640,8 @@ def test_send_launches_turn_without_blocking_and_stream_reports_progress(app):
         provider = FakeExecutionProvider()
         provider.queue_turn(
             [
-                _session_meta_line("ext-session-4", working_directory),
-                _task_complete_line("first turn done"),
+                _thread_started_line("ext-session-4"),
+                *_task_complete_line("first turn done"),
             ]
         )
         adapter = CodexAdapter(db, provider)
@@ -528,6 +673,7 @@ def test_send_launches_turn_without_blocking_and_stream_reports_progress(app):
         partial_events = adapter.stream(session.id)
         assert [e.event_type for e in partial_events] == [
             "PromptSubmitted",
+            "AgentText",
             "AgentComplete",
             "PromptSubmitted",
             "AgentText",
@@ -537,12 +683,13 @@ def test_send_launches_turn_without_blocking_and_stream_reports_progress(app):
         assert agent_models.get_agent_session(db, session.id).status == "RUNNING"
 
         # More output arrives, then the process actually exits.
-        provider.append_output(process_id, "stdout", _task_complete_line("second turn done"))
+        provider.append_output(process_id, "stdout", _agent_message_line("second turn done"))
+        provider.append_output(process_id, "stdout", _turn_completed_line())
         provider.finish_process(process_id)
 
         final_events = adapter.stream(session.id, after_id=partial_events[-1].id)
-        assert [e.event_type for e in final_events] == ["AgentComplete"]
-        assert final_events[0].data == "second turn done"
+        assert [e.event_type for e in final_events] == ["AgentText", "AgentComplete"]
+        assert final_events[-1].data == "second turn done"
 
         final_session = agent_models.get_agent_session(db, session.id)
         assert final_session.status == "COMPLETED"
@@ -556,8 +703,8 @@ def test_stream_reports_error_once_process_exits_without_task_complete(app):
         provider = FakeExecutionProvider()
         provider.queue_turn(
             [
-                _session_meta_line("ext-session-5", working_directory),
-                _task_complete_line("first turn done"),
+                _thread_started_line("ext-session-5"),
+                *_task_complete_line("first turn done"),
             ]
         )
         adapter = CodexAdapter(db, provider)
@@ -592,8 +739,8 @@ def test_stop_terminates_running_turn_and_blocks_further_input(app):
         provider = FakeExecutionProvider()
         provider.queue_turn(
             [
-                _session_meta_line("ext-session-6", working_directory),
-                _task_complete_line("first turn done"),
+                _thread_started_line("ext-session-6"),
+                *_task_complete_line("first turn done"),
             ]
         )
         adapter = CodexAdapter(db, provider)
@@ -631,8 +778,8 @@ def test_stop_terminates_running_turn_and_blocks_further_input(app):
         # ...and remains explicitly reopenable via resume().
         provider.queue_turn(
             [
-                _session_meta_line("ext-session-6", working_directory),
-                _task_complete_line("reopened"),
+                _thread_started_line("ext-session-6"),
+                *_task_complete_line("reopened"),
             ]
         )
         resumed = adapter.resume(session.id, prompt="pick back up")
@@ -647,8 +794,8 @@ def test_stop_without_turn_in_progress_still_marks_stopped(app):
         provider = FakeExecutionProvider()
         provider.queue_turn(
             [
-                _session_meta_line("ext-session-7", working_directory),
-                _task_complete_line("all done"),
+                _thread_started_line("ext-session-7"),
+                *_task_complete_line("all done"),
             ]
         )
         adapter = CodexAdapter(db, provider)
@@ -704,8 +851,8 @@ def test_resume_reports_missing_binary_as_failed_session_not_raw_oserror(app):
         provider = FakeExecutionProvider()
         provider.queue_turn(
             [
-                _session_meta_line("ext-session-missing", working_directory),
-                _task_complete_line("first turn done"),
+                _thread_started_line("ext-session-missing"),
+                *_task_complete_line("first turn done"),
             ]
         )
         adapter = CodexAdapter(db, provider)
@@ -734,8 +881,8 @@ def test_send_reports_missing_binary_as_failed_session_not_raw_oserror(app):
         provider = FakeExecutionProvider()
         provider.queue_turn(
             [
-                _session_meta_line("ext-session-missing-2", working_directory),
-                _task_complete_line("first turn done"),
+                _thread_started_line("ext-session-missing-2"),
+                *_task_complete_line("first turn done"),
             ]
         )
         adapter = CodexAdapter(db, provider)

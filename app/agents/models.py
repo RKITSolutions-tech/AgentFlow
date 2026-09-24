@@ -112,6 +112,11 @@ def list_agent_sessions_for_project(
     return [_hydrate_session(r) for r in rows]
 
 
+def delete_agent_session(db: sqlite3.Connection, session_id: int) -> None:
+    db.execute("DELETE FROM agent_sessions WHERE id = ?", (session_id,))
+    db.commit()
+
+
 def _hydrate_session(row: sqlite3.Row) -> AgentSession:
     return AgentSession(
         id=row["id"],

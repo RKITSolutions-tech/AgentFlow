@@ -43,6 +43,47 @@ def test_add_repository_within_allowed_root(client, app):
     assert b"Yes" in resp.data
 
 
+def test_delete_project_removes_it_from_list(client, app):
+    client.post("/projects/new", data={"name": "Doomed Project", "description": ""})
+    project_id = 1
+
+    resp = client.post(
+        f"/projects/{project_id}/delete",
+        headers={"X-Requested-With": "XMLHttpRequest"},
+    )
+    assert resp.status_code == 200
+    assert resp.get_json()["status"] == "deleted"
+
+    resp = client.get("/projects")
+    assert b"Doomed Project" not in resp.data
+    assert b"No projects yet." in resp.data
+
+
+def test_delete_project_cascades_repositories(client, app):
+    allowed_root = app.config["allowed_root"]
+    repo_path = os.path.join(allowed_root, "repo-doomed")
+    os.makedirs(repo_path)
+
+    client.post("/projects/new", data={"name": "Proj3", "description": ""})
+    project_id = 1
+    client.post(
+        f"/projects/{project_id}/repositories",
+        data={"name": "repo-doomed", "path": repo_path, "is_primary": "on"},
+    )
+
+    from app.db import get_db
+
+    with app.app_context():
+        db = get_db()
+        assert db.execute("SELECT COUNT(*) FROM repositories WHERE project_id = ?", (project_id,)).fetchone()[0] == 1
+
+    client.post(f"/projects/{project_id}/delete")
+
+    with app.app_context():
+        db = get_db()
+        assert db.execute("SELECT COUNT(*) FROM repositories WHERE project_id = ?", (project_id,)).fetchone()[0] == 0
+
+
 def test_reject_repository_path_outside_allowed_root(client, app, tmp_path):
     outside_path = tmp_path / "outside"
     outside_path.mkdir()

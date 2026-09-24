@@ -2,7 +2,7 @@
   "master": {
     "tasks": [
       {
-        "id": "1",
+        "id": 1,
         "title": "Build the application and project foundation",
         "description": "Create the host-run Flask application shell, SQLite persistence, responsive navigation, and Project/repository management.",
         "details": "Follow docs/HIGH_LEVEL_DESIGN.md and docs/DOMAIN_AND_ORCHESTRATION_DESIGN.md. Bind to loopback by default. Support creating, viewing, editing, and listing Projects. Each Project may contain one or more validated repository paths and one default repository. Reject paths outside configured allowed roots and persist records across restarts.",
@@ -14,7 +14,7 @@
         "updatedAt": "2026-09-22T23:05:51.035Z"
       },
       {
-        "id": "2",
+        "id": 2,
         "title": "Implement host execution and event streaming",
         "description": "Implement the canonical HostExecutionProvider and reconnectable delivery of command events.",
         "status": "done",
@@ -28,7 +28,7 @@
         "updatedAt": "2026-09-23T06:23:52.157Z"
       },
       {
-        "id": "3",
+        "id": 3,
         "title": "Create the agent contract and FakeAgent vertical slice",
         "description": "Define the shared AgentAdapter contract and prove it with a deterministic FakeAgent end-to-end workflow.",
         "details": "Follow docs/AGENT_ADAPTER.md. Implement scripted FakeAgent messages, file changes, failure, retry, and success. Complete the vertical slice: open a Project, start FakeAgent, stream output, modify a fixture file, show its Git diff, run a configured test, and persist prompts, replies, events, session metadata, and the result.",
@@ -43,7 +43,7 @@
         "updatedAt": "2026-09-23T08:15:51.212Z"
       },
       {
-        "id": "4",
+        "id": 4,
         "title": "Implement Codex sessions",
         "description": "Integrate Codex through HostExecutionProvider using the shared AgentAdapter contract.",
         "details": "Detect Codex availability and version. Support session creation, listing, discovery and resume when supported, prompt input, live output, stop, and persisted prompt/reply history. Persistently map external Codex identifiers to AgentFlow session identifiers and report unsupported capabilities explicitly. Keep FakeAgent as the automated-test adapter.",
@@ -121,7 +121,7 @@
         "updatedAt": "2026-09-23T18:55:45.789Z"
       },
       {
-        "id": "5",
+        "id": 5,
         "title": "Build the operational project workspace",
         "description": "Add file, search, Git, and persistent terminal tools to the Phase 1 Project workspace.",
         "details": "Provide repository-scoped file browsing and basic editing, search, Git status/diff/log/stage/unstage/commit, and a reconnectable tmux-backed terminal. Reuse Project repository validation and HostExecutionProvider boundaries. Link changed files to their diff and file view, and avoid loading large or binary files into the normal editor. Keep essential actions usable on desktop and mobile.",
@@ -164,10 +164,11 @@
             "dependencies": [
               1
             ],
-            "details": "Create Git operations component that: (1) displays git status showing modified/untracked files, (2) implements diff viewer showing file changes with side-by-side or unified view, (3) displays commit log with author, date, message, and ability to view commit details, (4) supports staging/unstaging individual files or hunks, (5) integrates changed-file links to open diff and file view, (6) validates all file paths via existing Project repository validation, (7) executes git commands via HostExecutionProvider with proper working directory boundaries, (8) provides desktop and mobile-optimized UI for diff inspection, (9) handles merge conflicts and detached HEAD state.",
-            "status": "pending",
+            "details": "Create Git operations component that: (1) displays git status showing modified/untracked files, (2) implements diff viewer showing file changes with side-by-side or unified view, (3) displays commit log with author, date, message, and ability to view commit details, (4) supports staging/unstaging individual files or hunks, (5) integrates changed-file links to open diff and file view, (6) validates all file paths via existing Project repository validation, (7) executes git commands via HostExecutionProvider with proper working directory boundaries, (8) provides desktop and mobile-optimized UI for diff inspection, (9) handles merge conflicts and detached HEAD state.\n<info added on 2026-09-24T13:58:15.155Z>\nGit operations module implementation complete. All core functionality delivered:\n\nCore module (app/workspace/git.py) provides status(), diff(), log(), stage(), and unstage() operations. API routes in app/workspace/routes.py expose these via GET/POST endpoints supporting AJAX. HTML templates (git_status.html, git_diff.html, git_log.html) provide desktop and mobile-optimized views with navigation between Git operations. CSS styling in app/static/app.css includes .git-nav, .diff-*, and .commit-* classes for consistent UI. JavaScript in app/static/app.js handles stage/unstage actions and smooth row removal. Test suite (tests/test_workspace_git.py) validates status checking, diff viewing, commit retrieval, and stage/unstage workflows. All file paths validated via existing security.validate_repository_path() to prevent escape attempts. Git commands executed via HostExecutionProvider with proper working directory boundaries. Implementation handles branch info display, unified diff format, commit history with author/date/message, and file staging workflow. UI responsive across desktop and mobile viewports per CLAUDE.md guidelines.\n</info added on 2026-09-24T13:58:15.155Z>",
+            "status": "in-progress",
             "testStrategy": "Unit tests for git command construction and output parsing, integration tests verifying: status reflects actual repository state, diffs display correctly for modified files, commit log loads and displays properly, staging/unstaging persists changes, changed-file links open correct views, mobile diff viewport is readable, operations respect repository boundaries and cannot escape allowed roots.",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2026-09-24T13:54:55.498Z"
           },
           {
             "id": 4,
@@ -196,12 +197,79 @@
             "status": "pending",
             "testStrategy": "Full integration test suite exercising: (1) Create project and validate repository paths are enforced, (2) Browse files and verify can't navigate outside allowed roots, (3) Search for text and verify results link correctly, (4) Perform git operations and verify status is accurate, (5) Make file changes, verify diff displays correctly, stage/unstage and verify state persists, (6) Open terminal, run commands, verify output, disconnect browser, reconnect and verify terminal state restored, (7) Test all essential actions at desktop and mobile viewport sizes, (8) Verify large files (>10MB) show warning instead of loading, binary files detected correctly, (9) Verify no sensitive data leak in terminal output or file contents.",
             "parentId": "undefined"
+          },
+          {
+            "id": 6,
+            "title": "Implement file browser with safe loading and mobile support",
+            "description": "Build repository-scoped file browsing interface that displays directory trees, opens files for viewing, and safely handles large/binary files.",
+            "dependencies": [
+              1,
+              2
+            ],
+            "details": "Create file browser component that: (1) displays directory tree structure rooted in project repository, (2) validates all file paths via Project repository validation, (3) implements file view with syntax highlighting for text files, (4) avoids loading files larger than 5MB into memory, (5) detects and gracefully handles binary files, (6) provides file open/close actions, (7) integrates with Git diff viewer to link changed files, (8) implements responsive layout for desktop (sidebar tree + content pane) and mobile (collapsible tree, full-width content), (9) executes browse operations via HostExecutionProvider for consistency.",
+            "status": "pending",
+            "testStrategy": "Unit tests for path validation preventing escape attempts, integration tests verifying large files are detected without loading, binary file detection, and mobile/desktop responsive layout. Verify changed files from Git status can be opened directly in file browser.",
+            "parentId": "undefined"
+          },
+          {
+            "id": 7,
+            "title": "Implement repository-scoped file search with filtering",
+            "description": "Build search functionality allowing users to find files and content within the project repository with result filtering and navigation.",
+            "dependencies": [
+              1,
+              2,
+              6
+            ],
+            "details": "Create search component that: (1) executes ripgrep or similar via HostExecutionProvider for performant content search, (2) supports file name search via find command, (3) filters results by file type, (4) displays search results with file path, line number, and context snippet, (5) links search results to file browser to open matching files, (6) implements search result pagination or lazy loading for large result sets, (7) provides mobile-friendly result list with tap targets, (8) validates all file paths against Project repository roots, (9) respects .gitignore patterns to avoid searching excluded files.",
+            "status": "pending",
+            "testStrategy": "Integration tests verifying ripgrep execution returns correct results, file name search works, results link correctly to file browser, path validation prevents searching outside repository roots. Verify pagination/lazy loading works for large result sets and mobile layout is usable.",
+            "parentId": "undefined"
+          },
+          {
+            "id": 8,
+            "title": "Implement Git operations (status, diff, log, staging)",
+            "description": "Build Git interface supporting status view, diff visualization, commit history, and staging/unstaging workflow.",
+            "dependencies": [
+              1,
+              2,
+              6
+            ],
+            "details": "Create Git operations component that: (1) displays git status showing modified/untracked files with status badges, (2) implements diff viewer showing file changes with unified or side-by-side view, (3) displays commit log with author, date, message via git log, (4) supports viewing individual commit details and changes, (5) implements staging/unstaging individual files via git add/reset, (6) supports hunk-level staging when practical, (7) integrates changed-file links to open diff viewer and file view, (8) validates all file paths via existing Project repository validation, (9) executes git commands via HostExecutionProvider, (10) handles git errors gracefully with user-facing messages, (11) implements responsive layout for diff viewer on mobile (scrollable, readable font sizes).",
+            "status": "pending",
+            "testStrategy": "Integration tests for git status parsing, diff viewer correctness with various file types, commit log display, staging/unstaging workflows. Verify path validation prevents git operations on files outside repository. Test changed-file links navigate correctly. Verify diff viewer is readable on narrow mobile screens with scrolling support.",
+            "parentId": "undefined"
+          },
+          {
+            "id": 9,
+            "title": "Implement commit workflow with message editing and history persistence",
+            "description": "Build commit interface allowing users to compose commit messages, stage changes, and create commits with full history persistence.",
+            "dependencies": [
+              2,
+              8
+            ],
+            "details": "Create commit component that: (1) provides text area for composing commit messages with real-time validation, (2) shows summary of staged changes before committing, (3) executes git commit via HostExecutionProvider, (4) handles commit failures with clear error messages, (5) persists commit history in AgentSession records for audit trail, (6) supports amending recent commits when appropriate, (7) validates commit message length and format, (8) implements responsive form layout for mobile devices, (9) provides quick-action buttons for common messages (e.g., 'feat:', 'fix:', 'refactor:'), (10) links commits back to Git log viewer.",
+            "status": "pending",
+            "testStrategy": "Integration tests verifying commit creation, message validation, staged-changes display, and error handling. Test commit history persistence in database. Verify amend functionality works correctly. Test responsive form layout on mobile. Verify commits appear in git log after creation.",
+            "parentId": "undefined"
+          },
+          {
+            "id": 10,
+            "title": "Implement reconnectable tmux-backed terminal with mobile support",
+            "description": "Build persistent terminal interface using tmux backend that survives browser disconnect/reconnect and works on mobile.",
+            "dependencies": [
+              1,
+              2
+            ],
+            "details": "Create terminal component that: (1) spawns tmux session per project workspace via HostExecutionProvider, (2) captures terminal output stream and persists events in ProcessEvent table keyed by session, (3) implements WebSocket or SSE connection for live output delivery, (4) supports browser reconnection by resuming from last event position (using execution/models.py event-resume pattern), (5) implements terminal input via shell command submission, (6) handles tmux session lifecycle (create, destroy, reconnect), (7) validates working directory via Project repository validation, (8) implements mobile-friendly terminal: fixed-height viewport with scrolling, legible font size, tap-friendly input controls, (9) supports basic terminal features: clear screen, interrupt (Ctrl+C), exit, (10) persists terminal history for session replay.",
+            "status": "pending",
+            "testStrategy": "Integration tests verifying tmux session creation and command execution, event persistence and resume-from-position recovery, WebSocket/SSE reconnection handling. Test browser disconnect/reconnect cycle maintains terminal state. Verify working directory validation prevents escape. Test mobile viewport usability with small screen widths (375px). Verify terminal history is persisted and retrievable.",
+            "parentId": "undefined"
           }
         ],
-        "updatedAt": "2026-09-23T20:04:17.796Z"
+        "updatedAt": "2026-09-24T13:54:55.498Z"
       },
       {
-        "id": "6",
+        "id": 6,
         "title": "Add basic runs, history, and hardening",
         "description": "Add single-Task command and test Runs with inspection, persistence, recovery, and security controls.",
         "details": "Follow docs/RUN_AND_RALPH.md for the Phase 1 subset. Record step status, timing, logs, prompts, replies, and artifact metadata in SQLite while storing artifact content and large logs on the filesystem. Support pause/stop, restart reconciliation, Run history, and step inspection. Mark a Run blocked when its previously active process is missing after restart. Redact secrets before persistence where practical and require explicit configuration for unsafe all-interface binding.",
@@ -215,9 +283,9 @@
         "subtasks": []
       },
       {
-        "id": "7",
+        "id": 7,
         "title": "Review Phase 1 design decisions and consolidate Phase 2 planning",
-        "description": "Audit all design documents (AGENT_ADAPTER.md, EXECUTION_PROVIDER.md, HIGH_LEVEL_DESIGN.md, TASK_INTELLIGENCE.md, and implementation notes) to identify deferred decisions and open questions from Phase 1 work, then consolidate findings into Phase 2 planning artifacts.",
+        "description": "Audit all design documents (AGENT_ADAPTER.md, EXECUTION_PROVIDER.md, HIGH_LEVEL_DESIGN.md, TASK_INTELLIGENCE.md, DOCUMENT_LIFECYCLE.md, and implementation notes) to identify deferred decisions and open questions from Phase 1 work, then consolidate findings into Phase 2 planning artifacts.",
         "status": "pending",
         "dependencies": [
           "1",
@@ -228,19 +296,51 @@
           "6"
         ],
         "priority": "medium",
-        "details": "Systematically review:\n\n1. docs/AGENT_ADAPTER.md section 22 and surrounding context regarding project-level context files (analogous to CLAUDE.md), on-demand context file surfacing, and the three open design questions:\n   - Where do project-level context files live and how are they discovered?\n   - How are on-demand context files surfaced to agents?\n   - Should assembly of context be AgentFlow-side or delegated to adapters?\n\n2. docs/EXECUTION_PROVIDER.md for deferred considerations or unresolved architectural points.\n\n3. docs/HIGH_LEVEL_DESIGN.md for deferred features or design uncertainties.\n\n4. docs/TASK_INTELLIGENCE.md, particularly section 9, which lists open questions regarding the Task Master-inspired requirement-elaboration, decomposition, and dependency-provenance design (backlog free text -> AI-elaborated PlanningProposal -> reviewed Task, AI-suggested dependency edges tagged and gated behind review, complexity-driven decomposition folded into Planning Profile selection). Document which open questions from section 9 have been resolved during Phase 1 and which remain for Phase 2.\n\n5. All update-subtask notes from tasks 1-6 implementation (accessible via task-master show 1.1, 1.2, etc.) to capture any additional points flagged but postponed during Phase 1 work.\n\n6. Consolidate findings into one of the following outcomes:\n   - Update docs/PHASED_DELIVERY_PLAN.md Phase 2 feature list to include newly clarified requirements.\n   - Update docs/TASK_INTELLIGENCE.md with resolved open questions and rationale.\n   - Create a dedicated Phase 2 design task if significant unresolved architectural questions warrant focused design work before implementation.\n\nEnsure no raised concerns or deferred decisions from Phase 1 are lost; create a single source of truth for Phase 2 direction.",
-        "testStrategy": "Verification involves:\n\n1. Confirm all sections of AGENT_ADAPTER.md, EXECUTION_PROVIDER.md, HIGH_LEVEL_DESIGN.md, and TASK_INTELLIGENCE.md have been read and reviewed.\n\n2. Verify that section 9 of docs/TASK_INTELLIGENCE.md has been examined and all listed open questions have been addressed (either resolved, incorporated into Phase 2 plans, or explicitly deferred with justification).\n\n3. Verify that update-subtask notes from tasks 1-6 subtasks have been examined for deferred points (run task-master show 1.1 through 6.* and review all notes).\n\n4. Ensure docs/PHASED_DELIVERY_PLAN.md Phase 2 section has been updated with newly identified requirements and that docs/TASK_INTELLIGENCE.md has been updated with resolved questions, OR that a new Phase 2 design task has been created with clear design questions.\n\n5. Create a summary document or task describing:\n   - All open questions identified (e.g., the three context file questions, and those from TASK_INTELLIGENCE.md section 9).\n   - Which questions have been resolved or incorporated into Phase 2 plans.\n   - Which questions remain open and require design discussion.\n   - Rationale for deferrals to Phase 2 or beyond.\n\n6. Verify the summary is added to the Phase 2 design task or planning document so Phase 2 implementation tasks can reference and resolve them.",
+        "details": "Systematically review:\n\n1. docs/AGENT_ADAPTER.md section 22 and surrounding context regarding project-level context files (analogous to CLAUDE.md), on-demand context file surfacing, and the three open design questions:\n   - Where do project-level context files live and how are they discovered?\n   - How are on-demand context files surfaced to agents?\n   - Should assembly of context be AgentFlow-side or delegated to adapters?\n\n2. docs/EXECUTION_PROVIDER.md for deferred considerations or unresolved architectural points.\n\n3. docs/HIGH_LEVEL_DESIGN.md for deferred features or design uncertainties.\n\n4. docs/TASK_INTELLIGENCE.md, particularly section 9, which lists open questions regarding the Task Master-inspired requirement-elaboration, decomposition, and dependency-provenance design (backlog free text -> AI-elaborated PlanningProposal -> reviewed Task, AI-suggested dependency edges tagged and gated behind review, complexity-driven decomposition folded into Planning Profile selection). Document which open questions from section 9 have been resolved during Phase 1 and which remain for Phase 2.\n\n5. docs/DOCUMENT_LIFECYCLE.md, particularly section 14 Open Questions (STANDARD document versioning, whether review_verdict needs to name specific blocking review_comment rows, doc_read event dedup). Note that section 13 already scopes its own Phase 1 schema slice (documents/document_refs tables, agent_sessions.document_id/reviewed_git_sha columns, review_comment/review_verdict/doc_read agent_events types) into a separate new task rather than this review task. This task's job is only to audit DOCUMENT_LIFECYCLE.md's open questions and confirm nothing else from it is being lost, not to implement it.\n\n6. All update-subtask notes from tasks 1-6 implementation (accessible via task-master show 1.1, 1.2, etc.) to capture any additional points flagged but postponed during Phase 1 work.\n\n7. Consolidate findings into one of the following outcomes:\n   - Update docs/PHASED_DELIVERY_PLAN.md Phase 2 feature list to include newly clarified requirements.\n   - Update docs/TASK_INTELLIGENCE.md with resolved open questions and rationale.\n   - Update docs/DOCUMENT_LIFECYCLE.md with resolved open questions from section 14 and rationale.\n   - Create a dedicated Phase 2 design task if significant unresolved architectural questions warrant focused design work before implementation.\n\nEnsure no raised concerns or deferred decisions from Phase 1 are lost; create a single source of truth for Phase 2 direction.",
+        "testStrategy": "Verification involves:\n\n1. Confirm all sections of AGENT_ADAPTER.md, EXECUTION_PROVIDER.md, HIGH_LEVEL_DESIGN.md, TASK_INTELLIGENCE.md, and DOCUMENT_LIFECYCLE.md have been read and reviewed.\n\n2. Verify that section 9 of docs/TASK_INTELLIGENCE.md has been examined and all listed open questions have been addressed (either resolved, incorporated into Phase 2 plans, or explicitly deferred with justification).\n\n3. Verify that section 14 of docs/DOCUMENT_LIFECYCLE.md has been examined and all listed open questions have been addressed (either resolved, incorporated into Phase 2 plans, or explicitly deferred with justification). Confirm that the Phase 1 schema scope in section 13 is being handled separately and not duplicated here.\n\n4. Verify that update-subtask notes from tasks 1-6 subtasks have been examined for deferred points (run task-master show 1.1 through 6.* and review all notes).\n\n5. Ensure docs/PHASED_DELIVERY_PLAN.md Phase 2 section has been updated with newly identified requirements and that docs/TASK_INTELLIGENCE.md and/or docs/DOCUMENT_LIFECYCLE.md have been updated with resolved questions, OR that a new Phase 2 design task has been created with clear design questions.\n\n6. Create a summary document or task describing:\n   - All open questions identified (e.g., the three context file questions from AGENT_ADAPTER.md, those from TASK_INTELLIGENCE.md section 9, and those from DOCUMENT_LIFECYCLE.md section 14).\n   - Which questions have been resolved or incorporated into Phase 2 plans.\n   - Which questions remain open and require design discussion.\n   - Rationale for deferrals to Phase 2 or beyond.\n\n7. Verify the summary is added to the Phase 2 design task or planning document so Phase 2 implementation tasks can reference and resolve them.",
+        "subtasks": []
+      },
+      {
+        "id": 8,
+        "title": "Fix 5 hardcoded Playwright UI tests to work without pre-started dev server",
+        "description": "Repair 5 failing Playwright tests that hardcode http://127.0.0.1:5000 and require a manually-started Flask server, causing false failures in pytest runs without external setup. Make them self-contained by either spinning up an ephemeral Flask server fixture or guarding them with a skip check.",
+        "details": "Investigate why tests/test_chat_message.py::test_send_and_display_chat_message, tests/test_chat_message.py::test_chat_form_input_and_state, tests/test_codex_chat_response.py::test_codex_message_and_response, tests/test_hello_codex.py::test_send_hello_get_codex_response, and tests/test_hello_message.py::test_send_hello_message_via_ui were written against a live external server instead of using the Flask test client fixture pattern documented in CLAUDE.md.\n\nChoose one of two approaches:\n\n(a) Self-contained server fixture: Create a session-scoped pytest fixture (or conftest helper) that:\n  - Spawns a Flask dev server in a subprocess using multiprocessing or threading\n  - Binds to an ephemeral port (0) and discovers the assigned port\n  - Passes the server URL (e.g., http://127.0.0.1:<dynamic-port>) to Playwright tests via pytest parametrization or indirect fixture injection\n  - Tears down the server after the test session completes\n  - Ensures the server is reachable before tests run (wait with retry/timeout)\n\n(b) Skip guard (if integration with live server is essential):\n  - Add a pytest skip check following the existing shutil.which(...) convention in CLAUDE.md\n  - Create a helper function that attempts to connect to http://127.0.0.1:5000 with a short timeout (e.g., socket or requests.head)\n  - Decorate each test with @pytest.mark.skipif(not is_server_reachable(), reason=\"Flask dev server not running on port 5000\")\n  - Ensure the skip is clean and does not report as a failure\n\nPrefer approach (a) if Playwright automation and end-to-end UI verification are core to the test strategy; use (b) only if there is a genuine reason these tests must exercise a live running server rather than a fixture-managed one.\n\nUpdate the hardcoded base URL references in all 5 tests to use the dynamically assigned URL (via fixture or conftest variable).",
+        "testStrategy": "Run pytest from a clean state with no pre-started Flask dev server on port 5000 and verify:\n  1. All 5 tests pass (or skip cleanly if using approach b)\n  2. No timeout errors or Page.wait_for_selector failures for #chatContainer\n  3. Full pytest run reports 0 failures from these test files\n  4. If using approach (a), confirm the ephemeral server is started before tests and cleaned up after\n  5. If using approach (b), confirm tests skip gracefully and pytest exit code is 0\n  6. Run pytest with -v to show each test result and confirm the expected behavior",
+        "status": "pending",
+        "dependencies": [
+          "3",
+          "5",
+          "6"
+        ],
+        "priority": "medium",
+        "subtasks": []
+      },
+      {
+        "id": 9,
+        "title": "Implement Phase 1 document lifecycle data layer",
+        "description": "Add documents and document_refs tables to the SQLite schema, extend agent_sessions with document tracking columns, and implement document CRUD helpers and dataclasses following existing app patterns.",
+        "details": "1. Extend app/db.py SCHEMA with two new tables:\n   - documents: id (PK), project_id (FK), repo_id (FK), chain_id, doc_type [DESIGN|IMPLEMENTATION|TESTING|PLAN|STANDARD], path, title, status [DRAFT|IN_REVIEW|APPROVED|SUPERSEDED], current_git_sha, supersedes_id (self-FK, nullable), created_at, updated_at\n   - document_refs: document_id (FK), referenced_document_id (FK), relationship [DERIVES_FROM|REFERENCES|SUPERSEDES], primary key (document_id, referenced_document_id)\n\n2. Extend agent_sessions table with two new nullable columns:\n   - document_id (FK to documents)\n   - reviewed_git_sha\n\n3. Add three new event_type values to agent_events (reuse existing table, no new table):\n   - review_comment with data={line_start, line_end, body, severity}\n   - review_verdict with data={verdict}\n   - doc_read with data={document_id, git_sha}\n\n4. Create app/documents/models.py following the pattern established in app/projects/models.py and app/agents/models.py:\n   - Define Document and DocumentRef dataclasses mirroring agent_sessions/agent_events structure\n   - Implement CRUD helpers: create_document, update_document_status, get_document, list_documents, supersede_document, create_document_ref, get_document_refs, get_referencing_documents\n   - Use raw SQL following the existing style in app/agents/models.py (add_agent_event, create_agent_session)\n   - Ensure document status transitions follow DRAFT -> IN_REVIEW -> APPROVED and DRAFT -> SUPERSEDED paths\n\n5. Validate foreign key constraints and cascade behavior (e.g., deleting a document should handle document_refs appropriately per design intent).\n\n6. This is data-layer only—no UI, no pipeline wiring, no review-loop automation per DOCUMENT_LIFECYCLE.md section 13.",
+        "testStrategy": "1. Write pytest tests in tests/test_documents.py mirroring the structure of tests/test_projects.py:\n   - Test document creation with all required and optional fields\n   - Test status transitions: DRAFT -> IN_REVIEW -> APPROVED, and DRAFT -> SUPERSEDED\n   - Verify supersedes_id chain linkage and lookup\n   - Test document_refs creation and multi-hop chain traversal\n   - Test get_referencing_documents to find reverse refs\n\n2. Test agent_sessions/agent_events integration:\n   - Create an agent_session with document_id and reviewed_git_sha\n   - Add review_comment, review_verdict, and doc_read events\n   - Round-trip session and events from database and verify columns and event data persist\n   - Verify event type filtering and data field access\n\n3. Test CRUD helpers:\n   - Create multiple documents, list them, filter by project/repo/status\n   - Update document status and verify transitions\n   - Verify foreign key constraints (project_id and repo_id point to valid projects/repositories)\n   - Test nullable fields (chain_id, supersedes_id, document_id in agent_sessions, reviewed_git_sha)\n\n4. Run full test suite and verify no schema migration errors or constraint violations.",
+        "status": "pending",
+        "dependencies": [
+          "1",
+          "3",
+          "4"
+        ],
+        "priority": "medium",
         "subtasks": []
       }
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-09-23T20:04:17.796Z",
-      "taskCount": 7,
+      "lastModified": "2026-09-24T13:54:55.498Z",
+      "taskCount": 9,
       "completedCount": 4,
       "tags": [
         "master"
-      ]
+      ],
+      "created": "2026-09-24T13:58:05.616Z",
+      "description": "Tasks for master context"
     }
   }
 }

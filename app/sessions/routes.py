@@ -3,10 +3,16 @@ from __future__ import annotations
 from flask import Blueprint, current_app, flash, redirect, render_template, request, url_for, jsonify, stream_with_context
 
 from app.db import get_db
-from app.agents.models import create_agent_session, get_agent_session, list_agent_sessions_for_project, list_agent_events
+from app.agents.models import (
+    create_agent_session,
+    delete_agent_session,
+    get_agent_session,
+    list_agent_sessions_for_project,
+)
 from app.agents.codex import CodexAdapter
 from app.agents.fake import FakeAgentAdapter
 from app.projects import models as project_models
+from app.settings import models as settings_models
 
 bp = Blueprint("sessions", __name__, url_prefix="/sessions")
 
@@ -26,10 +32,12 @@ def project_sessions(project_id: int):
         return render_template("404.html"), 404
 
     sessions = list_agent_sessions_for_project(db, project_id)
+    openai_models = settings_models.list_enabled_models(db, provider="openai")
     return render_template(
         "sessions/project.html",
         project=project,
         sessions=sessions,
+        openai_models=openai_models,
     )
 
 
@@ -48,6 +56,7 @@ def create_session(project_id: int):
         return redirect(url_for("sessions.project_sessions", project_id=project_id))
 
     agent_type = request.form.get("agent_type", "codex").lower()
+    model = request.form.get("model", "").strip() or None
 
     # Get repo_id from form, handling both integer IDs and missing values
     repo_id_str = request.form.get("repo_id", "").strip()
@@ -98,6 +107,7 @@ def create_session(project_id: int):
             working_directory=execution_target,
             execution_provider="host",
             execution_target=str(exec_context.id),  # Pass context ID as string
+            model=model if agent_type == "codex" else None,
         )
 
         session = adapter.start(context, "Starting session...")
@@ -162,6 +172,8 @@ def send_prompt(session_id: int):
 def stream_output(session_id: int):
     import json
 
+    from app.execution.host import HostExecutionProvider
+
     db = get_db()
     session = get_agent_session(db, session_id)
     if session is None:
@@ -169,7 +181,19 @@ def stream_output(session_id: int):
 
     after_id = request.args.get("after_id", type=int, default=0)
 
-    events = list_agent_events(db, session_id, after_id)
+    if session.agent_type.lower() == "codex":
+        execution_provider = HostExecutionProvider(
+            current_app.config["DATABASE_PATH"], current_app.config["ALLOWED_PROJECT_ROOTS"]
+        )
+        adapter = CodexAdapter(db=db, execution_provider=execution_provider)
+    else:
+        adapter = FakeAgentAdapter(db=db)
+
+    # adapter.stream() runs _sync_events() first, translating any output the
+    # background process has produced since the last poll into AgentEvents —
+    # reading list_agent_events() directly here would skip that and the
+    # frontend would never see a send()-triggered turn's reply land.
+    events = adapter.stream(session_id, after_id=after_id)
 
     def generate():
         for event in events:
@@ -208,3 +232,42 @@ def stop_session(session_id: int):
         flash(f"Error stopping session: {e}", "error")
 
     return redirect(url_for("sessions.view_session", session_id=session_id))
+
+
+def _wants_json() -> bool:
+    return request.headers.get("X-Requested-With") == "XMLHttpRequest"
+
+
+@bp.post("/<int:session_id>/delete")
+def delete_session(session_id: int):
+    from app.execution.host import HostExecutionProvider
+
+    db = get_db()
+    session = get_agent_session(db, session_id)
+    if session is None:
+        if _wants_json():
+            return jsonify({"error": "Session not found"}), 404
+        return redirect(url_for("sessions.list_sessions"))
+
+    project_id = session.project_id
+
+    if session.status in ("RUNNING", "STARTING"):
+        try:
+            if session.agent_type.lower() == "codex":
+                execution_provider = HostExecutionProvider(
+                    current_app.config["DATABASE_PATH"], current_app.config["ALLOWED_PROJECT_ROOTS"]
+                )
+                adapter = CodexAdapter(db=db, execution_provider=execution_provider)
+            else:
+                adapter = FakeAgentAdapter(db=db)
+            adapter.stop(session_id)
+        except Exception:
+            pass
+
+    delete_agent_session(db, session_id)
+
+    if _wants_json():
+        return jsonify({"status": "deleted", "message": "Session deleted."}), 200
+
+    flash("Session deleted.", "info")
+    return redirect(url_for("sessions.project_sessions", project_id=project_id))

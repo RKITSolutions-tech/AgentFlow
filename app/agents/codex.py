@@ -70,7 +70,7 @@ class CodexAdapter(AgentAdapter):
         return self._version or ""
 
     def capabilities(self) -> frozenset[str]:
-        return frozenset({"resume", "session_discovery", "structured_events"})
+        return frozenset({"resume", "session_discovery", "structured_events", "model_selection"})
 
     def discover_sessions(self, project_id: int) -> list[AgentSession]:
         working_directory = self._primary_repository_path(project_id)
@@ -90,12 +90,12 @@ class CodexAdapter(AgentAdapter):
             role=options.get("role", "GENERAL"),
             execution_provider=context.execution_provider,
             execution_target=context.execution_target,
-            metadata={"working_directory": context.working_directory},
+            metadata={"working_directory": context.working_directory, "model": context.model},
         )
         models.set_session_status(self._db, session_id, "RUNNING")
         models.add_agent_event(self._db, session_id, "PromptSubmitted", data=prompt)
 
-        command = [self._binary, "exec", "--json", prompt]
+        command = [self._binary, "exec", "--json", *self._model_flags(context.model), prompt]
         try:
             process = self._execution_provider.execute(
                 command, options={"context_id": int(context.execution_target)}
@@ -122,7 +122,14 @@ class CodexAdapter(AgentAdapter):
             models.add_agent_event(self._db, session_id, "PromptSubmitted", data=prompt)
         models.set_session_status(self._db, session_id, "RUNNING")
 
-        command = [self._binary, "exec", "resume", session.external_session_id, "--json"]
+        command = [
+            self._binary,
+            "exec",
+            "resume",
+            session.external_session_id,
+            "--json",
+            *self._model_flags(session.metadata.get("model")),
+        ]
         if prompt:
             command.append(prompt)
         try:
@@ -154,7 +161,15 @@ class CodexAdapter(AgentAdapter):
         models.add_agent_event(self._db, session_id, "PromptSubmitted", data=content)
         models.set_session_status(self._db, session_id, "RUNNING")
 
-        command = [self._binary, "exec", "resume", session.external_session_id, "--json", content]
+        command = [
+            self._binary,
+            "exec",
+            "resume",
+            session.external_session_id,
+            "--json",
+            *self._model_flags(session.metadata.get("model")),
+            content,
+        ]
         try:
             process = self._execution_provider.start_process(
                 command, options={"context_id": int(session.execution_target)}
@@ -238,6 +253,13 @@ class CodexAdapter(AgentAdapter):
         `process_event_cursor` means each raw ProcessEvent is only ever
         translated once, and `turn_finalized` stops re-checking a process
         once its outcome has already been recorded.
+
+        Schema note: this parses the `--json` event stream shape emitted by
+        the installed Codex CLI (`thread.started` / `item.completed` /
+        `turn.completed` / `turn.failed`), which is distinct from the
+        `session_meta` rollout-file format `_import_native_sessions` reads
+        (that one is Codex's own on-disk transcript format and unaffected by
+        this stream's schema).
         """
         session = models.get_agent_session(self._db, session_id)
         metadata = dict(session.metadata)
@@ -248,13 +270,16 @@ class CodexAdapter(AgentAdapter):
         cursor = metadata.get("process_event_cursor")
         raw_events = self._execution_provider.stream_output(process_id, after_id=cursor)
 
-        task_completed = False
+        turn_finalized = False
         last_stderr = metadata.get("last_stderr_line")
+        last_agent_message = metadata.get("last_agent_message", "")
 
         for raw in raw_events:
             cursor = raw.id
             if raw.stream == "stderr":
                 last_stderr = raw.data
+                continue
+            if raw.stream != "stdout":
                 continue
 
             payload = self._parse_json_line(raw.data)
@@ -262,32 +287,40 @@ class CodexAdapter(AgentAdapter):
                 continue
 
             event_type = payload.get("type")
-            if event_type == "session_meta":
+            if event_type == "thread.started":
                 if session.external_session_id is None:
-                    ext_id = payload.get("payload", {}).get("session_id")
-                    if ext_id is not None:
-                        models.set_external_session_id(self._db, session_id, ext_id)
-            elif event_type == "event_msg":
-                inner = payload.get("payload", {})
-                inner_type = inner.get("type")
-                if inner_type == "agent_message":
+                    thread_id = payload.get("thread_id")
+                    if thread_id is not None:
+                        models.set_external_session_id(self._db, session_id, thread_id)
+            elif event_type == "item.completed":
+                item = payload.get("item", {})
+                item_type = item.get("type")
+                if item_type == "agent_message":
+                    last_agent_message = item.get("text", "")
+                    models.add_agent_event(self._db, session_id, "AgentText", data=last_agent_message)
+                elif item_type == "error":
                     models.add_agent_event(
-                        self._db, session_id, "AgentText", data=inner.get("message", "")
+                        self._db, session_id, "AgentError", data=item.get("message", "")
                     )
-                elif inner_type == "task_complete":
-                    models.add_agent_event(
-                        self._db,
-                        session_id,
-                        "AgentComplete",
-                        data=inner.get("last_agent_message", ""),
-                    )
-                    models.set_session_status(self._db, session_id, "COMPLETED")
-                    task_completed = True
+            elif event_type == "turn.completed":
+                models.add_agent_event(
+                    self._db, session_id, "AgentComplete", data=last_agent_message
+                )
+                models.set_session_status(self._db, session_id, "COMPLETED")
+                turn_finalized = True
+            elif event_type == "turn.failed":
+                error_detail = (payload.get("error") or {}).get("message") or last_stderr or (
+                    "codex exec turn failed"
+                )
+                models.add_agent_event(self._db, session_id, "AgentError", data=error_detail)
+                models.set_session_status(self._db, session_id, "FAILED")
+                turn_finalized = True
 
         metadata["process_event_cursor"] = cursor
         metadata["last_stderr_line"] = last_stderr
+        metadata["last_agent_message"] = last_agent_message
 
-        if task_completed:
+        if turn_finalized:
             metadata["turn_finalized"] = True
         else:
             process = self._execution_provider.process_status(process_id)
@@ -298,6 +331,10 @@ class CodexAdapter(AgentAdapter):
                 metadata["turn_finalized"] = True
 
         models.set_session_metadata(self._db, session_id, metadata)
+
+    @staticmethod
+    def _model_flags(model: str | None) -> list[str]:
+        return ["-m", model] if model else []
 
     @staticmethod
     def _parse_json_line(line: str) -> dict[str, Any] | None:

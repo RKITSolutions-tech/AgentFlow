@@ -4,16 +4,34 @@
   <h1>Sessions</h1>
   <p>Select a project to view or start a session.</p>
 
-  <table>
-    <thead><tr><th>Project</th><th>Repositories</th><th>Action</th></tr></thead>
+  <table class="table-compact" id="projects-table" {% if not projects %}hidden{% endif %}>
+    <thead><tr><th>Project</th><th>Repositories</th><th>Actions</th></tr></thead>
     <tbody>
       {% for project in projects %}
-        <tr>
+        <tr data-row>
           <td>{{ project.name }}</td>
           <td>{{ project.repositories|length }}</td>
-          <td><a href="{{ url_for('sessions.project_sessions', project_id=project.id) }}">View sessions</a></td>
+          <td class="row-actions">
+            <a href="{{ url_for('sessions.project_sessions', project_id=project.id) }}">View sessions</a>
+            <button type="button" class="link-danger"
+                    data-ajax-action="{{ url_for('projects.delete_project', project_id=project.id) }}"
+                    data-confirm="Remove {{ project.name }}? This deletes its sessions and repository links. This cannot be undone."
+                    data-on-removed="projects:row-removed">
+              Delete
+            </button>
+          </td>
         </tr>
       {% endfor %}
     </tbody>
   </table>
+  <p id="no-projects-message" {% if projects %}hidden{% endif %}>No projects yet.</p>
+  <script>
+    window.addEventListener("projects:row-removed", function () {
+      var table = document.getElementById("projects-table");
+      if (table.querySelectorAll("tbody tr").length === 0) {
+        table.hidden = true;
+        document.getElementById("no-projects-message").hidden = false;
+      }
+    });
+  </script>
 {% endblock %}

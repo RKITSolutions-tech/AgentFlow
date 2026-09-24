@@ -6,7 +6,7 @@ from app.db import get_db
 from app.execution.host import HostExecutionProvider
 from app.projects import models as project_models
 from app.security import PathNotAllowedError
-from app.workspace import files, search
+from app.workspace import files, git, search
 
 bp = Blueprint(
     "workspace",
@@ -155,3 +155,151 @@ def edit_file(project_id: int, repo_id: int):
         current_path=path,
         breadcrumbs=_breadcrumbs(path),
     )
+
+
+@bp.get("/git/status")
+def git_status(project_id: int, repo_id: int):
+    project, repo = _get_project_and_repo(project_id, repo_id)
+    provider = HostExecutionProvider(
+        current_app.config["DATABASE_PATH"], current_app.config["ALLOWED_PROJECT_ROOTS"]
+    )
+    try:
+        status = git.status(
+            provider,
+            repo.path,
+            allowed_roots=current_app.config["ALLOWED_PROJECT_ROOTS"],
+        )
+    except git.GitCommandError as exc:
+        flash(f"Git error: {exc}", "error")
+        status = None
+
+    return render_template(
+        "workspace/git_status.html",
+        project=project,
+        repo=repo,
+        status=status,
+    )
+
+
+@bp.get("/git/diff")
+def git_diff(project_id: int, repo_id: int):
+    project, repo = _get_project_and_repo(project_id, repo_id)
+    path = request.args.get("path", "")
+    staged = request.args.get("staged", "false").lower() == "true"
+
+    provider = HostExecutionProvider(
+        current_app.config["DATABASE_PATH"], current_app.config["ALLOWED_PROJECT_ROOTS"]
+    )
+    try:
+        diff_data = git.diff(
+            provider,
+            repo.path,
+            path=path,
+            staged=staged,
+            allowed_roots=current_app.config["ALLOWED_PROJECT_ROOTS"],
+        )
+    except git.GitCommandError as exc:
+        flash(f"Git error: {exc}", "error")
+        diff_data = None
+
+    return render_template(
+        "workspace/git_diff.html",
+        project=project,
+        repo=repo,
+        diff=diff_data,
+        path=path,
+        staged=staged,
+    )
+
+
+@bp.get("/git/log")
+def git_log(project_id: int, repo_id: int):
+    project, repo = _get_project_and_repo(project_id, repo_id)
+    max_count = request.args.get("max_count", "20", type=int)
+    max_count = max(1, min(max_count, 100))
+
+    provider = HostExecutionProvider(
+        current_app.config["DATABASE_PATH"], current_app.config["ALLOWED_PROJECT_ROOTS"]
+    )
+    try:
+        commits = git.log(
+            provider,
+            repo.path,
+            max_count=max_count,
+            allowed_roots=current_app.config["ALLOWED_PROJECT_ROOTS"],
+        )
+    except git.GitCommandError as exc:
+        flash(f"Git error: {exc}", "error")
+        commits = []
+
+    return render_template(
+        "workspace/git_log.html",
+        project=project,
+        repo=repo,
+        commits=commits,
+        max_count=max_count,
+    )
+
+
+@bp.post("/git/stage")
+def git_stage_file(project_id: int, repo_id: int):
+    project, repo = _get_project_and_repo(project_id, repo_id)
+    path = request.form.get("path", "").strip()
+
+    if not path:
+        if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+            return {"error": "Path required"}, 400
+        flash("Path required", "error")
+        return redirect(url_for("workspace.git_status", project_id=project_id, repo_id=repo_id))
+
+    provider = HostExecutionProvider(
+        current_app.config["DATABASE_PATH"], current_app.config["ALLOWED_PROJECT_ROOTS"]
+    )
+    try:
+        git.stage(
+            provider,
+            repo.path,
+            path,
+            allowed_roots=current_app.config["ALLOWED_PROJECT_ROOTS"],
+        )
+        if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+            return {"status": "success", "message": f"Staged {path}"}, 200
+        flash(f"Staged {path}", "success")
+    except (PathNotAllowedError, git.GitCommandError) as exc:
+        if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+            return {"error": str(exc)}, 400
+        flash(f"Error: {exc}", "error")
+
+    return redirect(url_for("workspace.git_status", project_id=project_id, repo_id=repo_id))
+
+
+@bp.post("/git/unstage")
+def git_unstage_file(project_id: int, repo_id: int):
+    project, repo = _get_project_and_repo(project_id, repo_id)
+    path = request.form.get("path", "").strip()
+
+    if not path:
+        if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+            return {"error": "Path required"}, 400
+        flash("Path required", "error")
+        return redirect(url_for("workspace.git_status", project_id=project_id, repo_id=repo_id))
+
+    provider = HostExecutionProvider(
+        current_app.config["DATABASE_PATH"], current_app.config["ALLOWED_PROJECT_ROOTS"]
+    )
+    try:
+        git.unstage(
+            provider,
+            repo.path,
+            path,
+            allowed_roots=current_app.config["ALLOWED_PROJECT_ROOTS"],
+        )
+        if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+            return {"status": "success", "message": f"Unstaged {path}"}, 200
+        flash(f"Unstaged {path}", "success")
+    except (PathNotAllowedError, git.GitCommandError) as exc:
+        if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+            return {"error": str(exc)}, 400
+        flash(f"Error: {exc}", "error")
+
+    return redirect(url_for("workspace.git_status", project_id=project_id, repo_id=repo_id))

@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block title %}{{ repo.name }} - Git status{% endblock %}
+{% block content %}
+  <p><a href="{{ url_for('projects.view_project', project_id=project.id) }}">&larr; {{ project.name }}</a></p>
+  <h1>{{ repo.name }} - Git Status</h1>
+
+  <nav class="git-nav">
+    <a href="{{ url_for('workspace.browse', project_id=project.id, repo_id=repo.id) }}">Files</a>
+    <a href="{{ url_for('workspace.search_files', project_id=project.id, repo_id=repo.id) }}">Search</a>
+    <a href="{{ url_for('workspace.git_status', project_id=project.id, repo_id=repo.id) }}" aria-disabled="true">Status</a>
+    <a href="{{ url_for('workspace.git_log', project_id=project.id, repo_id=repo.id) }}">History</a>
+  </nav>
+
+  {% if status %}
+    {% if status.branch %}
+      <p>Branch: <strong>{{ status.branch }}</strong></p>
+    {% endif %}
+
+    {% if status.staged %}
+      <h2>Staged Changes ({{ status.staged|length }})</h2>
+      <table class="file-list">
+        <thead>
+          <tr>
+            <th>File</th>
+            <th>Status</th>
+            <th class="row-actions">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for file in status.staged %}
+            <tr data-row="staged-{{ file.path|replace('/', '-') }}">
+              <td>
+                <a href="{{ url_for('workspace.git_diff', project_id=project.id, repo_id=repo.id, path=file.path, staged=true) }}">
+                  {{ file.path }}
+                </a>
+              </td>
+              <td><code>{{ file.status }}</code></td>
+              <td class="row-actions">
+                <button class="link-danger" data-git-action="unstage" data-path="{{ file.path }}"
+                        data-url="{{ url_for('workspace.git_unstage_file', project_id=project.id, repo_id=repo.id) }}"
+                        data-row="staged-{{ file.path|replace('/', '-') }}">Unstage</button>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% endif %}
+
+    {% if status.unstaged %}
+      <h2>Unstaged Changes ({{ status.unstaged|length }})</h2>
+      <table class="file-list">
+        <thead>
+          <tr>
+            <th>File</th>
+            <th>Status</th>
+            <th class="row-actions">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for file in status.unstaged %}
+            <tr data-row="unstaged-{{ file.path|replace('/', '-') }}">
+              <td>
+                <a href="{{ url_for('workspace.git_diff', project_id=project.id, repo_id=repo.id, path=file.path, staged=false) }}">
+                  {{ file.path }}
+                </a>
+              </td>
+              <td><code>{{ file.status }}</code></td>
+              <td class="row-actions">
+                <a href="{{ url_for('workspace.view_file', project_id=project.id, repo_id=repo.id, path=file.path) }}">View</a>
+                <button class="link-danger" data-git-action="stage" data-path="{{ file.path }}"
+                        data-url="{{ url_for('workspace.git_stage_file', project_id=project.id, repo_id=repo.id) }}"
+                        data-row="unstaged-{{ file.path|replace('/', '-') }}">Stage</button>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% endif %}
+
+    {% if status.untracked %}
+      <h2>Untracked Files ({{ status.untracked|length }})</h2>
+      <table class="file-list">
+        <thead>
+          <tr>
+            <th>File</th>
+            <th class="row-actions">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for file in status.untracked %}
+            <tr data-row="untracked-{{ file.path|replace('/', '-') }}">
+              <td>
+                <a href="{{ url_for('workspace.view_file', project_id=project.id, repo_id=repo.id, path=file.path) }}">
+                  {{ file.path }}
+                </a>
+              </td>
+              <td class="row-actions">
+                <button class="link-danger" data-git-action="stage" data-path="{{ file.path }}"
+                        data-url="{{ url_for('workspace.git_stage_file', project_id=project.id, repo_id=repo.id) }}"
+                        data-row="untracked-{{ file.path|replace('/', '-') }}">Stage</button>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% endif %}
+
+    {% if not status.staged and not status.unstaged and not status.untracked %}
+      <p>Working tree is clean.</p>
+    {% endif %}
+  {% else %}
+    <p>Unable to get git status.</p>
+  {% endif %}
+{% endblock %}

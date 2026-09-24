@@ -255,6 +255,47 @@ def test_stop_session_redirects(client, app):
         assert b"Test Project" in resp.data or b"Chat" in resp.data or b"chat" in resp.data.lower()
 
 
+def test_delete_session_unknown(client):
+    """Deleting an unknown session redirects to the sessions list without error"""
+    resp = client.post(
+        "/sessions/999/delete",
+        follow_redirects=True,
+    )
+    assert resp.status_code == 200
+    assert b"Sessions" in resp.data
+
+
+def test_delete_session_removes_session_and_events(client, app):
+    """Deleting a session removes it (and its events) and redirects to the project view"""
+    from app.db import get_db
+    from app.agents.models import get_agent_session, list_agent_events
+    from app.projects import models as project_models
+
+    allowed_root = app.config["allowed_root"]
+    repo_path = os.path.join(allowed_root, "delete-test-repo")
+    os.makedirs(repo_path, exist_ok=True)
+
+    with app.app_context():
+        db = get_db()
+        project_id = project_models.create_project(db, "Delete Test Project", "")
+        project_models.add_repository(db, project_id, "main", repo_path, (allowed_root,), is_primary=True)
+
+        session_id = create_agent_session(
+            db, project_id, "fake", execution_target=repo_path, metadata={"repo_id": 1}
+        )
+        add_agent_event(db, session_id, "AgentText", data="hello")
+
+        resp = client.post(
+            f"/sessions/{session_id}/delete",
+            follow_redirects=True,
+        )
+        assert resp.status_code == 200
+        assert b"Delete Test Project" in resp.data
+
+        assert get_agent_session(db, session_id) is None
+        assert list_agent_events(db, session_id, after_id=0) == []
+
+
 def test_create_session_form_parsing(client, app):
     """Test that session creation properly handles repo_id form parameter"""
     from app.db import get_db
@@ -363,9 +404,12 @@ def test_codex_session_with_chat_interaction(client, app):
         session = sessions[0]
         session_id = session.id
 
-        # Verify session is initialized with Codex
+        # Verify session is initialized with Codex. `start()` runs the codex
+        # process synchronously, so by the time it returns the turn may
+        # already have finished (successfully or not) rather than still be
+        # RUNNING/STARTING.
         assert session.agent_type == "codex"
-        assert session.status in ("RUNNING", "STARTING")
+        assert session.status in ("RUNNING", "STARTING", "COMPLETED", "FAILED")
 
     # View the chat interface
     resp = client.get(f"/sessions/{session_id}")

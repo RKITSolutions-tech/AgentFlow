@@ -61,6 +61,11 @@ def update_project(
     db.commit()
 
 
+def delete_project(db: sqlite3.Connection, project_id: int) -> None:
+    db.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+    db.commit()
+
+
 def add_repository(
     db: sqlite3.Connection,
     project_id: int,
@@ -105,6 +110,11 @@ def get_project(db: sqlite3.Connection, project_id: int) -> Project | None:
     if row is None:
         return None
     return _hydrate_project(db, row)
+
+
+def delete_project(db: sqlite3.Connection, project_id: int) -> None:
+    db.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+    db.commit()
 
 
 def get_repository(db: sqlite3.Connection, project_id: int, repo_id: int) -> Repository | None:

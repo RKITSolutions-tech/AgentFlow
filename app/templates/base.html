@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}AgentFlow{% endblock %}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+  <script src="{{ url_for('static', filename='app.js') }}" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -17,6 +18,7 @@
     <a href="#" aria-disabled="true">Backlog</a>
     <a href="#" aria-disabled="true">Sprints</a>
     <a href="#" aria-disabled="true">Runs</a>
+    <a href="{{ url_for('settings.index') }}">Settings</a>
   </nav>
   <main class="content">
     {% with messages = get_flashed_messages(with_categories=true) %}
