@@ -178,10 +178,11 @@
               2,
               3
             ],
-            "details": "Implement persistent terminal that: (1) creates tmux sessions managed by HostExecutionProvider, (2) streams terminal output via server-sent events or WebSocket, (3) accepts user input and sends to tmux session, (4) supports multiple terminal tabs/panes within a session, (5) persists terminal session ID in browser storage and resumes on reconnect, (6) validates working directory against allowed repository roots, (7) maintains scrollback buffer accessible after reconnect, (8) supports killing/restarting tmux sessions, (9) provides mobile-friendly terminal interface with touch keyboard support, (10) respects environment filtering from HostExecutionProvider configuration.",
-            "status": "pending",
+            "details": "Implement persistent terminal that: (1) creates tmux sessions managed by HostExecutionProvider, (2) streams terminal output via server-sent events or WebSocket, (3) accepts user input and sends to tmux session, (4) supports multiple terminal tabs/panes within a session, (5) persists terminal session ID in browser storage and resumes on reconnect, (6) validates working directory against allowed repository roots, (7) maintains scrollback buffer accessible after reconnect, (8) supports killing/restarting tmux sessions, (9) provides mobile-friendly terminal interface with touch keyboard support, (10) respects environment filtering from HostExecutionProvider configuration.\n<info added on 2026-09-24T14:28:30.912Z>\nPer tmux session, persist all terminal output and events in the ProcessEvent table (session_id as key), reusing the execution/models.py event-resume pattern to allow terminal history replay after browser reconnect. Terminal user input is sent as live shell input directly to the tmux session. Support interactive control: clear screen, Ctrl+C interrupt, and session exit/kill commands. Maintain full terminal history across reconnections for seamless session resume.\n</info added on 2026-09-24T14:28:30.912Z>\n<info added on 2026-09-24T14:59:03.220Z>\nImplemented per the approved plan (plan file: toasty-dreaming-torvalds.md). Summary of changes:\n\nSchema: added terminal_sessions and terminal_events tables to app/db.py using idempotent CREATE TABLE IF NOT EXISTS statements (no migration framework in this repo).\n\napp/workspace/terminal_models.py: DB CRUD operations mirroring app/execution/models.py conventions with create/get/list/set_status/touch for sessions and add/list with after_id resume for events.\n\napp/workspace/terminal.py: drives tmux entirely through one-shot CLI commands via ExecutionProvider.execute() (new-session, send-keys -l for literal text, send-keys with allowlisted control keys, pipe-pane -o to mirror pane output to file, has-session for liveness, kill-session). No PTY support added to HostExecutionProvider itself; tmux supplies the PTY. Module-level _TerminalManager (lock-guarded dict of daemon tailer threads) tails each session's pipe-pane output file and writes ANSI-stripped chunks into terminal_events. ensure_running() lazily restarts a tailer or marks a session LOST if the tmux server is gone after an AgentFlow restart; the tmux session itself survives because it's a separate OS process.\n\nRoutes added to app/workspace/routes.py: GET/POST /terminal, GET /terminal/<id>/stream (after_id polling, text/event-stream matching app/sessions/routes.py's /stream shape), POST /terminal/<id>/input (JSON {text} or {key}), POST /terminal/<id>/kill. Every route re-validates term.repo_id == repo_id (404 on mismatch).\n\napp/templates/workspace/terminal.html and app.css additions: plain-text scrollback (no xterm.js per explicit user decision, dependency-free per CLAUDE.md), tab bar with multiple independent tmux sessions per repo, touch-sized Ctrl+C/Tab/Esc/arrow key buttons, JS polling pattern copied from chat.html (fetch + after_id, not a real EventSource), localStorage persists only last-active tab id per repo for UX; full reconnection relies on DB-backed terminal_events history via after_id=0.\n\nTerminal link added to the existing repeated .git-nav block in git_status.html/git_diff.html/git_log.html. browse.html and search.html integration deferred to subtask 5.5.\n\ntests/test_workspace_terminal.py: whole file skipif(shutil.which('tmux') is None) per CodexAdapter test convention. All 8 new tests skip cleanly when tmux is absent. Full suite: 98 passed / 16 skipped / 5 failed; the 5 failures are pre-existing Playwright e2e tests unrelated to this change (net::ERR_SOCKET_NOT_CONNECTED, confirmed identical on main before this change).\n\nVerified with Flask test client (tmux absent): GET /terminal renders correctly in empty state; POST /terminal fails gracefully with 400 JSON error when tmux is unavailable, not 500.\n\nKnown limitation: no idle-timeout auto-kill of abandoned tmux sessions yet (not required by subtask test strategy, flagged rather than silently skipped).\n\nPending: full manual end-to-end smoke test (create session, run command, reload page, confirm reconnection, kill/restart) and mobile/desktop visual check—blocked on tmux installation and Playwright localhost limitations. User should install tmux and perform manual pass, or request re-verification once available.\n</info added on 2026-09-24T14:59:03.220Z>\n<info added on 2026-09-24T15:21:10.459Z>\nFixed a critical bug discovered during manual end-to-end testing: after simulating an AgentFlow process restart (kill + restart the wsgi process while the tmux session survives), the lazily-recovered tailer thread re-read the pipe-pane output file from byte 0 instead of resuming where it left off, causing duplicate terminal_events rows on reconnect. Root cause: pipe file offset was not tracked. Solution: added pipe_offset column to terminal_sessions, atomically updated with each output chunk via new terminal_models.record_output_chunk() function (single commit ensures consistency across crash scenarios). The _tail_pipe() function now seeks to the session's last known pipe_offset on start, enabling clean tailer restarts. Added regression test test_tailer_restart_resumes_without_duplicating_output to prevent reoccurrence.\n\nFull verification completed with tmux installed:\n- tests/test_workspace_terminal.py: all 9 tests pass (8 original + 1 regression test), run 3x back-to-back with no flakiness\n- Full suite: 107 passed, 8 skipped, 5 failed (same 5 pre-existing Playwright e2e failures unrelated to this change)\n- No tmux session or pipe-file leaks after test runs\n- Manual end-to-end smoke test against a live dev server: created session, sent command, verified output, killed and restarted AgentFlow process, confirmed tmux session survived, tailer resumed with zero duplicate events, new commands land correctly, killed session emits status event, unknown repo returns 404, terminal page tab list shows killed tab with terminal-tab-dead class\n\nAll 10 subtask requirements implemented and verified: (1) tmux sessions via HostExecutionProvider, (2) output streaming, (3) input handling, (4) multiple terminal tabs, (5) browser storage + resume-on-reconnect, (6) working-directory validation, (7) scrollback after reconnect, (8) kill/restart support, (9) mobile-friendly touch controls, (10) HostExecutionProvider env filtering\n\nKnown gap: responsive CSS layout (mobile 375px / desktop 1280px) written per existing chat-page/git-nav patterns with media query block added, but visual verification in actual browser deferred due to Playwright sandbox localhost limitation (pre-existing, also blocks other e2e tests). User should perform visual check in a real browser when time permits.\n</info added on 2026-09-24T15:21:10.459Z>",
+            "status": "done",
             "testStrategy": "Integration tests verifying: tmux session created and persists across requests, output streams correctly, input sent to terminal executes commands, browser disconnect doesn't lose session state, reconnect resumes from previous position, multiple tabs work independently, mobile keyboard interaction functions, working directory validation prevents escape, session cleanup on logout/timeout.",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2026-09-24T15:21:21.707Z"
           },
           {
             "id": 5,
@@ -199,74 +200,89 @@
             "parentId": "undefined"
           },
           {
-            "id": 6,
-            "title": "Implement file browser with safe loading and mobile support",
-            "description": "Build repository-scoped file browsing interface that displays directory trees, opens files for viewing, and safely handles large/binary files.",
-            "dependencies": [
-              1,
-              2
-            ],
-            "details": "Create file browser component that: (1) displays directory tree structure rooted in project repository, (2) validates all file paths via Project repository validation, (3) implements file view with syntax highlighting for text files, (4) avoids loading files larger than 5MB into memory, (5) detects and gracefully handles binary files, (6) provides file open/close actions, (7) integrates with Git diff viewer to link changed files, (8) implements responsive layout for desktop (sidebar tree + content pane) and mobile (collapsible tree, full-width content), (9) executes browse operations via HostExecutionProvider for consistency.",
-            "status": "pending",
-            "testStrategy": "Unit tests for path validation preventing escape attempts, integration tests verifying large files are detected without loading, binary file detection, and mobile/desktop responsive layout. Verify changed files from Git status can be opened directly in file browser.",
-            "parentId": "undefined"
-          },
-          {
-            "id": 7,
-            "title": "Implement repository-scoped file search with filtering",
-            "description": "Build search functionality allowing users to find files and content within the project repository with result filtering and navigation.",
-            "dependencies": [
-              1,
-              2,
-              6
-            ],
-            "details": "Create search component that: (1) executes ripgrep or similar via HostExecutionProvider for performant content search, (2) supports file name search via find command, (3) filters results by file type, (4) displays search results with file path, line number, and context snippet, (5) links search results to file browser to open matching files, (6) implements search result pagination or lazy loading for large result sets, (7) provides mobile-friendly result list with tap targets, (8) validates all file paths against Project repository roots, (9) respects .gitignore patterns to avoid searching excluded files.",
-            "status": "pending",
-            "testStrategy": "Integration tests verifying ripgrep execution returns correct results, file name search works, results link correctly to file browser, path validation prevents searching outside repository roots. Verify pagination/lazy loading works for large result sets and mobile layout is usable.",
-            "parentId": "undefined"
-          },
-          {
-            "id": 8,
-            "title": "Implement Git operations (status, diff, log, staging)",
-            "description": "Build Git interface supporting status view, diff visualization, commit history, and staging/unstaging workflow.",
-            "dependencies": [
-              1,
-              2,
-              6
-            ],
-            "details": "Create Git operations component that: (1) displays git status showing modified/untracked files with status badges, (2) implements diff viewer showing file changes with unified or side-by-side view, (3) displays commit log with author, date, message via git log, (4) supports viewing individual commit details and changes, (5) implements staging/unstaging individual files via git add/reset, (6) supports hunk-level staging when practical, (7) integrates changed-file links to open diff viewer and file view, (8) validates all file paths via existing Project repository validation, (9) executes git commands via HostExecutionProvider, (10) handles git errors gracefully with user-facing messages, (11) implements responsive layout for diff viewer on mobile (scrollable, readable font sizes).",
-            "status": "pending",
-            "testStrategy": "Integration tests for git status parsing, diff viewer correctness with various file types, commit log display, staging/unstaging workflows. Verify path validation prevents git operations on files outside repository. Test changed-file links navigate correctly. Verify diff viewer is readable on narrow mobile screens with scrolling support.",
-            "parentId": "undefined"
-          },
-          {
             "id": 9,
             "title": "Implement commit workflow with message editing and history persistence",
             "description": "Build commit interface allowing users to compose commit messages, stage changes, and create commits with full history persistence.",
             "dependencies": [
               2,
-              8
+              "5.3"
             ],
             "details": "Create commit component that: (1) provides text area for composing commit messages with real-time validation, (2) shows summary of staged changes before committing, (3) executes git commit via HostExecutionProvider, (4) handles commit failures with clear error messages, (5) persists commit history in AgentSession records for audit trail, (6) supports amending recent commits when appropriate, (7) validates commit message length and format, (8) implements responsive form layout for mobile devices, (9) provides quick-action buttons for common messages (e.g., 'feat:', 'fix:', 'refactor:'), (10) links commits back to Git log viewer.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "Integration tests verifying commit creation, message validation, staged-changes display, and error handling. Test commit history persistence in database. Verify amend functionality works correctly. Test responsive form layout on mobile. Verify commits appear in git log after creation.",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2026-09-24T20:06:34.190Z"
           },
           {
-            "id": 10,
-            "title": "Implement reconnectable tmux-backed terminal with mobile support",
-            "description": "Build persistent terminal interface using tmux backend that survives browser disconnect/reconnect and works on mobile.",
+            "id": 7,
+            "title": "Implement file browser and safe file loading",
+            "description": "Build repository-scoped file browsing with safety checks for large and binary files, preventing them from loading into the normal editor.",
             "dependencies": [
               1,
               2
             ],
-            "details": "Create terminal component that: (1) spawns tmux session per project workspace via HostExecutionProvider, (2) captures terminal output stream and persists events in ProcessEvent table keyed by session, (3) implements WebSocket or SSE connection for live output delivery, (4) supports browser reconnection by resuming from last event position (using execution/models.py event-resume pattern), (5) implements terminal input via shell command submission, (6) handles tmux session lifecycle (create, destroy, reconnect), (7) validates working directory via Project repository validation, (8) implements mobile-friendly terminal: fixed-height viewport with scrolling, legible font size, tap-friendly input controls, (9) supports basic terminal features: clear screen, interrupt (Ctrl+C), exit, (10) persists terminal history for session replay.",
+            "details": "Create file browser UI component that: (1) displays directory tree limited to repository root, (2) validates all file paths against allowed repository roots, (3) implements file size detection to avoid loading files >5MB, (4) detects binary files using magic bytes or file extension analysis, (5) provides safe preview/download options for large/binary files, (6) implements responsive layout for mobile with collapsible tree and scrollable pane, (7) includes file metadata display (size, type, modified date), (8) handles errors gracefully when files are deleted or permissions change.",
             "status": "pending",
-            "testStrategy": "Integration tests verifying tmux session creation and command execution, event persistence and resume-from-position recovery, WebSocket/SSE reconnection handling. Test browser disconnect/reconnect cycle maintains terminal state. Verify working directory validation prevents escape. Test mobile viewport usability with small screen widths (375px). Verify terminal history is persisted and retrievable.",
+            "testStrategy": "Unit tests for path validation and binary detection; integration tests verifying files outside allowed roots are rejected, large files show warning instead of loading, binary files display appropriate message, and responsive behavior on mobile viewports (375px).",
+            "parentId": "undefined"
+          },
+          {
+            "id": 8,
+            "title": "Implement project-wide file search functionality",
+            "description": "Add full-text search across repository files with filtering, highlighting, and safe handling of binary and large files.",
+            "dependencies": [
+              1,
+              2,
+              7
+            ],
+            "details": "Create search component that: (1) provides search input with real-time or debounced query execution, (2) searches file content using grep or ripgrep subprocess via HostExecutionProvider, (3) filters results to exclude binary and large files from content search, (4) displays results with file path, line number, and matching context, (5) implements result pagination or lazy loading for large result sets, (6) includes filter options (file type, path prefix), (7) links search results to file editor and diff views, (8) implements responsive result display for mobile with collapsible result items, (9) persists search history in session/user preferences.",
+            "status": "pending",
+            "testStrategy": "Integration tests verifying search executes within repository boundary, binary files are excluded from results, results are correctly linked to file views, and large result sets are handled efficiently. Test responsive layout on mobile and desktop viewports.",
+            "parentId": "undefined"
+          },
+          {
+            "id": 9,
+            "title": "Implement Git operations module (status, diff, log, stage, unstage)",
+            "description": "Build Git command execution layer providing status, diff, log viewing and stage/unstage operations with proper error handling and history persistence.",
+            "dependencies": [
+              1,
+              2
+            ],
+            "details": "Create Git operations module that: (1) executes git status, git diff, git log via HostExecutionProvider, (2) parses output into structured data (file status, diff hunks, commit metadata), (3) provides endpoints for staging and unstaging files via 'git add' and 'git restore --staged', (4) implements diff viewing with side-by-side or unified format, (5) handles merge conflicts and detached HEAD states with appropriate messages, (6) persists Git operation results in AgentSession/AgentEvent records for audit trail, (7) implements error handling for permission issues and command failures, (8) validates working directory matches repository root before execution.",
+            "status": "pending",
+            "testStrategy": "Integration tests verifying Git commands execute only within allowed repository roots, status/diff/log output is correctly parsed, staging/unstaging operations succeed and fail appropriately, and changes are visible in subsequent status calls. Test with various Git states (clean, modified, staged, untracked, merge conflicts).",
+            "parentId": "undefined"
+          },
+          {
+            "id": 10,
+            "title": "Implement persistent tmux-backed terminal with reconnection support",
+            "description": "Build reconnectable terminal interface backed by tmux sessions, maintaining state across browser disconnects and supporting command execution within repository boundaries.",
+            "dependencies": [
+              1,
+              2
+            ],
+            "details": "Create terminal system that: (1) creates and manages tmux sessions per project/user, (2) sets tmux session working directory to repository root, (3) executes commands via HostExecutionProvider with proper environment filtering, (4) streams terminal output using WebSocket or Server-Sent Events with event position tracking, (5) implements reconnection logic allowing clients to resume from last known event position, (6) persists terminal session identifiers in AgentSession records, (7) implements input/output history storage in ProcessEvent records, (8) handles tmux session cleanup on user logout or timeout, (9) implements responsive terminal UI for mobile with appropriate scaling and touch-friendly controls, (10) supports terminal resizing and proper PTY configuration.",
+            "status": "pending",
+            "testStrategy": "Integration tests verifying terminal commands execute within repository boundary, tmux session persists across browser tab close/reconnect, output history is available after reconnection, session cleanup occurs properly, and terminal resizing works. Test on mobile and desktop viewports with various command types (interactive, long-running, failing).",
+            "parentId": "undefined"
+          },
+          {
+            "id": 11,
+            "title": "Link changed files to diff views and implement responsive UI integration",
+            "description": "Connect file browser, Git operations, and editor with bidirectional links between changed files and their diffs, ensuring all features work on mobile and desktop.",
+            "dependencies": [
+              7,
+              8,
+              9,
+              10
+            ],
+            "details": "Create UI integration layer that: (1) highlights changed files in file browser based on Git status (modified, staged, untracked), (2) provides click-to-view-diff links from file listings and status displays, (3) links diff view results back to file editor for navigation, (4) implements responsive layout for mobile (375px) where diff and file view stack vertically and are switchable, (5) reuses .table-compact class for dense file listings, (6) places row-level actions (stage, view diff) in .row-actions cells that wrap on mobile, (7) implements touch-friendly tap targets (44px minimum), (8) prevents horizontal scrolling on mobile through text wrapping and overflow handling, (9) integrates all tools (file browser, search, Git, terminal) into cohesive workspace navigation, (10) ensures all actions are keyboard-accessible and screen-reader compatible.",
+            "status": "pending",
+            "testStrategy": "Integration tests verifying changed files display correctly in browser, diff links open correct comparison views, file links navigate to editor, and all features maintain usability at 375px and 1280px viewports. Test touch interaction on mobile, keyboard navigation, and AJAX action patterns (data-ajax-action) for non-full-page updates.",
             "parentId": "undefined"
           }
         ],
-        "updatedAt": "2026-09-24T14:15:28.731Z"
+        "updatedAt": "2026-09-24T20:06:34.190Z"
       },
       {
         "id": "6",
@@ -333,7 +349,7 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-09-24T14:15:28.731Z",
+      "lastModified": "2026-09-24T20:06:34.190Z",
       "taskCount": 9,
       "completedCount": 4,
       "tags": [

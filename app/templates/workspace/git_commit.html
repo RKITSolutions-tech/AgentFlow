@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{% block title %}{{ repo.name }} - Create commit{% endblock %}
+{% block content %}
+  <p><a href="{{ url_for('projects.view_project', project_id=project.id) }}">&larr; {{ project.name }}</a></p>
+  <h1>{{ repo.name }} - Create Commit</h1>
+
+  <nav class="git-nav">
+    <a href="{{ url_for('workspace.browse', project_id=project.id, repo_id=repo.id) }}">Files</a>
+    <a href="{{ url_for('workspace.search_files', project_id=project.id, repo_id=repo.id) }}">Search</a>
+    <a href="{{ url_for('workspace.git_status', project_id=project.id, repo_id=repo.id) }}">Status</a>
+    <a href="{{ url_for('workspace.git_log', project_id=project.id, repo_id=repo.id) }}">History</a>
+    <a href="{{ url_for('workspace.terminal_page', project_id=project.id, repo_id=repo.id) }}">Terminal</a>
+    <a href="{{ url_for('workspace.git_commit_page', project_id=project.id, repo_id=repo.id) }}" aria-disabled="true">Commit</a>
+  </nav>
+
+  {% if status and status.staged %}
+    <div class="commit-form">
+      <form method="POST" action="{{ url_for('workspace.git_create_commit', project_id=project.id, repo_id=repo.id) }}">
+        <fieldset>
+          <legend>Commit Message</legend>
+
+          <div class="commit-shortcuts">
+            <label>Quick start:</label>
+            <button type="button" data-prefix="feat: ">feat:</button>
+            <button type="button" data-prefix="fix: ">fix:</button>
+            <button type="button" data-prefix="refactor: ">refactor:</button>
+            <button type="button" data-prefix="test: ">test:</button>
+            <button type="button" data-prefix="docs: ">docs:</button>
+            <button type="button" data-prefix="chore: ">chore:</button>
+          </div>
+
+          <textarea name="message" id="commit-message" placeholder="Describe your changes..." rows="6" maxlength="1000" required autofocus></textarea>
+          <p class="char-count"><span id="char-count">0</span>/1000</p>
+
+          {% if last_commit %}
+            <label>
+              <input type="checkbox" name="amend" value="true">
+              Amend previous commit ({{ last_commit.short_hash }})
+            </label>
+          {% endif %}
+
+          <div class="form-actions">
+            <button type="submit" class="btn-primary">Create Commit</button>
+            <a href="{{ url_for('workspace.git_status', project_id=project.id, repo_id=repo.id) }}" class="btn-secondary">Cancel</a>
+          </div>
+        </fieldset>
+      </form>
+
+      <h2>Staged Changes ({{ status.staged|length }})</h2>
+      <table class="file-list table-compact">
+        <thead>
+          <tr>
+            <th>File</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for file in status.staged %}
+            <tr>
+              <td>
+                <a href="{{ url_for('workspace.git_diff', project_id=project.id, repo_id=repo.id, path=file.path, staged=true) }}">
+                  {{ file.path }}
+                </a>
+              </td>
+              <td><code>{{ file.status }}</code></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="empty-state">
+      {% if status %}
+        <p>No staged changes to commit.</p>
+        <p>
+          <a href="{{ url_for('workspace.git_status', project_id=project.id, repo_id=repo.id) }}">Go to status</a>
+          to stage files first.
+        </p>
+      {% else %}
+        <p>Unable to load repository status.</p>
+      {% endif %}
+    </div>
+  {% endif %}
+
+  <script>
+    const messageInput = document.getElementById('commit-message');
+    const charCount = document.getElementById('char-count');
+    const prefixButtons = document.querySelectorAll('[data-prefix]');
+
+    messageInput?.addEventListener('input', () => {
+      charCount.textContent = messageInput.value.length;
+    });
+
+    prefixButtons.forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        const prefix = btn.dataset.prefix;
+        const start = messageInput.selectionStart;
+        const end = messageInput.selectionEnd;
+        const before = messageInput.value.substring(0, start);
+        const after = messageInput.value.substring(end);
+
+        if (start === 0 && !messageInput.value.startsWith(prefix)) {
+          messageInput.value = prefix + messageInput.value;
+          messageInput.selectionStart = prefix.length;
+        } else {
+          messageInput.value = before + prefix + after;
+          messageInput.selectionStart = start + prefix.length;
+        }
+        messageInput.focus();
+        charCount.textContent = messageInput.value.length;
+      });
+    });
+  </script>
+{% endblock %}

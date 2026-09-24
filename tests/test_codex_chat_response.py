@@ -8,7 +8,7 @@ import shutil
     shutil.which("codex") is None,
     reason="Codex binary not installed"
 )
-def test_codex_message_and_response(app, client):
+def test_codex_message_and_response(app, client, live_server):
     """Test sending a message to Codex and receiving a response.
 
     This test:
@@ -90,7 +90,7 @@ def test_codex_message_and_response(app, client):
 
             # Navigate to chat
             print(f"\n5️⃣  Navigating to Codex chat (session {session_id})...")
-            page.goto(f"http://127.0.0.1:5000/sessions/{session_id}")
+            page.goto(f"{live_server}/sessions/{session_id}")
             page.wait_for_selector("#chatContainer", timeout=5000)
             print("   ✅ Chat interface loaded")
 

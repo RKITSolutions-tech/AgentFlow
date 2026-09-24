@@ -9,6 +9,8 @@
     <a href="{{ url_for('workspace.search_files', project_id=project.id, repo_id=repo.id) }}">Search</a>
     <a href="{{ url_for('workspace.git_status', project_id=project.id, repo_id=repo.id) }}" aria-disabled="true">Status</a>
     <a href="{{ url_for('workspace.git_log', project_id=project.id, repo_id=repo.id) }}">History</a>
+    <a href="{{ url_for('workspace.git_commit_page', project_id=project.id, repo_id=repo.id) }}">Commit</a>
+    <a href="{{ url_for('workspace.terminal_page', project_id=project.id, repo_id=repo.id) }}">Terminal</a>
   </nav>
 
   {% if status %}
@@ -17,7 +19,9 @@
     {% endif %}
 
     {% if status.staged %}
-      <h2>Staged Changes ({{ status.staged|length }})</h2>
+      <h2>Staged Changes ({{ status.staged|length }})
+        <a href="{{ url_for('workspace.git_commit_page', project_id=project.id, repo_id=repo.id) }}" style="font-size: 0.9rem; font-weight: normal; margin-left: 1rem;">→ Create commit</a>
+      </h2>
       <table class="file-list">
         <thead>
           <tr>

@@ -9,7 +9,7 @@ import time
     shutil.which("codex") is None,
     reason="Codex binary not installed"
 )
-def test_send_hello_get_codex_response(app, client):
+def test_send_hello_get_codex_response(app, client, live_server):
     """Send 'hello' to Codex via UI and capture the response.
 
     Steps:
@@ -102,7 +102,7 @@ def test_send_hello_get_codex_response(app, client):
                 print(f"   📟 Console: {msg.text}")
             page.on("console", on_console)
 
-            page.goto(f"http://127.0.0.1:5000/sessions/{session_id}")
+            page.goto(f"{live_server}/sessions/{session_id}")
             page.wait_for_selector("#chatContainer", timeout=5000)
             print("   ✅ Chat loaded")
 

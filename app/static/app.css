@@ -210,6 +210,162 @@ textarea.editor {
 .commit-author { font-weight: 500; }
 .commit-date { color: #999; }
 
+/* Persistent terminal */
+.terminal-page { display: flex; flex-direction: column; height: calc(100vh - 180px); gap: 0.5rem; }
+.terminal-tabs { display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center; }
+.terminal-tab {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.3rem 0.3rem 0.7rem;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background: #f3f4f6;
+  cursor: pointer;
+}
+.terminal-tab-label { border: none; background: none; padding: 0.2rem 0; font: inherit; cursor: pointer; }
+.terminal-tab-kill {
+  border: none;
+  background: none;
+  color: #991b1b;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0.3rem 0.4rem;
+  cursor: pointer;
+  min-width: 2rem;
+  min-height: 2rem;
+}
+.terminal-tab-active { border-color: #007bff; background: #e7f1ff; }
+.terminal-tab-dead { opacity: 0.6; font-style: italic; }
+.terminal-new-tab {
+  padding: 0.4rem 0.8rem;
+  border: 1px dashed #999;
+  border-radius: 4px;
+  background: none;
+  cursor: pointer;
+  font: inherit;
+}
+
+.terminal-outputs { flex: 1; min-height: 0; }
+.terminal-output {
+  display: none;
+  height: 100%;
+  margin: 0;
+  padding: 0.75rem;
+  overflow-y: auto;
+  background: #1e1e1e;
+  color: #e5e7eb;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 0.85rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+  border-radius: 4px;
+}
+.terminal-placeholder { color: #666; }
+
+.terminal-input-row { display: flex; gap: 0.5rem; flex-shrink: 0; }
+.terminal-input {
+  flex: 1;
+  padding: 0.6rem;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font: inherit;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+}
+.terminal-send { padding: 0.6rem 1.2rem; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font: inherit; }
+.terminal-input:disabled, .terminal-send:disabled, .terminal-key-buttons button:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.terminal-key-buttons { display: flex; gap: 0.4rem; flex-wrap: wrap; flex-shrink: 0; }
+.terminal-key-buttons button {
+  padding: 0.5rem 0.7rem;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background: #f9f9f9;
+  font: inherit;
+  cursor: pointer;
+  min-height: 2.5rem;
+  min-width: 2.75rem;
+}
+
+.commit-form { margin: 1rem 0; }
+.commit-form fieldset { border: 1px solid #ddd; padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem; }
+.commit-form legend { padding: 0 0.5rem; font-weight: 600; }
+
+.commit-shortcuts {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+.commit-shortcuts label { margin: 0; font-weight: 600; }
+.commit-shortcuts button {
+  padding: 0.35rem 0.65rem;
+  background: #f3f4f6;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+.commit-shortcuts button:hover { background: #e5e7eb; }
+
+#commit-message {
+  width: 100%;
+  font-family: ui-monospace, monospace;
+  padding: 0.5rem;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  resize: vertical;
+}
+
+.char-count {
+  margin: 0.35rem 0 0.75rem;
+  font-size: 0.8rem;
+  color: #666;
+}
+
+.form-actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  flex-wrap: wrap;
+}
+
+.btn-primary {
+  padding: 0.5rem 1rem;
+  background: #007bff;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font: inherit;
+  min-height: 44px;
+}
+.btn-primary:hover { background: #0056b3; }
+
+.btn-secondary {
+  padding: 0.5rem 1rem;
+  background: #f3f4f6;
+  color: #1a1a1a;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  min-height: 44px;
+}
+.btn-secondary:hover { background: #e5e7eb; }
+
+.empty-state {
+  padding: 2rem 1rem;
+  text-align: center;
+  color: #666;
+}
+
 @media (max-width: 640px) {
   .nav-toggle { display: block; }
   .primary-nav {
@@ -221,4 +377,7 @@ textarea.editor {
   .git-nav a { display: block; width: 100%; }
   .commit-header { flex-direction: column; align-items: flex-start; }
   .commit-message { width: 100%; }
+  .terminal-page { height: calc(100vh - 220px); }
+  .terminal-input-row { flex-direction: column; }
+  .terminal-key-buttons button { flex: 1 1 auto; }
 }

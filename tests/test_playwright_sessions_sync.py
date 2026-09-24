@@ -3,7 +3,7 @@ import os
 import pytest
 
 
-def test_sessions_page_with_playwright(browser_type_launch_args, app, client):
+def test_sessions_page_with_playwright(browser_type_launch_args, app, client, live_server):
     """Test sessions page loads with Playwright (synchronous)."""
     # Create a project first
     from app.db import get_db
@@ -46,8 +46,8 @@ def test_sessions_page_with_playwright(browser_type_launch_args, app, client):
             print("✅ Browser context created")
 
             # Navigate to sessions page
-            print("📍 Navigating to http://127.0.0.1:5000/sessions")
-            page.goto("http://127.0.0.1:5000/sessions")
+            print(f"📍 Navigating to {live_server}/sessions")
+            page.goto(f"{live_server}/sessions")
             print("✅ Page loaded")
 
             # Check page content
@@ -71,7 +71,7 @@ def test_sessions_page_with_playwright(browser_type_launch_args, app, client):
         pytest.skip(f"Playwright browser error: {e}")
 
 
-def test_chat_interface_with_playwright(browser_type_launch_args, app, client):
+def test_chat_interface_with_playwright(browser_type_launch_args, app, client, live_server):
     """Test chat interface loads with Playwright (synchronous)."""
     from app.db import get_db
     from app.projects import models as project_models
@@ -117,7 +117,7 @@ def test_chat_interface_with_playwright(browser_type_launch_args, app, client):
 
             # Navigate to chat
             print(f"📍 Navigating to chat page (session {session_id})")
-            page.goto(f"http://127.0.0.1:5000/sessions/{session_id}")
+            page.goto(f"{live_server}/sessions/{session_id}")
             print("✅ Chat page loaded")
 
             # Check for chat elements

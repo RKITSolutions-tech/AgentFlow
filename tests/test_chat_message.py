@@ -3,7 +3,7 @@ import os
 import pytest
 
 
-def test_send_and_display_chat_message(app, client):
+def test_send_and_display_chat_message(app, client, live_server):
     """Test sending a chat message and verifying it displays.
 
     Steps:
@@ -72,7 +72,7 @@ def test_send_and_display_chat_message(app, client):
 
             # Navigate to chat page
             print(f"\n4️⃣  Navigating to chat page (session {session_id})...")
-            page.goto(f"http://127.0.0.1:5000/sessions/{session_id}")
+            page.goto(f"{live_server}/sessions/{session_id}")
             print("   ✅ Chat page loaded")
 
             # Wait for chat interface to load
@@ -157,7 +157,7 @@ def test_send_and_display_chat_message(app, client):
         raise
 
 
-def test_chat_form_input_and_state(app, client):
+def test_chat_form_input_and_state(app, client, live_server):
     """Test chat form state and input validation."""
     from app.db import get_db
     from app.projects import models as project_models
@@ -201,7 +201,7 @@ def test_chat_form_input_and_state(app, client):
             page = context.new_page()
 
             # Navigate to chat
-            page.goto(f"http://127.0.0.1:5000/sessions/{session_id}")
+            page.goto(f"{live_server}/sessions/{session_id}")
             print("✅ Chat page loaded")
 
             # Test 1: Input field exists and is empty

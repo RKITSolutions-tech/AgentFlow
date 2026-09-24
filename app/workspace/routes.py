@@ -1,12 +1,24 @@
 from __future__ import annotations
 
-from flask import Blueprint, abort, current_app, flash, redirect, render_template, request, url_for
+import json
+
+from flask import (
+    Blueprint,
+    abort,
+    current_app,
+    flash,
+    redirect,
+    render_template,
+    request,
+    stream_with_context,
+    url_for,
+)
 
 from app.db import get_db
 from app.execution.host import HostExecutionProvider
 from app.projects import models as project_models
 from app.security import PathNotAllowedError
-from app.workspace import files, git, search
+from app.workspace import files, git, search, terminal, terminal_models
 
 bp = Blueprint(
     "workspace",
@@ -273,6 +285,115 @@ def git_stage_file(project_id: int, repo_id: int):
     return redirect(url_for("workspace.git_status", project_id=project_id, repo_id=repo_id))
 
 
+def _get_terminal_session(project_id: int, repo_id: int, term_id: int):
+    _get_project_and_repo(project_id, repo_id)
+    db = get_db()
+    session = terminal_models.get_terminal_session(db, term_id)
+    if session is None or session.repo_id != repo_id:
+        abort(404)
+    return db, session
+
+
+@bp.get("/terminal")
+def terminal_page(project_id: int, repo_id: int):
+    project, repo = _get_project_and_repo(project_id, repo_id)
+    sessions = terminal_models.list_terminal_sessions(get_db(), repo_id)
+    return render_template(
+        "workspace/terminal.html",
+        project=project,
+        repo=repo,
+        sessions=sessions,
+    )
+
+
+@bp.post("/terminal")
+def create_terminal(project_id: int, repo_id: int):
+    project, repo = _get_project_and_repo(project_id, repo_id)
+    db = get_db()
+    label = request.values.get("label", "").strip()
+
+    provider = HostExecutionProvider(
+        current_app.config["DATABASE_PATH"], current_app.config["ALLOWED_PROJECT_ROOTS"]
+    )
+    try:
+        session = terminal.create_session(
+            provider,
+            db,
+            current_app.config["DATABASE_PATH"],
+            repo_id,
+            repo.path,
+            current_app.config["ALLOWED_PROJECT_ROOTS"],
+            label=label,
+        )
+    except (PathNotAllowedError, terminal.TerminalError) as exc:
+        return {"error": str(exc)}, 400
+
+    return {
+        "status": "success",
+        "id": session.id,
+        "label": session.label,
+    }, 201
+
+
+@bp.get("/terminal/<int:term_id>/stream")
+def terminal_stream(project_id: int, repo_id: int, term_id: int):
+    db, session = _get_terminal_session(project_id, repo_id, term_id)
+    after_id = request.args.get("after_id", type=int, default=0)
+
+    if session.status == "RUNNING":
+        provider = HostExecutionProvider(
+            current_app.config["DATABASE_PATH"], current_app.config["ALLOWED_PROJECT_ROOTS"]
+        )
+        terminal.ensure_running(provider, db, current_app.config["DATABASE_PATH"], session)
+        session = terminal_models.get_terminal_session(db, term_id)
+
+    events = terminal_models.list_terminal_events(db, term_id, after_id=after_id)
+
+    def generate():
+        for event in events:
+            payload = json.dumps({"id": event.id, "data": event.data})
+            yield f"data: {payload}\n\n"
+        if session.status != "RUNNING":
+            payload = json.dumps({"id": None, "status": session.status})
+            yield f"data: {payload}\n\n"
+
+    return stream_with_context(generate()), 200, {"Content-Type": "text/event-stream"}
+
+
+@bp.post("/terminal/<int:term_id>/input")
+def terminal_input(project_id: int, repo_id: int, term_id: int):
+    db, session = _get_terminal_session(project_id, repo_id, term_id)
+    payload = request.get_json(silent=True) or {}
+    text = payload.get("text")
+    key = payload.get("key")
+    if text is None and key is None:
+        return {"error": "text or key required"}, 400
+
+    provider = HostExecutionProvider(
+        current_app.config["DATABASE_PATH"], current_app.config["ALLOWED_PROJECT_ROOTS"]
+    )
+    try:
+        terminal.send_input(provider, db, session, text=text, key=key)
+    except terminal.TerminalError as exc:
+        return {"error": str(exc)}, 400
+
+    return {"status": "success"}, 200
+
+
+@bp.post("/terminal/<int:term_id>/kill")
+def terminal_kill(project_id: int, repo_id: int, term_id: int):
+    db, session = _get_terminal_session(project_id, repo_id, term_id)
+    provider = HostExecutionProvider(
+        current_app.config["DATABASE_PATH"], current_app.config["ALLOWED_PROJECT_ROOTS"]
+    )
+    try:
+        terminal.kill_session(provider, db, session)
+    except terminal.TerminalError as exc:
+        return {"error": str(exc)}, 400
+
+    return {"status": "success"}, 200
+
+
 @bp.post("/git/unstage")
 def git_unstage_file(project_id: int, repo_id: int):
     project, repo = _get_project_and_repo(project_id, repo_id)
@@ -303,3 +424,86 @@ def git_unstage_file(project_id: int, repo_id: int):
         flash(f"Error: {exc}", "error")
 
     return redirect(url_for("workspace.git_status", project_id=project_id, repo_id=repo_id))
+
+
+@bp.get("/git/commit")
+def git_commit_page(project_id: int, repo_id: int):
+    project, repo = _get_project_and_repo(project_id, repo_id)
+    provider = HostExecutionProvider(
+        current_app.config["DATABASE_PATH"], current_app.config["ALLOWED_PROJECT_ROOTS"]
+    )
+
+    try:
+        status = git.status(
+            provider,
+            repo.path,
+            allowed_roots=current_app.config["ALLOWED_PROJECT_ROOTS"],
+        )
+        # Get recent commits to show in the form
+        commits = git.log(
+            provider,
+            repo.path,
+            max_count=1,
+            allowed_roots=current_app.config["ALLOWED_PROJECT_ROOTS"],
+        )
+        last_commit = commits[0] if commits else None
+    except git.GitCommandError as exc:
+        flash(f"Git error: {exc}", "error")
+        status = None
+        last_commit = None
+
+    return render_template(
+        "workspace/git_commit.html",
+        project=project,
+        repo=repo,
+        status=status,
+        last_commit=last_commit,
+    )
+
+
+@bp.post("/git/commit")
+def git_create_commit(project_id: int, repo_id: int):
+    project, repo = _get_project_and_repo(project_id, repo_id)
+    message = request.form.get("message", "").strip()
+    amend = request.form.get("amend", "false").lower() == "true"
+
+    if not message:
+        if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+            return {"error": "Commit message is required"}, 400
+        flash("Commit message is required", "error")
+        return redirect(
+            url_for("workspace.git_commit_page", project_id=project_id, repo_id=repo_id)
+        )
+
+    provider = HostExecutionProvider(
+        current_app.config["DATABASE_PATH"], current_app.config["ALLOWED_PROJECT_ROOTS"]
+    )
+
+    try:
+        commit_info = git.commit(
+            provider,
+            repo.path,
+            message,
+            amend=amend,
+            allowed_roots=current_app.config["ALLOWED_PROJECT_ROOTS"],
+        )
+
+        if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+            return {
+                "status": "success",
+                "message": f"Created commit {commit_info.short_hash}",
+                "commit_hash": commit_info.hash,
+            }, 200
+
+        flash(f"Created commit {commit_info.short_hash}", "success")
+        return redirect(
+            url_for("workspace.git_log", project_id=project_id, repo_id=repo_id)
+        )
+
+    except (ValueError, git.GitCommandError) as exc:
+        if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+            return {"error": str(exc)}, 400
+        flash(f"Error: {exc}", "error")
+        return redirect(
+            url_for("workspace.git_commit_page", project_id=project_id, repo_id=repo_id)
+        )

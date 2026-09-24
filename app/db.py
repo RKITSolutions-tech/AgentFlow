@@ -96,6 +96,26 @@ CREATE TABLE IF NOT EXISTS agent_results (
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS terminal_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    repo_id INTEGER NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
+    tmux_session_name TEXT NOT NULL UNIQUE,
+    label TEXT NOT NULL DEFAULT '',
+    working_directory TEXT NOT NULL,
+    pipe_path TEXT NOT NULL,
+    pipe_offset INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'RUNNING',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    last_activity_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS terminal_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    terminal_session_id INTEGER NOT NULL REFERENCES terminal_sessions(id) ON DELETE CASCADE,
+    data TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS model_catalog (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     provider TEXT NOT NULL,

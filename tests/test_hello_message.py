@@ -1,14 +1,10 @@
-"""Test sending and receiving a hello message through the chat UI.
-
-Note: These tests require Flask to be running on http://127.0.0.1:5000
-Start with: flask --app app --debug run
-"""
+"""Test sending and receiving a hello message through the chat UI."""
 import os
 import pytest
 import time
 
 
-def test_send_hello_message_via_ui(app, client):
+def test_send_hello_message_via_ui(app, client, live_server):
     """Send 'hello' message via chat UI and verify it appears in database.
 
     This test verifies the complete flow:
@@ -87,7 +83,7 @@ def test_send_hello_message_via_ui(app, client):
 
             # Navigate to chat
             print(f"   Opening chat for session {session_id}")
-            page.goto(f"http://127.0.0.1:5000/sessions/{session_id}")
+            page.goto(f"{live_server}/sessions/{session_id}")
             page.wait_for_selector("#chatContainer", timeout=5000)
             print("   ✅ Chat loaded")
 

@@ -9,6 +9,8 @@
     <a href="{{ url_for('workspace.search_files', project_id=project.id, repo_id=repo.id) }}">Search</a>
     <a href="{{ url_for('workspace.git_status', project_id=project.id, repo_id=repo.id) }}">Status</a>
     <a href="{{ url_for('workspace.git_log', project_id=project.id, repo_id=repo.id) }}" aria-disabled="true">History</a>
+    <a href="{{ url_for('workspace.git_commit_page', project_id=project.id, repo_id=repo.id) }}">Commit</a>
+    <a href="{{ url_for('workspace.terminal_page', project_id=project.id, repo_id=repo.id) }}">Terminal</a>
   </nav>
 
   {% if commits %}

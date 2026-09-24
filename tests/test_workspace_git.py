@@ -161,3 +161,70 @@ class TestGitStaging:
             status = git.status(provider, str(tmp_repo), allowed_roots=app.config["ALLOWED_PROJECT_ROOTS"])
 
         assert not any(f.path == "new.txt" for f in status.staged)
+
+
+class TestGitCommit:
+    def test_git_commit_empty_message_raises_error(self, client, tmp_repo, app, provider):
+        with app.app_context():
+            with pytest.raises(ValueError, match="empty"):
+                git.commit(provider, str(tmp_repo), "", allowed_roots=app.config["ALLOWED_PROJECT_ROOTS"])
+
+    def test_git_commit_message_too_long_raises_error(self, client, tmp_repo, app, provider):
+        long_message = "a" * 1001
+        with app.app_context():
+            with pytest.raises(ValueError, match="1000 characters"):
+                git.commit(provider, str(tmp_repo), long_message, allowed_roots=app.config["ALLOWED_PROJECT_ROOTS"])
+
+    def test_git_commit_with_staged_changes(self, client, tmp_repo, app, provider):
+        import subprocess
+
+        subprocess.run(["git", "init"], cwd=tmp_repo, check=True, capture_output=True)
+        subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=tmp_repo, check=True, capture_output=True)
+        subprocess.run(["git", "config", "user.name", "Test User"], cwd=tmp_repo, check=True, capture_output=True)
+
+        # Create and stage a file
+        new_file = tmp_repo / "new.txt"
+        new_file.write_text("test content")
+        subprocess.run(["git", "add", "new.txt"], cwd=tmp_repo, check=True, capture_output=True)
+
+        with app.app_context():
+            commit_info = git.commit(
+                provider, str(tmp_repo), "test: add new file",
+                allowed_roots=app.config["ALLOWED_PROJECT_ROOTS"]
+            )
+
+        assert commit_info is not None
+        assert commit_info.message == "test: add new file"
+        assert commit_info.short_hash is not None
+        assert commit_info.hash is not None
+        assert commit_info.author == "Test User"
+
+    def test_git_commit_amend(self, client, tmp_repo, app, provider):
+        import subprocess
+
+        subprocess.run(["git", "init"], cwd=tmp_repo, check=True, capture_output=True)
+        subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=tmp_repo, check=True, capture_output=True)
+        subprocess.run(["git", "config", "user.name", "Test User"], cwd=tmp_repo, check=True, capture_output=True)
+
+        # Create initial commit
+        new_file = tmp_repo / "file.txt"
+        new_file.write_text("content")
+        subprocess.run(["git", "add", "file.txt"], cwd=tmp_repo, check=True, capture_output=True)
+        subprocess.run(["git", "commit", "-m", "initial"], cwd=tmp_repo, check=True, capture_output=True)
+
+        # Modify file
+        new_file.write_text("modified content")
+        subprocess.run(["git", "add", "file.txt"], cwd=tmp_repo, check=True, capture_output=True)
+
+        with app.app_context():
+            commit_info = git.commit(
+                provider, str(tmp_repo), "initial: updated message",
+                amend=True,
+                allowed_roots=app.config["ALLOWED_PROJECT_ROOTS"]
+            )
+            commits = git.log(provider, str(tmp_repo), max_count=1, allowed_roots=app.config["ALLOWED_PROJECT_ROOTS"])
+
+        assert commit_info is not None
+        assert commit_info.message == "initial: updated message"
+        assert len(commits) == 1
+        assert commits[0].message == "initial: updated message"

@@ -376,3 +376,69 @@ def unstage(
             raise GitCommandError(f"git reset failed: {stderr}")
     finally:
         execution_provider.destroy_context(context.id)
+
+
+def commit(
+    execution_provider: ExecutionProvider,
+    repo_root: str,
+    message: str,
+    amend: bool = False,
+    allowed_roots: tuple[str, ...] = (),
+) -> CommitInfo:
+    """Create a commit with the given message.
+
+    Args:
+        execution_provider: Execution provider for running git commands.
+        repo_root: Root of the repository.
+        message: Commit message.
+        amend: Whether to amend the previous commit instead of creating a new one.
+        allowed_roots: Allowed repository root paths.
+
+    Returns:
+        Information about the created/amended commit.
+
+    Raises:
+        GitCommandError: If the commit fails.
+        ValueError: If the message is invalid.
+    """
+    validate_repository_path(repo_root, allowed_roots or (repo_root,))
+
+    message = message.strip()
+    if not message:
+        raise ValueError("Commit message cannot be empty")
+    if len(message) > 1000:
+        raise ValueError("Commit message must be at most 1000 characters")
+
+    context = execution_provider.create_context({"working_directory": repo_root})
+    try:
+        cmd = ["git", "commit", "-m", message]
+        if amend:
+            cmd.append("--amend")
+
+        process = execution_provider.execute(
+            cmd,
+            options={"context_id": context.id, "timeout": GIT_TIMEOUT_SECONDS},
+        )
+
+        if process.exit_code != 0:
+            events = execution_provider.stream_output(process.id)
+            stderr = "\n".join(
+                e.data for e in events if e.event_type == "ProcessOutput" and e.stream == "stderr"
+            )
+            raise GitCommandError(f"git commit failed: {stderr}")
+
+        # Fetch the new commit info
+        commits = log(
+            execution_provider,
+            repo_root,
+            max_count=1,
+            allowed_roots=allowed_roots,
+        )
+
+        if commits:
+            return commits[0]
+
+        raise GitCommandError("Commit succeeded but could not retrieve commit info")
+
+    finally:
+        execution_provider.destroy_context(context.id)
