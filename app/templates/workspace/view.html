@@ -11,9 +11,16 @@
   <h1>{{ file.relative_path }}</h1>
 
   {% if file.is_binary %}
-    <p class="file-warning">This file appears to be binary ({{ file.size }} bytes) and cannot be displayed.</p>
+    <div class="file-warning">
+      <p><strong>⚠️ Binary file</strong> — This file appears to contain binary data and cannot be displayed as text.</p>
+      <p>File size: {% if file.size < 1024 %}{{ file.size }} bytes{% elif file.size < 1024*1024 %}{{ "%.1f"|format(file.size / 1024) }} KB{% else %}{{ "%.1f"|format(file.size / (1024*1024)) }} MB{% endif %}</p>
+      <p><a href="{{ url_for('workspace.download_file', project_id=project.id, repo_id=repo.id, path=file.relative_path) }}">Download this file</a></p>
+    </div>
   {% elif file.too_large %}
-    <p class="file-warning">This file is {{ file.size }} bytes, which is too large to display in the browser.</p>
+    <div class="file-warning">
+      <p><strong>⚠️ File too large</strong> — This file is {{ "%.1f"|format(file.size / (1024*1024)) }} MB, which is too large to display in the browser.</p>
+      <p><a href="{{ url_for('workspace.download_file', project_id=project.id, repo_id=repo.id, path=file.relative_path) }}">Download this file</a></p>
+    </div>
   {% else %}
     <p><a href="{{ url_for('workspace.edit_file', project_id=project.id, repo_id=repo.id, path=file.relative_path) }}">Edit</a></p>
     <pre class="file-content">{{ file.content }}</pre>

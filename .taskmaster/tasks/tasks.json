@@ -2,7 +2,7 @@
   "master": {
     "tasks": [
       {
-        "id": "1",
+        "id": 1,
         "title": "Build the application and project foundation",
         "description": "Create the host-run Flask application shell, SQLite persistence, responsive navigation, and Project/repository management.",
         "details": "Follow docs/HIGH_LEVEL_DESIGN.md and docs/DOMAIN_AND_ORCHESTRATION_DESIGN.md. Bind to loopback by default. Support creating, viewing, editing, and listing Projects. Each Project may contain one or more validated repository paths and one default repository. Reject paths outside configured allowed roots and persist records across restarts.",
@@ -14,7 +14,7 @@
         "updatedAt": "2026-09-22T23:05:51.035Z"
       },
       {
-        "id": "2",
+        "id": 2,
         "title": "Implement host execution and event streaming",
         "description": "Implement the canonical HostExecutionProvider and reconnectable delivery of command events.",
         "status": "done",
@@ -28,7 +28,7 @@
         "updatedAt": "2026-09-23T06:23:52.157Z"
       },
       {
-        "id": "3",
+        "id": 3,
         "title": "Create the agent contract and FakeAgent vertical slice",
         "description": "Define the shared AgentAdapter contract and prove it with a deterministic FakeAgent end-to-end workflow.",
         "details": "Follow docs/AGENT_ADAPTER.md. Implement scripted FakeAgent messages, file changes, failure, retry, and success. Complete the vertical slice: open a Project, start FakeAgent, stream output, modify a fixture file, show its Git diff, run a configured test, and persist prompts, replies, events, session metadata, and the result.",
@@ -43,7 +43,7 @@
         "updatedAt": "2026-09-23T08:15:51.212Z"
       },
       {
-        "id": "4",
+        "id": 4,
         "title": "Implement Codex sessions",
         "description": "Integrate Codex through HostExecutionProvider using the shared AgentAdapter contract.",
         "details": "Detect Codex availability and version. Support session creation, listing, discovery and resume when supported, prompt input, live output, stop, and persisted prompt/reply history. Persistently map external Codex identifiers to AgentFlow session identifiers and report unsupported capabilities explicitly. Keep FakeAgent as the automated-test adapter.",
@@ -121,7 +121,7 @@
         "updatedAt": "2026-09-23T18:55:45.789Z"
       },
       {
-        "id": "5",
+        "id": 5,
         "title": "Build the operational project workspace",
         "description": "Add file, search, Git, and persistent terminal tools to the Phase 1 Project workspace.",
         "details": "Provide repository-scoped file browsing and basic editing, search, Git status/diff/log/stage/unstage/commit, and a reconnectable tmux-backed terminal. Reuse Project repository validation and HostExecutionProvider boundaries. Link changed files to their diff and file view, and avoid loading large or binary files into the normal editor. Keep essential actions usable on desktop and mobile.",
@@ -221,7 +221,7 @@
               1,
               2
             ],
-            "details": "Create file browser UI component that: (1) displays directory tree limited to repository root, (2) validates all file paths against allowed repository roots, (3) implements file size detection to avoid loading files >5MB, (4) detects binary files using magic bytes or file extension analysis, (5) provides safe preview/download options for large/binary files, (6) implements responsive layout for mobile with collapsible tree and scrollable pane, (7) includes file metadata display (size, type, modified date), (8) handles errors gracefully when files are deleted or permissions change.",
+            "details": "Create file browser UI component that: (1) displays directory tree limited to repository root, (2) validates all file paths against allowed repository roots, (3) implements file size detection to avoid loading files >5MB, (4) detects binary files using magic bytes or file extension analysis, (5) provides safe preview/download options for large/binary files, (6) implements responsive layout for mobile with collapsible tree and scrollable pane, (7) includes file metadata display (size, type, modified date), (8) handles errors gracefully when files are deleted or permissions change.\n<info added on 2026-09-24T21:02:02.860Z>\nImplementation complete. Directory tree component now displays file metadata columns (type, size, modified date), uses responsive CSS for mobile with collapsible tree navigation, includes file type indicators with emoji icons, and formats file sizes for readability. All unit and integration tests passing (10/10). Component validates paths against allowed repository roots and handles binary/large files safely as specified.\n</info added on 2026-09-24T21:02:02.860Z>",
             "status": "in-progress",
             "testStrategy": "Unit tests for path validation and binary detection; integration tests verifying files outside allowed roots are rejected, large files show warning instead of loading, binary files display appropriate message, and responsive behavior on mobile viewports (375px).",
             "parentId": "undefined",
@@ -349,7 +349,7 @@
         "updatedAt": "2026-09-24T21:00:22.309Z"
       },
       {
-        "id": "6",
+        "id": 6,
         "title": "Add basic runs, history, and hardening",
         "description": "Add single-Task command and test Runs with inspection, persistence, recovery, and security controls.",
         "details": "Follow docs/RUN_AND_RALPH.md for the Phase 1 subset. Record step status, timing, logs, prompts, replies, and artifact metadata in SQLite while storing artifact content and large logs on the filesystem. Support pause/stop, restart reconciliation, Run history, and step inspection. Mark a Run blocked when its previously active process is missing after restart. Redact secrets before persistence where practical and require explicit configuration for unsafe all-interface binding.",
@@ -363,7 +363,7 @@
         "subtasks": []
       },
       {
-        "id": "7",
+        "id": 7,
         "title": "Review Phase 1 design decisions and consolidate Phase 2 planning",
         "description": "Audit all design documents (AGENT_ADAPTER.md, EXECUTION_PROVIDER.md, HIGH_LEVEL_DESIGN.md, TASK_INTELLIGENCE.md, DOCUMENT_LIFECYCLE.md, and implementation notes) to identify deferred decisions and open questions from Phase 1 work, then consolidate findings into Phase 2 planning artifacts.",
         "status": "pending",
@@ -381,7 +381,7 @@
         "subtasks": []
       },
       {
-        "id": "8",
+        "id": 8,
         "title": "Fix 5 hardcoded Playwright UI tests to work without pre-started dev server",
         "description": "Repair 5 failing Playwright tests that hardcode http://127.0.0.1:5000 and require a manually-started Flask server, causing false failures in pytest runs without external setup. Make them self-contained by either spinning up an ephemeral Flask server fixture or guarding them with a skip check.",
         "details": "Investigate why tests/test_chat_message.py::test_send_and_display_chat_message, tests/test_chat_message.py::test_chat_form_input_and_state, tests/test_codex_chat_response.py::test_codex_message_and_response, tests/test_hello_codex.py::test_send_hello_get_codex_response, and tests/test_hello_message.py::test_send_hello_message_via_ui were written against a live external server instead of using the Flask test client fixture pattern documented in CLAUDE.md.\n\nChoose one of two approaches:\n\n(a) Self-contained server fixture: Create a session-scoped pytest fixture (or conftest helper) that:\n  - Spawns a Flask dev server in a subprocess using multiprocessing or threading\n  - Binds to an ephemeral port (0) and discovers the assigned port\n  - Passes the server URL (e.g., http://127.0.0.1:<dynamic-port>) to Playwright tests via pytest parametrization or indirect fixture injection\n  - Tears down the server after the test session completes\n  - Ensures the server is reachable before tests run (wait with retry/timeout)\n\n(b) Skip guard (if integration with live server is essential):\n  - Add a pytest skip check following the existing shutil.which(...) convention in CLAUDE.md\n  - Create a helper function that attempts to connect to http://127.0.0.1:5000 with a short timeout (e.g., socket or requests.head)\n  - Decorate each test with @pytest.mark.skipif(not is_server_reachable(), reason=\"Flask dev server not running on port 5000\")\n  - Ensure the skip is clean and does not report as a failure\n\nPrefer approach (a) if Playwright automation and end-to-end UI verification are core to the test strategy; use (b) only if there is a genuine reason these tests must exercise a live running server rather than a fixture-managed one.\n\nUpdate the hardcoded base URL references in all 5 tests to use the dynamically assigned URL (via fixture or conftest variable).",
@@ -396,7 +396,7 @@
         "subtasks": []
       },
       {
-        "id": "9",
+        "id": 9,
         "title": "Implement Phase 1 document lifecycle data layer",
         "description": "Add documents and document_refs tables to the SQLite schema, extend agent_sessions with document tracking columns, and implement document CRUD helpers and dataclasses following existing app patterns.",
         "details": "1. Extend app/db.py SCHEMA with two new tables:\n   - documents: id (PK), project_id (FK), repo_id (FK), chain_id, doc_type [DESIGN|IMPLEMENTATION|TESTING|PLAN|STANDARD], path, title, status [DRAFT|IN_REVIEW|APPROVED|SUPERSEDED], current_git_sha, supersedes_id (self-FK, nullable), created_at, updated_at\n   - document_refs: document_id (FK), referenced_document_id (FK), relationship [DERIVES_FROM|REFERENCES|SUPERSEDES], primary key (document_id, referenced_document_id)\n\n2. Extend agent_sessions table with two new nullable columns:\n   - document_id (FK to documents)\n   - reviewed_git_sha\n\n3. Add three new event_type values to agent_events (reuse existing table, no new table):\n   - review_comment with data={line_start, line_end, body, severity}\n   - review_verdict with data={verdict}\n   - doc_read with data={document_id, git_sha}\n\n4. Create app/documents/models.py following the pattern established in app/projects/models.py and app/agents/models.py:\n   - Define Document and DocumentRef dataclasses mirroring agent_sessions/agent_events structure\n   - Implement CRUD helpers: create_document, update_document_status, get_document, list_documents, supersede_document, create_document_ref, get_document_refs, get_referencing_documents\n   - Use raw SQL following the existing style in app/agents/models.py (add_agent_event, create_agent_session)\n   - Ensure document status transitions follow DRAFT -> IN_REVIEW -> APPROVED and DRAFT -> SUPERSEDED paths\n\n5. Validate foreign key constraints and cascade behavior (e.g., deleting a document should handle document_refs appropriately per design intent).\n\n6. This is data-layer only—no UI, no pipeline wiring, no review-loop automation per DOCUMENT_LIFECYCLE.md section 13.",
@@ -418,7 +418,9 @@
       "completedCount": 4,
       "tags": [
         "master"
-      ]
+      ],
+      "created": "2026-09-24T21:01:55.942Z",
+      "description": "Tasks for master context"
     }
   }
 }

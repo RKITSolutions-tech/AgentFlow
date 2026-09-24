@@ -85,7 +85,7 @@ def test_binary_file_is_not_displayed(client, app):
 
     resp = client.get("/projects/1/repos/1/files/view", query_string={"path": "image.bin"})
     assert resp.status_code == 200
-    assert b"appears to be binary" in resp.data
+    assert b"Binary file" in resp.data
 
 
 def test_large_file_is_not_displayed(client, app, monkeypatch):
@@ -135,4 +135,32 @@ def test_unknown_repo_returns_404(client, app):
     _create_project_with_repo(client, allowed_root)
 
     resp = client.get("/projects/1/repos/999/files")
+    assert resp.status_code == 404
+
+
+def test_download_binary_file(client, app):
+    allowed_root = app.config["allowed_root"]
+    repo_path = _create_project_with_repo(client, allowed_root)
+
+    with open(os.path.join(repo_path, "image.bin"), "wb") as fh:
+        fh.write(b"\x00\x01\x02\x03binarydata")
+
+    resp = client.get("/projects/1/repos/1/files/download", query_string={"path": "image.bin"})
+    assert resp.status_code == 200
+    assert resp.data == b"\x00\x01\x02\x03binarydata"
+
+
+def test_download_nonexistent_file_returns_404(client, app):
+    allowed_root = app.config["allowed_root"]
+    _create_project_with_repo(client, allowed_root)
+
+    resp = client.get("/projects/1/repos/1/files/download", query_string={"path": "nonexistent.txt"})
+    assert resp.status_code == 404
+
+
+def test_download_with_path_traversal_is_rejected(client, app):
+    allowed_root = app.config["allowed_root"]
+    _create_project_with_repo(client, allowed_root)
+
+    resp = client.get("/projects/1/repos/1/files/download", query_string={"path": "../../etc/passwd"})
     assert resp.status_code == 404

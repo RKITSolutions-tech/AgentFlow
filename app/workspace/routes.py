@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 
 from flask import (
     Blueprint,
@@ -10,6 +11,7 @@ from flask import (
     redirect,
     render_template,
     request,
+    send_file,
     stream_with_context,
     url_for,
 )
@@ -61,6 +63,9 @@ def browse(project_id: int, repo_id: int):
         return redirect(
             url_for("workspace.view_file", project_id=project_id, repo_id=repo_id, path=path)
         )
+    except (PermissionError, OSError):
+        flash(f"Permission denied or cannot access {path}", "error")
+        abort(404)
 
     parent_path = "/".join(path.split("/")[:-1]) if path else None
 
@@ -82,7 +87,13 @@ def view_file(project_id: int, repo_id: int):
 
     try:
         content = files.read_file(repo.path, path)
-    except (PathNotAllowedError, files.FileNotFoundInRepositoryError):
+    except PathNotAllowedError:
+        abort(404)
+    except files.FileNotFoundInRepositoryError:
+        flash(f"File not found: {path}", "error")
+        abort(404)
+    except (PermissionError, OSError):
+        flash(f"Cannot access file: {path}", "error")
         abort(404)
 
     return render_template(
@@ -93,6 +104,25 @@ def view_file(project_id: int, repo_id: int):
         current_path=path,
         breadcrumbs=_breadcrumbs(path),
     )
+
+
+@bp.get("/files/download")
+def download_file(project_id: int, repo_id: int):
+    project, repo = _get_project_and_repo(project_id, repo_id)
+    path = request.args.get("path", "")
+
+    try:
+        file_path = files.resolve_path(repo.path, path)
+        if not os.path.isfile(file_path):
+            abort(404)
+    except PathNotAllowedError:
+        abort(404)
+    except (PermissionError, OSError):
+        flash(f"Cannot access file: {path}", "error")
+        abort(404)
+
+    filename = os.path.basename(file_path)
+    return send_file(file_path, as_attachment=True, download_name=filename)
 
 
 @bp.get("/files/search")
