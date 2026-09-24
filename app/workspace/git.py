@@ -140,12 +140,14 @@ def status(
             except PathNotAllowedError:
                 continue
 
+            if x_status == "?" and y_status == "?":
+                untracked.append(GitStatusFile(path=path, status="?", staged=False))
+                continue
+
             if x_status != " ":
                 staged.append(GitStatusFile(path=path, status=x_status, staged=True))
             if y_status != " ":
                 unstaged.append(GitStatusFile(path=path, status=y_status, staged=False))
-            if x_status == "?" and y_status == "?":
-                untracked.append(GitStatusFile(path=path, status="?", staged=False))
 
         return GitStatus(branch=branch, staged=staged, unstaged=unstaged, untracked=untracked)
 
@@ -293,9 +295,10 @@ def log(
 
         # Parse commit output
         full_output = "\n".join(current_commit_lines)
-        commit_blocks = full_output.split("\n---END---\n")
+        commit_blocks = full_output.split("---END---")
 
         for block in commit_blocks:
+            block = block.strip("\n")
             if not block.strip():
                 continue
             parts = block.split("\n", 4)

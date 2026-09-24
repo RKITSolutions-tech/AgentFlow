@@ -1,3 +1,6 @@
+import subprocess
+from pathlib import Path
+
 import pytest
 from app.workspace import git
 from app.execution.host import HostExecutionProvider
@@ -8,6 +11,22 @@ def provider(app):
     return HostExecutionProvider(
         app.config["DATABASE_PATH"], app.config["ALLOWED_PROJECT_ROOTS"]
     )
+
+
+@pytest.fixture
+def tmp_repo(app):
+    repo_path = Path(app.config["allowed_root"]) / "test-repo"
+    repo_path.mkdir()
+    subprocess.run(["git", "init"], cwd=repo_path, check=True, capture_output=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@test.com"],
+        cwd=repo_path, check=True, capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Test User"],
+        cwd=repo_path, check=True, capture_output=True,
+    )
+    return repo_path
 
 
 class TestGitStatus:
