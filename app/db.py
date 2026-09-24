@@ -74,7 +74,9 @@ CREATE TABLE IF NOT EXISTS agent_sessions (
     status TEXT NOT NULL DEFAULT 'STARTING',
     metadata TEXT NOT NULL DEFAULT '{}',
     started_at TEXT NOT NULL DEFAULT (datetime('now')),
-    last_activity_at TEXT NOT NULL DEFAULT (datetime('now'))
+    last_activity_at TEXT NOT NULL DEFAULT (datetime('now')),
+    document_id INTEGER REFERENCES documents(id) ON DELETE SET NULL,
+    reviewed_git_sha TEXT
 );
 
 CREATE TABLE IF NOT EXISTS agent_events (
@@ -123,6 +125,28 @@ CREATE TABLE IF NOT EXISTS model_catalog (
     enabled INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     UNIQUE(provider, model_id)
+);
+
+CREATE TABLE IF NOT EXISTS documents (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    repo_id INTEGER NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
+    chain_id TEXT,
+    doc_type TEXT NOT NULL CHECK(doc_type IN ('DESIGN', 'IMPLEMENTATION', 'TESTING', 'PLAN', 'STANDARD')),
+    path TEXT NOT NULL,
+    title TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'DRAFT' CHECK(status IN ('DRAFT', 'IN_REVIEW', 'APPROVED', 'SUPERSEDED')),
+    current_git_sha TEXT,
+    supersedes_id INTEGER REFERENCES documents(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS document_refs (
+    document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    referenced_document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    relationship TEXT NOT NULL CHECK(relationship IN ('DERIVES_FROM', 'REFERENCES', 'SUPERSEDES')),
+    PRIMARY KEY (document_id, referenced_document_id)
 );
 """
 

@@ -401,21 +401,86 @@
         "description": "Add documents and document_refs tables to the SQLite schema, extend agent_sessions with document tracking columns, and implement document CRUD helpers and dataclasses following existing app patterns.",
         "details": "1. Extend app/db.py SCHEMA with two new tables:\n   - documents: id (PK), project_id (FK), repo_id (FK), chain_id, doc_type [DESIGN|IMPLEMENTATION|TESTING|PLAN|STANDARD], path, title, status [DRAFT|IN_REVIEW|APPROVED|SUPERSEDED], current_git_sha, supersedes_id (self-FK, nullable), created_at, updated_at\n   - document_refs: document_id (FK), referenced_document_id (FK), relationship [DERIVES_FROM|REFERENCES|SUPERSEDES], primary key (document_id, referenced_document_id)\n\n2. Extend agent_sessions table with two new nullable columns:\n   - document_id (FK to documents)\n   - reviewed_git_sha\n\n3. Add three new event_type values to agent_events (reuse existing table, no new table):\n   - review_comment with data={line_start, line_end, body, severity}\n   - review_verdict with data={verdict}\n   - doc_read with data={document_id, git_sha}\n\n4. Create app/documents/models.py following the pattern established in app/projects/models.py and app/agents/models.py:\n   - Define Document and DocumentRef dataclasses mirroring agent_sessions/agent_events structure\n   - Implement CRUD helpers: create_document, update_document_status, get_document, list_documents, supersede_document, create_document_ref, get_document_refs, get_referencing_documents\n   - Use raw SQL following the existing style in app/agents/models.py (add_agent_event, create_agent_session)\n   - Ensure document status transitions follow DRAFT -> IN_REVIEW -> APPROVED and DRAFT -> SUPERSEDED paths\n\n5. Validate foreign key constraints and cascade behavior (e.g., deleting a document should handle document_refs appropriately per design intent).\n\n6. This is data-layer only—no UI, no pipeline wiring, no review-loop automation per DOCUMENT_LIFECYCLE.md section 13.",
         "testStrategy": "1. Write pytest tests in tests/test_documents.py mirroring the structure of tests/test_projects.py:\n   - Test document creation with all required and optional fields\n   - Test status transitions: DRAFT -> IN_REVIEW -> APPROVED, and DRAFT -> SUPERSEDED\n   - Verify supersedes_id chain linkage and lookup\n   - Test document_refs creation and multi-hop chain traversal\n   - Test get_referencing_documents to find reverse refs\n\n2. Test agent_sessions/agent_events integration:\n   - Create an agent_session with document_id and reviewed_git_sha\n   - Add review_comment, review_verdict, and doc_read events\n   - Round-trip session and events from database and verify columns and event data persist\n   - Verify event type filtering and data field access\n\n3. Test CRUD helpers:\n   - Create multiple documents, list them, filter by project/repo/status\n   - Update document status and verify transitions\n   - Verify foreign key constraints (project_id and repo_id point to valid projects/repositories)\n   - Test nullable fields (chain_id, supersedes_id, document_id in agent_sessions, reviewed_git_sha)\n\n4. Run full test suite and verify no schema migration errors or constraint violations.",
-        "status": "pending",
+        "status": "done",
         "dependencies": [
           "1",
           "3",
           "4"
         ],
         "priority": "medium",
-        "subtasks": []
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Extend app/db.py SCHEMA with documents and document_refs tables",
+            "description": "Add the documents table with columns for id, project_id, repo_id, chain_id, doc_type, path, title, status, current_git_sha, supersedes_id, created_at, updated_at. Add document_refs table with composite primary key (document_id, referenced_document_id) and relationship column.",
+            "dependencies": [],
+            "details": "Modify app/db.py to add both table definitions to the SCHEMA constant. Documents table tracks document metadata and lifecycle state. Document_refs table maintains the relationship graph between documents. Use INTEGER for IDs, TEXT for enums, TIMESTAMP for date fields. Ensure foreign key constraints are properly defined with cascade behavior documented.",
+            "status": "done",
+            "testStrategy": "Verify schema is valid by running migrations and checking table structure with sqlite3 introspection queries",
+            "updatedAt": "2026-09-24T22:05:31.135Z",
+            "parentId": "undefined"
+          },
+          {
+            "id": 2,
+            "title": "Extend agent_sessions table with document tracking columns",
+            "description": "Add document_id (FK to documents) and reviewed_git_sha columns to the agent_sessions table in app/db.py SCHEMA. These columns track which document an agent session is working with and the git state at review time.",
+            "dependencies": [
+              1
+            ],
+            "details": "Update the agent_sessions table definition to include two new nullable columns: document_id (INTEGER, foreign key to documents.id) and reviewed_git_sha (TEXT). Ensure these are nullable to maintain backward compatibility with existing sessions. Add appropriate foreign key constraint for document_id.",
+            "status": "done",
+            "testStrategy": "Verify columns are added and nullable by querying schema and testing that existing sessions still work without these values",
+            "parentId": "undefined",
+            "updatedAt": "2026-09-24T22:05:46.029Z"
+          },
+          {
+            "id": 3,
+            "title": "Add review event types to agent_events",
+            "description": "Extend the agent_events table to support three new event_type values: review_comment (with line_start, line_end, body, severity in data), review_verdict (with verdict in data), and doc_read (with document_id, git_sha in data).",
+            "dependencies": [
+              2
+            ],
+            "details": "Modify app/db.py to document the three new event_type enums. Update any event type validation or documentation to include these types. The data column in agent_events (JSON) will store the event-specific fields. No new table is needed—reuse the existing agent_events table. Document the schema for each event type's data payload.",
+            "status": "done",
+            "testStrategy": "Write unit tests verifying that agent_events can be inserted with each new event_type and the data JSON is properly stored and retrieved",
+            "parentId": "undefined",
+            "updatedAt": "2026-09-24T22:05:54.325Z"
+          },
+          {
+            "id": 4,
+            "title": "Create app/documents/models.py with Document and DocumentRef dataclasses",
+            "description": "Implement Document and DocumentRef dataclasses mirroring the structure established in app/projects/models.py and app/agents/models.py. Include all required fields and implement CRUD helper functions following existing raw-SQL patterns.",
+            "dependencies": [
+              3
+            ],
+            "details": "Create app/documents/models.py with: (1) Document dataclass with fields matching the documents table schema; (2) DocumentRef dataclass with document_id, referenced_document_id, relationship fields; (3) Implement CRUD helpers: create_document, update_document_status, get_document, list_documents, supersede_document, create_document_ref, get_document_refs, get_referencing_documents. Use raw SQL following the style in app/agents/models.py (not ORM). Validate status transitions: DRAFT -> IN_REVIEW -> APPROVED and DRAFT -> SUPERSEDED only.",
+            "status": "done",
+            "testStrategy": "Unit tests in tests/test_documents.py: test document creation, status transitions, supersedes_id chain validation, CRUD operations, and constraint violations",
+            "parentId": "undefined",
+            "updatedAt": "2026-09-24T22:06:19.806Z"
+          },
+          {
+            "id": 5,
+            "title": "Validate foreign key constraints and cascade behavior",
+            "description": "Test and document cascade behavior for foreign key relationships, particularly when documents are deleted and how document_refs should be handled. Ensure referential integrity is maintained and all constraint violations are properly caught.",
+            "dependencies": [
+              4
+            ],
+            "details": "Enable foreign key constraints in SQLite (PRAGMA foreign_keys = ON). Test cascade delete scenarios: when a document is deleted, verify document_refs referencing it are handled per design intent (likely cascade delete). Test supersedes_id self-reference integrity. Create comprehensive tests covering constraint violations and proper error handling. Document the cascade behavior in code comments and ensure it matches the document lifecycle design.",
+            "status": "done",
+            "testStrategy": "Integration tests verifying cascade behavior on document deletion, orphan detection, and constraint violation exceptions are properly raised and handled",
+            "parentId": "undefined",
+            "updatedAt": "2026-09-24T22:07:42.009Z"
+          }
+        ],
+        "updatedAt": "2026-09-24T22:07:42.009Z"
       }
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-09-24T21:04:42.253Z",
+      "lastModified": "2026-09-24T22:07:42.009Z",
       "taskCount": 9,
-      "completedCount": 4,
+      "completedCount": 5,
       "tags": [
         "master"
       ]
