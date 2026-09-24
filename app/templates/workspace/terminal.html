@@ -1,0 +1,248 @@
+{% extends "base.html" %}
+{% block title %}{{ repo.name }} - Terminal{% endblock %}
+{% block content %}
+  <p><a href="{{ url_for('projects.view_project', project_id=project.id) }}">&larr; {{ project.name }}</a></p>
+  <h1>{{ repo.name }} - Terminal</h1>
+
+  <nav class="git-nav">
+    <a href="{{ url_for('workspace.browse', project_id=project.id, repo_id=repo.id) }}">Files</a>
+    <a href="{{ url_for('workspace.search_files', project_id=project.id, repo_id=repo.id) }}">Search</a>
+    <a href="{{ url_for('workspace.git_status', project_id=project.id, repo_id=repo.id) }}">Status</a>
+    <a href="{{ url_for('workspace.git_log', project_id=project.id, repo_id=repo.id) }}">History</a>
+    <a href="{{ url_for('workspace.terminal_page', project_id=project.id, repo_id=repo.id) }}" aria-disabled="true">Terminal</a>
+  </nav>
+
+  <div class="terminal-page">
+    <div class="terminal-tabs" id="terminalTabs">
+      {% for session in sessions %}
+        <div class="terminal-tab{% if session.status != 'RUNNING' %} terminal-tab-dead{% endif %}" data-term-id="{{ session.id }}">
+          <button type="button" class="terminal-tab-label">{{ session.label or ('Terminal ' ~ session.id) }}</button>
+          <button type="button" class="terminal-tab-kill" aria-label="Kill terminal">&times;</button>
+        </div>
+      {% endfor %}
+      <button type="button" class="terminal-new-tab" id="terminalNewTab">+ New</button>
+    </div>
+
+    <div class="terminal-outputs" id="terminalOutputs">
+      {% if not sessions %}
+        <p class="terminal-placeholder">No terminal sessions yet. Click "+ New" to start one.</p>
+      {% endif %}
+      {% for session in sessions %}
+        <pre class="terminal-output" id="term-output-{{ session.id }}"></pre>
+      {% endfor %}
+    </div>
+
+    <div class="terminal-key-buttons">
+      <button type="button" data-key="C-c">Ctrl+C</button>
+      <button type="button" data-key="Tab">Tab</button>
+      <button type="button" data-key="Escape">Esc</button>
+      <button type="button" data-key="Up">&uarr;</button>
+      <button type="button" data-key="Down">&darr;</button>
+      <button type="button" data-key="Left">&larr;</button>
+      <button type="button" data-key="Right">&rarr;</button>
+      <button type="button" data-key="C-d">Ctrl+D</button>
+    </div>
+
+    <form id="terminalInputForm" class="terminal-input-row">
+      <input type="text" id="terminalInput" class="terminal-input" placeholder="Type a command and press Enter..." autocomplete="off" disabled>
+      <button type="submit" class="terminal-send" disabled>Send</button>
+    </form>
+  </div>
+
+  <script>
+    const projectId = {{ project.id }};
+    const repoId = {{ repo.id }};
+    const baseUrl = "{{ url_for('workspace.terminal_page', project_id=project.id, repo_id=repo.id) }}";
+    const activeStorageKey = "agentflow-terminal-active-" + repoId;
+
+    let activeId = null;
+    let pollTimer = null;
+    const lastEventIds = {};
+    const loadedTabs = {};
+
+    const inputEl = document.getElementById('terminalInput');
+    const sendBtn = document.querySelector('.terminal-send');
+    const keyButtons = document.querySelectorAll('.terminal-key-buttons button');
+
+    function postJson(url, body) {
+      return fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body || {}),
+      }).then(function (r) { return r.json(); });
+    }
+
+    function outputEl(id) {
+      return document.getElementById('term-output-' + id);
+    }
+
+    function tabEl(id) {
+      return document.querySelector('.terminal-tab[data-term-id="' + id + '"]');
+    }
+
+    function setControlsEnabled(enabled) {
+      inputEl.disabled = !enabled;
+      sendBtn.disabled = !enabled;
+      keyButtons.forEach(function (b) { b.disabled = !enabled; });
+    }
+
+    function setStatus(id, status) {
+      const tab = tabEl(id);
+      if (tab) tab.classList.toggle('terminal-tab-dead', status !== 'RUNNING');
+      if (id === activeId) setControlsEnabled(status === 'RUNNING');
+    }
+
+    function handleLine(id, line) {
+      if (!line.startsWith('data: ')) return;
+      try {
+        const event = JSON.parse(line.substring(6));
+        if (event.status) {
+          setStatus(id, event.status);
+          return;
+        }
+        if (id === activeId) {
+          const el = outputEl(id);
+          el.textContent += event.data;
+          el.scrollTop = el.scrollHeight;
+        }
+        if (event.id) lastEventIds[id] = Math.max(lastEventIds[id] || 0, event.id);
+      } catch (e) {
+        console.error('Failed to parse terminal event:', e);
+      }
+    }
+
+    function pollActive() {
+      if (pollTimer) clearTimeout(pollTimer);
+      if (activeId == null) return;
+      const id = activeId;
+      const after = lastEventIds[id] || 0;
+      fetch(baseUrl + '/' + id + '/stream?after_id=' + after)
+        .then(function (r) { return r.text(); })
+        .then(function (text) {
+          text.split('\n').forEach(function (line) { handleLine(id, line); });
+        })
+        .catch(function (err) { console.error('Terminal stream error:', err); })
+        .finally(function () {
+          if (activeId === id) pollTimer = setTimeout(pollActive, 750);
+        });
+    }
+
+    function switchTab(id) {
+      activeId = id;
+      localStorage.setItem(activeStorageKey, id);
+
+      document.querySelectorAll('.terminal-output').forEach(function (el) { el.style.display = 'none'; });
+      document.querySelectorAll('.terminal-tab').forEach(function (el) { el.classList.remove('terminal-tab-active'); });
+      const out = outputEl(id);
+      const tab = tabEl(id);
+      if (out) out.style.display = 'block';
+      if (tab) tab.classList.add('terminal-tab-active');
+
+      const dead = tab && tab.classList.contains('terminal-tab-dead');
+      setControlsEnabled(!dead);
+
+      if (!loadedTabs[id]) {
+        loadedTabs[id] = true;
+        lastEventIds[id] = 0;
+        if (out) out.textContent = '';
+      }
+
+      pollActive();
+    }
+
+    function addTab(id, label, status) {
+      const tabsEl = document.getElementById('terminalTabs');
+      const newTabBtn = document.getElementById('terminalNewTab');
+
+      const tab = document.createElement('div');
+      tab.className = 'terminal-tab' + (status !== 'RUNNING' ? ' terminal-tab-dead' : '');
+      tab.dataset.termId = id;
+
+      const labelBtn = document.createElement('button');
+      labelBtn.type = 'button';
+      labelBtn.className = 'terminal-tab-label';
+      labelBtn.textContent = label || ('Terminal ' + id);
+      labelBtn.addEventListener('click', function () { switchTab(id); });
+
+      const killBtn = document.createElement('button');
+      killBtn.type = 'button';
+      killBtn.className = 'terminal-tab-kill';
+      killBtn.setAttribute('aria-label', 'Kill terminal');
+      killBtn.textContent = '×';
+      killBtn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        killTab(id);
+      });
+
+      tab.appendChild(labelBtn);
+      tab.appendChild(killBtn);
+      tabsEl.insertBefore(tab, newTabBtn);
+
+      const out = document.createElement('pre');
+      out.className = 'terminal-output';
+      out.id = 'term-output-' + id;
+      document.getElementById('terminalOutputs').appendChild(out);
+
+      const placeholder = document.querySelector('.terminal-placeholder');
+      if (placeholder) placeholder.remove();
+    }
+
+    function killTab(id) {
+      fetch(baseUrl + '/' + id + '/kill', { method: 'POST' })
+        .then(function (r) { return r.json(); })
+        .then(function () { setStatus(id, 'KILLED'); });
+    }
+
+    document.getElementById('terminalNewTab').addEventListener('click', function () {
+      fetch(baseUrl, { method: 'POST' })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          if (data.error) {
+            alert('Error: ' + data.error);
+            return;
+          }
+          addTab(data.id, data.label, 'RUNNING');
+          switchTab(data.id);
+        });
+    });
+
+    keyButtons.forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        if (activeId == null) return;
+        postJson(baseUrl + '/' + activeId + '/input', { key: btn.dataset.key });
+      });
+    });
+
+    document.getElementById('terminalInputForm').addEventListener('submit', function (e) {
+      e.preventDefault();
+      if (activeId == null) return;
+      const value = inputEl.value;
+      const chain = value ? postJson(baseUrl + '/' + activeId + '/input', { text: value }) : Promise.resolve();
+      chain.then(function () {
+        return postJson(baseUrl + '/' + activeId + '/input', { key: 'Enter' });
+      }).then(function () {
+        inputEl.value = '';
+      });
+    });
+
+    (function init() {
+      document.querySelectorAll('.terminal-tab').forEach(function (tab) {
+        const id = Number(tab.dataset.termId);
+        tab.querySelector('.terminal-tab-label').addEventListener('click', function () { switchTab(id); });
+        tab.querySelector('.terminal-tab-kill').addEventListener('click', function (e) {
+          e.stopPropagation();
+          killTab(id);
+        });
+      });
+
+      const ids = Array.from(document.querySelectorAll('.terminal-tab')).map(function (t) {
+        return Number(t.dataset.termId);
+      });
+      if (ids.length === 0) return;
+
+      const stored = Number(localStorage.getItem(activeStorageKey));
+      const initial = ids.includes(stored) ? stored : ids[0];
+      switchTab(initial);
+    })();
+  </script>
+{% endblock %}

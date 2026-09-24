@@ -2,7 +2,7 @@
 
 **Title:** Build the application and project foundation
 
-**Status:** pending
+**Status:** done
 
 **Dependencies:** None
 

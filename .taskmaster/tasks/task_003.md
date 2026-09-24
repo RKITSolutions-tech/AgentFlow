@@ -2,9 +2,9 @@
 
 **Title:** Create the agent contract and FakeAgent vertical slice
 
-**Status:** pending
+**Status:** done
 
-**Dependencies:** 1, 2
+**Dependencies:** 1 ✓, 2 ✓
 
 **Priority:** high
 

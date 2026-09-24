@@ -90,6 +90,26 @@ form.stacked input, form.stacked textarea { width: 100%; padding: 0.4rem; margin
   overflow-x: auto;
 }
 .file-warning { background: #fef3c7; color: #92400e; padding: 0.75rem; border-radius: 4px; }
+
+/* File browser metadata columns */
+.file-list .file-name { font-weight: 500; }
+.file-type-header { width: 8%; text-align: center; }
+.file-size-header { width: 12%; text-align: right; }
+.file-date-header { width: 20%; text-align: right; }
+.type-badge {
+  display: inline-block;
+  padding: 0.2rem 0.5rem;
+  background: #e5e7eb;
+  border-radius: 3px;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+.file-entry-dir .type-badge { background: #dbeafe; color: #1e40af; }
+.file-size { font-variant-numeric: tabular-nums; }
+.file-date { font-size: 0.8rem; color: #666; }
+.file-link { text-decoration: none; color: inherit; }
+.file-link:hover { text-decoration: underline; }
+
 textarea.editor {
   width: 100%;
   font-family: ui-monospace, monospace;
@@ -380,4 +400,9 @@ textarea.editor {
   .terminal-page { height: calc(100vh - 220px); }
   .terminal-input-row { flex-direction: column; }
   .terminal-key-buttons button { flex: 1 1 auto; }
+
+  .file-type-header, .file-size-header, .file-date-header { display: none; }
+  .file-list table { margin-top: 0.5rem; }
+  .file-list .file-name { display: block; font-weight: 500; }
+  .file-list .file-link { text-decoration: none; }
 }

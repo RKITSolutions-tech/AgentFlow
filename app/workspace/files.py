@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from datetime import datetime
 
 from app.security import validate_repository_path
 
@@ -22,6 +23,7 @@ class DirEntry:
     relative_path: str
     is_dir: bool
     size: int
+    modified_at: datetime
 
 
 @dataclass
@@ -51,7 +53,9 @@ def list_directory(repo_root: str, relative_path: str = "") -> list[DirEntry]:
         rel = os.path.relpath(full, repo_root)
         is_dir = os.path.isdir(full)
         size = 0 if is_dir else os.path.getsize(full)
-        entries.append(DirEntry(name=name, relative_path=rel, is_dir=is_dir, size=size))
+        mtime = os.path.getmtime(full)
+        modified_at = datetime.fromtimestamp(mtime)
+        entries.append(DirEntry(name=name, relative_path=rel, is_dir=is_dir, size=size, modified_at=modified_at))
 
     entries.sort(key=lambda e: (not e.is_dir, e.name.lower()))
     return entries
@@ -99,3 +103,34 @@ def write_file(repo_root: str, relative_path: str, content: str) -> None:
         raise FileNotFoundInRepositoryError(f"{relative_path!r} is a directory")
     with open(absolute, "w", encoding="utf-8") as fh:
         fh.write(content)
+
+
+def get_file_type(name: str, is_dir: bool) -> str:
+    """Determine file type for display purposes."""
+    if is_dir:
+        return "directory"
+
+    ext = os.path.splitext(name)[1].lower()
+    if not ext:
+        return "file"
+
+    type_map = {
+        ".py": "python",
+        ".js": "javascript",
+        ".ts": "typescript",
+        ".jsx": "javascript",
+        ".tsx": "typescript",
+        ".json": "json",
+        ".html": "html",
+        ".css": "css",
+        ".md": "markdown",
+        ".txt": "text",
+        ".yml": "yaml",
+        ".yaml": "yaml",
+        ".sql": "sql",
+        ".sh": "shell",
+        ".bash": "shell",
+        ".git": "directory",
+        ".gitignore": "text",
+    }
+    return type_map.get(ext, f"file")

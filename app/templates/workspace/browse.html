@@ -3,7 +3,6 @@
 {% block content %}
   <p><a href="{{ url_for('projects.view_project', project_id=project.id) }}">&larr; {{ project.name }}</a></p>
   <h1>{{ repo.name }}</h1>
-  <p><a href="{{ url_for('workspace.search_files', project_id=project.id, repo_id=repo.id) }}">Search this repository</a></p>
 
   <nav class="breadcrumbs" aria-label="Path">
     <a href="{{ url_for('workspace.browse', project_id=project.id, repo_id=repo.id) }}">{{ repo.name }}</a>
@@ -12,29 +11,52 @@
     {% endfor %}
   </nav>
 
-  <table class="file-list">
-    <thead><tr><th>Name</th><th>Size</th></tr></thead>
+  <table class="file-list table-compact">
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th class="file-type-header">Type</th>
+        <th class="file-size-header">Size</th>
+        <th class="file-date-header">Modified</th>
+      </tr>
+    </thead>
     <tbody>
       {% if parent_path is not none %}
         <tr>
           <td><a href="{{ url_for('workspace.browse', project_id=project.id, repo_id=repo.id, path=parent_path) }}">.. (up)</a></td>
-          <td></td>
+          <td class="file-type-header"></td>
+          <td class="file-size-header"></td>
+          <td class="file-date-header"></td>
         </tr>
       {% endif %}
       {% for entry in entries %}
-        <tr>
-          <td>
+        <tr class="{% if entry.is_dir %}file-entry-dir{% else %}file-entry-file{% endif %}">
+          <td class="file-name">
             {% if entry.is_dir %}
-              <a href="{{ url_for('workspace.browse', project_id=project.id, repo_id=repo.id, path=entry.relative_path) }}">{{ entry.name }}/</a>
+              <a href="{{ url_for('workspace.browse', project_id=project.id, repo_id=repo.id, path=entry.relative_path) }}" class="file-link">📁 {{ entry.name }}/</a>
             {% else %}
-              <a href="{{ url_for('workspace.view_file', project_id=project.id, repo_id=repo.id, path=entry.relative_path) }}">{{ entry.name }}</a>
+              <a href="{{ url_for('workspace.view_file', project_id=project.id, repo_id=repo.id, path=entry.relative_path) }}" class="file-link">📄 {{ entry.name }}</a>
             {% endif %}
           </td>
-          <td>{{ "" if entry.is_dir else entry.size }}</td>
+          <td class="file-type-header">
+            {% if entry.is_dir %}
+              <span class="type-badge">dir</span>
+            {% else %}
+              <span class="type-badge">{{ entry.name.split('.')[-1] if '.' in entry.name else 'file' }}</span>
+            {% endif %}
+          </td>
+          <td class="file-size-header">
+            {% if not entry.is_dir %}
+              <span class="file-size">{% if entry.size < 1024 %}{{ entry.size }}B{% elif entry.size < 1024*1024 %}{{ "%.1f"|format(entry.size / 1024) }}KB{% else %}{{ "%.1f"|format(entry.size / (1024*1024)) }}MB{% endif %}</span>
+            {% endif %}
+          </td>
+          <td class="file-date-header">
+            <span class="file-date">{{ entry.modified_at.strftime('%Y-%m-%d %H:%M') }}</span>
+          </td>
         </tr>
       {% endfor %}
       {% if not entries and parent_path is none %}
-        <tr><td colspan="2">This repository is empty.</td></tr>
+        <tr><td colspan="4">This repository is empty.</td></tr>
       {% endif %}
     </tbody>
   </table>

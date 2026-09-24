@@ -222,9 +222,10 @@
               2
             ],
             "details": "Create file browser UI component that: (1) displays directory tree limited to repository root, (2) validates all file paths against allowed repository roots, (3) implements file size detection to avoid loading files >5MB, (4) detects binary files using magic bytes or file extension analysis, (5) provides safe preview/download options for large/binary files, (6) implements responsive layout for mobile with collapsible tree and scrollable pane, (7) includes file metadata display (size, type, modified date), (8) handles errors gracefully when files are deleted or permissions change.",
-            "status": "pending",
+            "status": "in-progress",
             "testStrategy": "Unit tests for path validation and binary detection; integration tests verifying files outside allowed roots are rejected, large files show warning instead of loading, binary files display appropriate message, and responsive behavior on mobile viewports (375px).",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2026-09-24T21:00:22.309Z"
           },
           {
             "id": 8,
@@ -280,9 +281,72 @@
             "status": "pending",
             "testStrategy": "Integration tests verifying changed files display correctly in browser, diff links open correct comparison views, file links navigate to editor, and all features maintain usability at 375px and 1280px viewports. Test touch interaction on mobile, keyboard navigation, and AJAX action patterns (data-ajax-action) for non-full-page updates.",
             "parentId": "undefined"
+          },
+          {
+            "id": 12,
+            "title": "Implement file browser UI with directory tree",
+            "description": "Create repository-scoped file browsing component with collapsible directory tree navigation limited to repository root.",
+            "dependencies": [
+              1,
+              2
+            ],
+            "details": "Build file browser UI that displays a hierarchical directory tree structure. Implement tree navigation with expand/collapse functionality for directories. Limit browsing scope to the repository root using Project repository validation. Create responsive layout that works on mobile (collapsible tree) and desktop (side-by-side pane). Include file icons and metadata badges (size, type). Implement efficient tree rendering for large repositories.",
+            "status": "pending",
+            "testStrategy": "Unit tests for tree structure generation, integration tests verifying file paths stay within repository root, responsive layout tests at 375px and 1280px viewports, performance tests with large directory structures (1000+ files).",
+            "parentId": "undefined"
+          },
+          {
+            "id": 13,
+            "title": "Implement safe file loading with size and binary detection",
+            "description": "Add file size detection and binary file identification to prevent loading large or binary files into the normal editor.",
+            "dependencies": [
+              12
+            ],
+            "details": "Implement file metadata inspection: read file size and use magic byte analysis or extension-based detection to identify binary files. Set safe thresholds (e.g., >5MB triggers preview-only mode). Create file loading logic that: (1) validates file paths against allowed roots via HostExecutionProvider, (2) checks file size before loading, (3) detects binary content, (4) routes large/binary files to safe preview or download options instead of editor. Provide user feedback on why a file cannot be edited inline.",
+            "status": "pending",
+            "testStrategy": "Unit tests for file detection (text, binary, large files), integration tests verifying rejection of files outside allowed roots, tests with mock 5MB+ and binary files, UI tests showing safe preview/download options, edge case tests (symlinks, permission errors, files changing during inspection).",
+            "parentId": "undefined"
+          },
+          {
+            "id": 14,
+            "title": "Implement file editor and safe file saving",
+            "description": "Build in-browser file editor with safe saving, syntax highlighting, and integration with Git diff linking.",
+            "dependencies": [
+              13
+            ],
+            "details": "Create editor component using existing app.css and semantic HTML (no external editor library unless necessary). Implement: (1) syntax highlighting based on file extension, (2) safe save-to-disk via HostExecutionProvider, (3) path validation before write, (4) dirty-state tracking and unsaved-changes warnings, (5) line number display, (6) basic undo/redo, (7) responsive layout for mobile. Link modified files to their Git diff view so users can review changes before commit. Show file status badges (modified, new, deleted) in file browser.",
+            "status": "pending",
+            "testStrategy": "Unit tests for syntax highlighting detection, integration tests for safe file saves with path validation, tests preventing writes outside repository root, dirty-state tracking tests, mobile responsiveness tests, tests linking changed files to diff view, tests handling concurrent edits and file system changes.",
+            "parentId": "undefined"
+          },
+          {
+            "id": 15,
+            "title": "Implement search functionality across repository files",
+            "description": "Add repository-scoped search with file and content filtering, respecting file safety rules.",
+            "dependencies": [
+              12,
+              13
+            ],
+            "details": "Build search interface supporting: (1) file name search with glob/regex filtering, (2) file content search using HostExecutionProvider (grep-based), (3) filtering to exclude binary and large files automatically, (4) pagination for large result sets, (5) link results to file editor and Git diff, (6) mobile-friendly result display with wrapping and scroll regions. Implement search across all files within repository root. Cache search index for repeated queries or rebuild on demand. Handle special characters and escape user input to prevent injection.",
+            "status": "pending",
+            "testStrategy": "Unit tests for search query parsing and escaping, integration tests for file name and content search, tests verifying binary/large files are filtered, pagination tests, result-linking tests, performance tests on large repositories, mobile layout tests, security tests for command injection prevention.",
+            "parentId": "undefined"
+          },
+          {
+            "id": 16,
+            "title": "Integrate file browser, editor, and search into workspace with Git and terminal tools",
+            "description": "Combine file browsing, editing, and search components into the Phase 1 workspace layout alongside Git operations and terminal tools.",
+            "dependencies": [
+              14,
+              15
+            ],
+            "details": "Create unified workspace layout integrating: (1) file browser (left sidebar), (2) file editor/viewer (main pane), (3) search panel, (4) Git operations panel (status/diff/log/stage/unstage/commit from task 5.3), (5) persistent tmux-backed terminal (from task 5.6). Ensure responsive grid layout for desktop (multi-column) and mobile (stacked or tabbed). Use AJAX for in-page actions (delete file, create folder, stage/unstage) per CLAUDE.md rules. Link changed files to diffs. Keep touch targets sized for mobile. Reuse Project validation and HostExecutionProvider boundaries throughout. Add keyboard shortcuts for power users.",
+            "status": "pending",
+            "testStrategy": "Integration tests verifying all components render and communicate correctly, desktop and mobile layout tests at 375px/1280px, tests linking file changes to diffs and Git operations, tests confirming file/Git operations cannot escape allowed roots, tests of AJAX actions with X-Requested-With header handling, terminal reconnect tests, full workflow tests (edit file → search results → stage → commit).",
+            "parentId": "undefined"
           }
         ],
-        "updatedAt": "2026-09-24T20:06:34.190Z"
+        "updatedAt": "2026-09-24T21:00:22.309Z"
       },
       {
         "id": "6",
@@ -349,7 +413,7 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-09-24T20:06:34.190Z",
+      "lastModified": "2026-09-24T21:00:22.309Z",
       "taskCount": 9,
       "completedCount": 4,
       "tags": [
