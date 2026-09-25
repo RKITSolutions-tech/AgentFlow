@@ -61,6 +61,21 @@ Until the UI direction settles, every new or amended user-facing page should:
   for dense row spacing instead of ad hoc per-page padding/font-size rules;
   put row-level actions in a `.row-actions` cell so they wrap on narrow
   screens and stay touch-sized on coarse pointers automatically.
+- Every page renders inside the persistent shell in `base.html` (sidebar +
+  main pane; `app/shell.py` supplies the sidebar data). Colour, spacing and
+  radii come from the design tokens at the top of `app/static/app.css`
+  (dark by default, `[data-theme="light"]` override) — never hard-code a
+  colour in a template or rule.
+- Project-scoped pages put `project_tabs(project, repo, active)` (from
+  `_project_tabs.html`; repository pages reach it through `workspace_nav`) at
+  the top of their content block. Pages that own the full height (chat,
+  terminal) also set `{% block content_class %} content-fill{% endblock %}`
+  so they scroll internally.
+- Below 860px the sidebar becomes a drawer and the tab strip scrolls
+  sideways; keep touch targets at least 44px (`--tap`).
+- Playwright viewport tests must only skip when the browser cannot launch
+  (see `_new_page` in `tests/test_workspace_integration.py`); never wrap
+  assertions in `except Exception: pytest.skip(...)`, which hides failures.
 - In-page actions on a list/table (delete, stop, etc.) should be AJAX, not a
   full-page form post + redirect: mark the trigger with
   `data-ajax-action="<url>"` (plus optional `data-confirm="..."` and

@@ -1,0 +1,40 @@
+{#
+  Project-scoped tab strip shared by the project overview, Sessions and the
+  repository workspace pages. `active` is one of: overview, sessions, files,
+  search, status, log, commit, terminal. Repository tabs use `repo`, falling
+  back to the primary (or first) repository, and are omitted when the project
+  has none. Anchors keep their text tight (`>Files<`) so tests and screen
+  readers get clean labels.
+#}
+{% macro project_tabs(project, repo, active) %}
+  {% set repo = repo or (project.repositories | selectattr('is_primary') | first) or (project.repositories | first) %}
+  <header class="project-head">
+    <span class="project-head-name">{{ project.name }}</span>
+    {% if project.repositories|length > 1 and repo %}
+      <form class="repo-switcher">
+        <label>Repository
+          <select data-nav-select>
+            {% for r in project.repositories %}
+              <option value="{{ url_for('workspace.browse', project_id=project.id, repo_id=r.id) }}"{% if r.id == repo.id %} selected{% endif %}>{{ r.name }}</option>
+            {% endfor %}
+          </select>
+        </label>
+      </form>
+    {% endif %}
+  </header>
+  <nav class="project-tabs" aria-label="Project">
+    <a class="tab" href="{{ url_for('projects.view_project', project_id=project.id) }}"{% if active == 'overview' %} aria-current="page"{% endif %}>Overview</a>
+    <a class="tab" href="{{ url_for('sessions.project_sessions', project_id=project.id) }}"{% if active == 'sessions' %} aria-current="page"{% endif %}>Sessions</a>
+    {% if repo %}
+      <span class="tab-sep" aria-hidden="true"></span>
+      <a class="tab" href="{{ url_for('workspace.browse', project_id=project.id, repo_id=repo.id) }}"{% if active == 'files' %} aria-current="page"{% endif %}>Files</a>
+      <a class="tab" href="{{ url_for('workspace.search_files', project_id=project.id, repo_id=repo.id) }}"{% if active == 'search' %} aria-current="page"{% endif %}>Search</a>
+      <span class="tab-sep" aria-hidden="true"></span>
+      <a class="tab" href="{{ url_for('workspace.git_status', project_id=project.id, repo_id=repo.id) }}"{% if active == 'status' %} aria-current="page"{% endif %}>Status</a>
+      <a class="tab" href="{{ url_for('workspace.git_log', project_id=project.id, repo_id=repo.id) }}"{% if active == 'log' %} aria-current="page"{% endif %}>History</a>
+      <a class="tab" href="{{ url_for('workspace.git_commit_page', project_id=project.id, repo_id=repo.id) }}"{% if active == 'commit' %} aria-current="page"{% endif %}>Commit</a>
+      <span class="tab-sep" aria-hidden="true"></span>
+      <a class="tab" href="{{ url_for('workspace.terminal_page', project_id=project.id, repo_id=repo.id) }}"{% if active == 'terminal' %} aria-current="page"{% endif %}>Terminal</a>
+    {% endif %}
+  </nav>
+{% endmacro %}

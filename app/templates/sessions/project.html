@@ -1,6 +1,8 @@
 {% extends "base.html" %}
+{% from "_project_tabs.html" import project_tabs %}
 {% block title %}{{ project.name }} - Sessions - AgentFlow{% endblock %}
 {% block content %}
+  {{ project_tabs(project, none, 'sessions') }}
   <h1>{{ project.name }} - Sessions</h1>
 
   <h2>Active Sessions</h2>
@@ -53,7 +55,7 @@
       </select>
     </label>
     {% if not openai_models %}
-      <p style="color: #666; font-size: 0.85rem; margin-top: -0.5rem;">
+      <p class="form-hint">
         No OpenAI models enabled in <a href="{{ url_for('settings.index') }}">Settings</a> — the
         Codex CLI's own default model will be used.
       </p>

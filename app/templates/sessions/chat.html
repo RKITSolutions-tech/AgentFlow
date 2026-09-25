@@ -1,6 +1,9 @@
 {% extends "base.html" %}
+{% from "_project_tabs.html" import project_tabs %}
 {% block title %}{{ project.name }} - Chat - AgentFlow{% endblock %}
+{% block content_class %} content-fill{% endblock %}
 {% block content %}
+{{ project_tabs(project, none, 'sessions') }}
 <div class="chat-page">
   <div>
     <div class="chat-header-row">
@@ -15,7 +18,6 @@
               onsubmit="return confirm('Delete this session? This cannot be undone.');">
           <button type="submit" class="link-danger">Delete Session</button>
         </form>
-        <a href="{{ url_for('sessions.project_sessions', project_id=project.id) }}">← Back</a>
       </div>
     </div>
     <p class="chat-status">Status: {{ session.status }} | Started: {{ session.started_at }}</p>

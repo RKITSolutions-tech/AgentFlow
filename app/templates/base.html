@@ -1,43 +1,98 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}AgentFlow{% endblock %}</title>
+  <script>
+    /* Set the theme before first paint to avoid a flash. Stored choice wins,
+       then the OS preference; dark is the default without JavaScript. */
+    (function () {
+      try {
+        var stored = localStorage.getItem("agentflow-theme");
+        var theme = stored || (window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+        document.documentElement.setAttribute("data-theme", theme);
+      } catch (e) {}
+    })();
+  </script>
   <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
   <script src="{{ url_for('static', filename='app.js') }}" defer></script>
 </head>
 <body>
-  <header class="topbar">
-    <button class="nav-toggle" aria-label="Toggle navigation" aria-expanded="false" aria-controls="primary-nav">☰</button>
-    <span class="brand">AgentFlow</span>
-  </header>
-  <nav id="primary-nav" class="primary-nav">
-    <a href="{{ url_for('projects.list_projects') }}">Projects</a>
-    <a href="{{ url_for('sessions.list_sessions') }}">Sessions</a>
-    <a href="#" aria-disabled="true">Backlog</a>
-    <a href="#" aria-disabled="true">Sprints</a>
-    <a href="#" aria-disabled="true">Runs</a>
-    <a href="{{ url_for('settings.index') }}">Settings</a>
-  </nav>
-  <main class="content">
-    {% with messages = get_flashed_messages(with_categories=true) %}
-      {% if messages %}
-        <ul class="flashes">
-          {% for category, message in messages %}
-            <li class="flash flash-{{ category }}">{{ message }}</li>
-          {% endfor %}
-        </ul>
-      {% endif %}
-    {% endwith %}
-    {% block content %}{% endblock %}
-  </main>
-  <script>
-    document.querySelector('.nav-toggle').addEventListener('click', function () {
-      var nav = document.getElementById('primary-nav');
-      var expanded = nav.classList.toggle('open');
-      this.setAttribute('aria-expanded', expanded);
-    });
-  </script>
+  {% set ep = shell.endpoint %}
+  <div class="app-shell">
+    <aside id="primary-nav" class="sidebar" aria-label="Primary">
+      <div class="sidebar-head">
+        <a class="brand" href="{{ url_for('projects.list_projects') }}">AgentFlow</a>
+        <button type="button" class="icon-btn theme-toggle" data-theme-toggle
+                aria-label="Switch between light and dark theme" title="Switch theme">
+          <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 1.75a6.25 6.25 0 0 1 0 12.5z" fill="currentColor"/></svg>
+        </button>
+      </div>
+
+      <nav class="sidebar-links" aria-label="Sections">
+        <a href="{{ url_for('projects.list_projects') }}"{% if ep.startswith('projects.') %} aria-current="page"{% endif %}>Projects</a>
+        <a href="{{ url_for('sessions.list_sessions') }}"{% if ep == 'sessions.list_sessions' %} aria-current="page"{% endif %}>Sessions</a>
+        <a href="#" aria-disabled="true">Backlog</a>
+        <a href="#" aria-disabled="true">Sprints</a>
+        <a href="#" aria-disabled="true">Runs</a>
+        <a href="{{ url_for('settings.index') }}"{% if ep.startswith('settings.') %} aria-current="page"{% endif %}>Settings</a>
+      </nav>
+
+      <div class="sidebar-section">
+        <span class="sidebar-section-title">Projects</span>
+        <a class="icon-btn" href="{{ url_for('projects.new_project') }}" aria-label="New project" title="New project">+</a>
+      </div>
+
+      <div class="project-tree">
+        {% for p in shell.projects %}
+          <details class="project-node"{% if p.id == shell.active_project_id %} open{% endif %}>
+            <summary>
+              <span class="project-name">{{ p.name }}</span>
+              <span class="count" title="{{ p.session_total }} session{{ '' if p.session_total == 1 else 's' }}">{{ p.session_total }}</span>
+            </summary>
+            <ul class="session-list">
+              <li><a class="session-link" href="{{ url_for('projects.view_project', project_id=p.id) }}">Overview</a></li>
+              <li><a class="session-link session-new" href="{{ url_for('sessions.project_sessions', project_id=p.id) }}">New session</a></li>
+              {% for s in p.sessions %}
+                <li>
+                  <a class="session-row" href="{{ url_for('sessions.view_session', session_id=s.id) }}"{% if s.id == shell.active_session_id %} aria-current="page"{% endif %}>
+                    <span class="state-dot state-{{ s.state }}" aria-hidden="true"></span>
+                    <span class="session-title">{{ s.title }}</span>
+                    <span class="session-age">{{ s.age }}</span>
+                  </a>
+                </li>
+              {% endfor %}
+              {% if p.session_total > p.sessions|length %}
+                <li><a class="session-link session-more" href="{{ url_for('sessions.project_sessions', project_id=p.id) }}">All {{ p.session_total }} sessions</a></li>
+              {% endif %}
+            </ul>
+          </details>
+        {% else %}
+          <p class="sidebar-empty">No projects yet.</p>
+        {% endfor %}
+      </div>
+    </aside>
+
+    <div class="main-pane">
+      <header class="topbar">
+        <button class="nav-toggle" aria-label="Toggle navigation" aria-expanded="false" aria-controls="primary-nav">&#9776;</button>
+        <span class="brand">AgentFlow</span>
+      </header>
+      <main class="content{% block content_class %}{% endblock %}">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            <ul class="flashes">
+              {% for category, message in messages %}
+                <li class="flash flash-{{ category }}">{{ message }}</li>
+              {% endfor %}
+            </ul>
+          {% endif %}
+        {% endwith %}
+        {% block content %}{% endblock %}
+      </main>
+    </div>
+  </div>
+  <div class="sidebar-backdrop" data-sidebar-backdrop hidden></div>
 </body>
 </html>

@@ -41,6 +41,8 @@ def _init_git_repo(repo_path):
 
 
 def test_nav_present_with_correct_active_item_on_every_workspace_page(client, app):
+    from bs4 import BeautifulSoup
+
     allowed_root = app.config["allowed_root"]
     project_id, repo_path = create_project_with_repo(client, allowed_root)
     _init_git_repo(repo_path)
@@ -48,11 +50,15 @@ def test_nav_present_with_correct_active_item_on_every_workspace_page(client, ap
     for active, suffix in WORKSPACE_PAGES:
         resp = client.get(f"/projects/{project_id}/repos/1{suffix}")
         assert resp.status_code == 200, f"{suffix} did not render"
-        html = resp.data.decode()
+        soup = BeautifulSoup(resp.data, "html.parser")
+        tabs = soup.select_one("nav.project-tabs")
+        assert tabs is not None, f"{suffix} missing the project tab strip"
+        labels = [a.get_text(strip=True) for a in tabs.select("a.tab")]
         for label in NAV_LABELS:
-            assert f">{label}<" in html, f"{suffix} missing nav link {label!r}"
-        # exactly one nav link is marked as the current page
-        assert html.count('aria-disabled="true"') >= 1
+            assert label in labels, f"{suffix} missing tab {label!r}"
+        # exactly one tab is marked as the current page
+        current = tabs.select('a.tab[aria-current="page"]')
+        assert len(current) == 1, f"{suffix}: expected one current tab, got {len(current)}"
 
 
 def test_repo_switcher_hidden_for_single_repo_project(client, app):
@@ -217,54 +223,82 @@ def test_terminal_output_persists_across_simulated_reconnect(client, app):
     client.post(f"/projects/{project_id}/repos/1/terminal/{term_id}/kill")
 
 
-def test_workspace_desktop_viewport_renders_nav_inline(browser_type_launch_args, app, client, live_server):
+def _new_page(playwright, viewport):
+    """Launch Chromium, skipping only if the browser itself is unavailable.
+
+    Assertions made by callers are deliberately outside any try/except so a
+    real layout regression fails the test instead of being reported as a skip.
+    """
+    try:
+        browser = playwright.chromium.launch()
+    except Exception as exc:  # browser binary missing / cannot start
+        pytest.skip(f"Playwright browser unavailable: {exc}")
+    return browser, browser.new_page(viewport=viewport)
+
+
+def test_workspace_desktop_viewport_shows_sidebar_and_tabs(browser_type_launch_args, app, client, live_server):
+    sync_api = pytest.importorskip("playwright.sync_api")
     allowed_root = app.config["allowed_root"]
     project_id, _repo_path = create_project_with_repo(client, allowed_root, "repo-a")
     add_repository(client, project_id, allowed_root, "repo-b")
 
-    try:
-        from playwright.sync_api import sync_playwright
-
-        with sync_playwright() as p:
-            browser = p.chromium.launch()
-            page = browser.new_page(viewport={"width": 1920, "height": 1080})
+    with sync_api.sync_playwright() as p:
+        browser, page = _new_page(p, {"width": 1920, "height": 1080})
+        try:
             page.goto(f"{live_server}/projects/{project_id}/repos/1/files")
 
-            nav = page.query_selector(".git-nav")
-            assert nav is not None
-            assert nav.is_visible()
+            sidebar = page.query_selector("#primary-nav")
+            assert sidebar is not None and sidebar.is_visible()
+            tabs = page.query_selector(".project-tabs")
+            assert tabs is not None and tabs.is_visible()
             toggle = page.query_selector(".nav-toggle")
             assert toggle is not None and not toggle.is_visible()
             switcher = page.query_selector(".repo-switcher select")
             assert switcher is not None and switcher.is_visible()
-
+            # the active project is expanded in the sidebar tree
+            assert page.query_selector(".project-node[open]") is not None
+        finally:
             browser.close()
-    except Exception as e:
-        pytest.skip(f"Playwright browser error: {e}")
 
 
-def test_workspace_mobile_viewport_collapses_nav(browser_type_launch_args, app, client, live_server):
+def test_workspace_mobile_viewport_uses_drawer_and_scrolling_tabs(browser_type_launch_args, app, client, live_server):
+    sync_api = pytest.importorskip("playwright.sync_api")
     allowed_root = app.config["allowed_root"]
     project_id, _repo_path = create_project_with_repo(client, allowed_root)
 
-    try:
-        from playwright.sync_api import sync_playwright
-
-        with sync_playwright() as p:
-            browser = p.chromium.launch()
-            page = browser.new_page(viewport={"width": 375, "height": 667})
+    with sync_api.sync_playwright() as p:
+        browser, page = _new_page(p, {"width": 375, "height": 667})
+        try:
             page.goto(f"{live_server}/projects/{project_id}/repos/1/git/status")
 
             toggle = page.query_selector(".nav-toggle")
             assert toggle is not None and toggle.is_visible()
-            primary_nav = page.query_selector("#primary-nav")
-            assert primary_nav is not None and not primary_nav.is_visible()
+            sidebar = page.query_selector("#primary-nav")
+            assert sidebar is not None and not sidebar.is_visible()
 
-            nav_links = page.query_selector_all(".git-nav a")
-            assert nav_links
-            box = nav_links[0].bounding_box()
-            assert box is not None and box["width"] > 300  # stacked full-width
+            # drawer opens from the toggle, shows a backdrop, closes on Escape
+            toggle.click()
+            assert sidebar.is_visible()
+            backdrop = page.query_selector("[data-sidebar-backdrop]")
+            assert backdrop is not None and backdrop.is_visible()
+            page.keyboard.press("Escape")
+            assert not sidebar.is_visible()
 
+            # tabs stay in one row and are touch-sized; the page never scrolls sideways
+            tab = page.query_selector(".project-tabs a.tab")
+            assert tab is not None
+            box = tab.bounding_box()
+            assert box is not None and box["height"] >= 40
+            overflow = page.evaluate(
+                "document.documentElement.scrollWidth - document.documentElement.clientWidth"
+            )
+            assert overflow <= 0, f"page scrolls horizontally by {overflow}px"
+
+            # the last tab is far off-screen; its page must still show it
+            page.goto(f"{live_server}/projects/{project_id}/repos/1/terminal")
+            active = page.query_selector(".project-tabs a.tab[aria-current='page']")
+            assert active is not None
+            box = active.bounding_box()
+            assert box is not None and 0 <= box["x"] and box["x"] + box["width"] <= 375, box
+        finally:
             browser.close()
-    except Exception as e:
-        pytest.skip(f"Playwright browser error: {e}")

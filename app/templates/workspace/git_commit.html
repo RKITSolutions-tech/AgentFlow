@@ -2,10 +2,9 @@
 {% from "workspace/_nav.html" import workspace_nav %}
 {% block title %}{{ repo.name }} - Create commit{% endblock %}
 {% block content %}
-  <p><a href="{{ url_for('projects.view_project', project_id=project.id) }}">&larr; {{ project.name }}</a></p>
+  {{ workspace_nav(project, repo, 'commit') }}
   <h1>{{ repo.name }} - Create Commit</h1>
 
-  {{ workspace_nav(project, repo, 'commit') }}
 
   {% if status and status.staged %}
     <div class="commit-form">

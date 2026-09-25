@@ -190,6 +190,19 @@ A8  Command palette (Ctrl+K) over sessions, files and commits
 A9  Agent activity monitor for UI verification (decide with G9)
 ```
 
+## 13a. Implementation Status
+
+```text
+A1  done       sidebar (projects, sessions with state and age) + project tab
+               strip on overview, sessions, chat and workspace pages; drawer
+               below 860px; sticky tabs that scroll sideways on mobile
+A2  done       semantic tokens, dark default, light override, persisted
+               toggle, inline styles removed
+A3  partial    session rows show state and age; overflow menu, rename and
+               archive are not built (task 12)
+A4-A9 open
+```
+
 ## 14. Where AgentFlow Should Differ
 
 ```text

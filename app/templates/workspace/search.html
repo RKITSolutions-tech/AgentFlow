@@ -2,10 +2,9 @@
 {% from "workspace/_nav.html" import workspace_nav %}
 {% block title %}Search {{ repo.name }} - AgentFlow{% endblock %}
 {% block content %}
-  <p><a href="{{ url_for('projects.view_project', project_id=project.id) }}">&larr; {{ project.name }}</a></p>
+  {{ workspace_nav(project, repo, 'search') }}
   <h1>Search {{ repo.name }}</h1>
 
-  {{ workspace_nav(project, repo, 'search') }}
 
   <form class="stacked search-form" method="get" action="{{ url_for('workspace.search_files', project_id=project.id, repo_id=repo.id) }}">
     <label>Query

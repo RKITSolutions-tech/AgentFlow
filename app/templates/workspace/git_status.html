@@ -2,10 +2,9 @@
 {% from "workspace/_nav.html" import workspace_nav %}
 {% block title %}{{ repo.name }} - Git status{% endblock %}
 {% block content %}
-  <p><a href="{{ url_for('projects.view_project', project_id=project.id) }}">&larr; {{ project.name }}</a></p>
+  {{ workspace_nav(project, repo, 'status') }}
   <h1>{{ repo.name }} - Git Status</h1>
 
-  {{ workspace_nav(project, repo, 'status') }}
 
   {% if status %}
     {% if status.branch %}
@@ -14,7 +13,7 @@
 
     {% if status.staged %}
       <h2>Staged Changes ({{ status.staged|length }})
-        <a href="{{ url_for('workspace.git_commit_page', project_id=project.id, repo_id=repo.id) }}" style="font-size: 0.9rem; font-weight: normal; margin-left: 1rem;">→ Create commit</a>
+        <a href="{{ url_for('workspace.git_commit_page', project_id=project.id, repo_id=repo.id) }}" class="heading-action">→ Create commit</a>
       </h2>
       <table class="file-list">
         <thead>

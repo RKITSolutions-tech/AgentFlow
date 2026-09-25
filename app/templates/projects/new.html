@@ -19,9 +19,9 @@
         <input type="text" name="repo_name" placeholder="e.g., main, src, codebase">
       </label>
       <label>Repository path
-        <div style="display: flex; gap: 0.5rem; align-items: center;">
+        <div class="input-with-action">
           <input type="text" name="repo_path" id="repoPath" placeholder="e.g., /home/user/my-project">
-          <button type="button" id="browseBtn" style="white-space: nowrap;">Browse</button>
+          <button type="button" id="browseBtn">Browse</button>
         </div>
       </label>
     </fieldset>
@@ -29,22 +29,20 @@
     <button type="submit">Create project</button>
   </form>
 
-  <div id="locationModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000;">
-    <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 2rem; border-radius: 8px; min-width: 500px; max-height: 80vh; display: flex; flex-direction: column;">
-      <h2 style="margin-top: 0;">Select Repository Location</h2>
+  <div id="locationModal" class="modal" hidden>
+    <div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="locationModalTitle">
+      <h2 id="locationModalTitle">Select Repository Location</h2>
 
-      <div style="margin-bottom: 1rem;">
-        <div style="display: flex; gap: 0.5rem; margin-bottom: 0.5rem;">
-          <input type="text" id="currentPath" readonly style="flex: 1; padding: 0.5rem; background: #f5f5f5;">
-          <button type="button" id="upBtn">↑ Up</button>
-        </div>
+      <div class="input-with-action">
+        <input type="text" id="currentPath" readonly>
+        <button type="button" id="upBtn">↑ Up</button>
       </div>
 
-      <div id="dirList" style="flex: 1; overflow-y: auto; border: 1px solid #ddd; padding: 0.5rem; margin-bottom: 1rem; background: #f9f9f9;">
+      <div id="dirList" class="dir-list">
         <p>Loading...</p>
       </div>
 
-      <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
+      <div class="modal-actions">
         <button type="button" id="selectBtn">Select</button>
         <button type="button" id="cancelBtn">Cancel</button>
       </div>
@@ -65,21 +63,21 @@
     const repoPathInput = document.getElementById('repoPath');
 
     browseBtn.addEventListener('click', () => {
-      modal.style.display = 'block';
+      modal.hidden = false;
       currentBrowsePath = '/home/devadmin';
       selectedPath = currentBrowsePath;
       loadDirectory(currentBrowsePath);
     });
 
     cancelBtn.addEventListener('click', () => {
-      modal.style.display = 'none';
+      modal.hidden = true;
     });
 
     selectBtn.addEventListener('click', () => {
       if (selectedPath) {
         repoPathInput.value = selectedPath;
       }
-      modal.style.display = 'none';
+      modal.hidden = true;
     });
 
     upBtn.addEventListener('click', () => {
@@ -99,21 +97,17 @@
         .then(r => r.json())
         .then(data => {
           if (data.error) {
-            dirListEl.innerHTML = `<p style="color: red;">Error: ${data.error}</p>`;
+            dirListEl.innerHTML = `<p class="text-danger">Error: ${agentflowEscapeHtml(String(data.error))}</p>`;
             return;
           }
 
           const dirs = data.directories || [];
           if (dirs.length === 0) {
-            dirListEl.innerHTML = '<p style="color: #999;">No subdirectories</p>';
+            dirListEl.innerHTML = '<p class="text-muted">No subdirectories</p>';
           } else {
             dirListEl.innerHTML = dirs.map(dir => `
-              <div style="padding: 0.5rem; cursor: pointer; border-radius: 4px; margin-bottom: 0.25rem;"
-                   class="dir-item"
-                   data-path="${dir.path}"
-                   onmouseover="this.style.background='#e3f2fd'"
-                   onmouseout="this.style.background='transparent'">
-                📁 ${dir.name}
+              <div class="dir-item" data-path="${agentflowEscapeHtml(dir.path)}">
+                📁 ${agentflowEscapeHtml(dir.name)}
               </div>
             `).join('');
 
@@ -125,13 +119,13 @@
           }
         })
         .catch(err => {
-          dirListEl.innerHTML = `<p style="color: red;">Error: ${err.message}</p>`;
+          dirListEl.innerHTML = `<p class="text-danger">Error: ${agentflowEscapeHtml(err.message)}</p>`;
         });
     }
 
     modal.addEventListener('click', (e) => {
       if (e.target === modal) {
-        modal.style.display = 'none';
+        modal.hidden = true;
       }
     });
   </script>

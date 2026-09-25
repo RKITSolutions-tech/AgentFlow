@@ -23,6 +23,10 @@ def create_app(config: Config | None = None) -> Flask:
     app.register_blueprint(sessions_bp)
     app.register_blueprint(settings_bp)
 
+    from app.shell import init_shell
+
+    init_shell(app)
+
     @app.get("/health")
     def health():
         return {"status": "ok"}
