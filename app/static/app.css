@@ -726,3 +726,41 @@ textarea.editor { width: 100%; font-family: ui-monospace, monospace; padding: 0.
 .file-tools input[type="file"] { max-width: 100%; }
 .file-list .row-actions button { min-height: var(--tap); }
 @media (pointer: fine) { .file-list .row-actions button { min-height: 0; } }
+
+/* Composer: the prompt bar grows attach/schedule buttons, a suggestion menu
+   (slash commands, @ file mentions), attachment chips and a permissions
+   picker. Stacked above the input row so it works at 375px. */
+.chat-form.composer { position: relative; flex-direction: column; gap: 0.4rem; }
+.composer-row { display: flex; gap: 0.5rem; align-items: stretch; }
+.composer-row .chat-input { min-width: 0; min-height: var(--tap); }
+.composer-btn { min-width: var(--tap); min-height: var(--tap); padding: 0; }
+.chat-send { min-height: var(--tap); }
+.composer-menu {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  right: 0;
+  z-index: 5;
+  max-height: 40vh;
+  overflow-y: auto;
+  margin: 0 0 0.25rem;
+  padding: 0.25rem;
+  list-style: none;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.composer-menu[hidden] { display: none; }
+.composer-menu-item { display: flex; flex-direction: column; gap: 0.1rem; min-height: var(--tap); justify-content: center; padding: 0.25rem 0.6rem; border-radius: var(--radius); cursor: pointer; overflow-wrap: anywhere; }
+.composer-menu-item[aria-selected="true"] { background: var(--accent-soft); color: var(--accent); }
+.composer-menu-hint { color: var(--text-muted); font-size: 0.8rem; }
+.composer-chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.composer-chip { display: inline-flex; align-items: center; gap: 0.3rem; max-width: 100%; padding: 0.2rem 0.3rem 0.2rem 0.6rem; background: var(--surface-3); border: 1px solid var(--border); border-radius: 999px; font-size: 0.85rem; overflow-wrap: anywhere; }
+.composer-chip-remove { min-width: 32px; min-height: 32px; padding: 0; border-radius: 50%; }
+.composer-scheduled { list-style: none; margin: 0; padding: 0; color: var(--text-muted); font-size: 0.85rem; }
+.composer-scheduled li { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.composer-schedule { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.composer-schedule[hidden], .composer-chips[hidden], .composer-scheduled[hidden], .composer-mode[hidden] { display: none; }
+.composer-schedule input, .composer-schedule button { min-height: var(--tap); }
+.composer-mode { display: flex; align-items: center; gap: 0.5rem; color: var(--text-muted); font-size: 0.85rem; }
+.composer-mode select { min-height: var(--tap); }

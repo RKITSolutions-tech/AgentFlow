@@ -71,7 +71,9 @@ class FakeAgentAdapter(AgentAdapter):
         models.set_session_status(self._db, session_id, "RUNNING")
         return self._advance(session_id)
 
-    def send(self, session_id: int, content: str) -> None:
+    def send(
+        self, session_id: int, content: str, options: dict[str, Any] | None = None
+    ) -> None:
         models.add_agent_event(self._db, session_id, "PromptSubmitted", data=content)
 
     def stop(self, session_id: int) -> None:

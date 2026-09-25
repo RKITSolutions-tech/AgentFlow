@@ -51,7 +51,11 @@ class AgentAdapter(ABC):
     ) -> AgentSession: ...
 
     @abstractmethod
-    def send(self, session_id: int, content: str) -> None: ...
+    def send(
+        self, session_id: int, content: str, options: dict[str, Any] | None = None
+    ) -> None:
+        """Send a follow-up message. ``options["images"]`` lists image file paths
+        to attach, for adapters declaring the ``image_input`` capability."""
 
     @abstractmethod
     def stop(self, session_id: int) -> None: ...

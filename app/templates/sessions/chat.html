@@ -61,9 +61,24 @@
     </div>
   </section>
 
-  <form id="chatForm" class="chat-form">
-    <input type="text" id="promptInput" class="chat-input" placeholder="Enter your prompt..." {% if session.status == 'STOPPED' %}disabled{% endif %}>
-    <button type="submit" class="chat-send" {% if session.status == 'STOPPED' %}disabled{% endif %}>Send</button>
+  <form id="chatForm" class="chat-form composer">
+    <ul id="composerMenu" class="composer-menu" role="listbox" aria-label="Suggestions" hidden></ul>
+    <div id="attachmentChips" class="composer-chips" hidden></div>
+    <ul id="scheduledList" class="composer-scheduled" aria-label="Scheduled messages" hidden></ul>
+    <div id="schedulePanel" class="composer-schedule" hidden>
+      <label>Send at <input type="datetime-local" id="scheduleAt"></label>
+      <button type="button" id="scheduleConfirm">Schedule message</button>
+    </div>
+    <div class="composer-row">
+      <button type="button" id="attachBtn" class="composer-btn" aria-label="Attach a file" title="Attach a file" {% if session.status == 'STOPPED' %}disabled{% endif %}>&#128206;</button>
+      <input type="file" id="attachInput" hidden multiple>
+      <input type="text" id="promptInput" class="chat-input" placeholder="Message, / for commands, @ for files" autocomplete="off" {% if session.status == 'STOPPED' %}disabled{% endif %}>
+      <button type="button" id="scheduleBtn" class="composer-btn" aria-label="Schedule this message" title="Schedule this message" {% if session.status == 'STOPPED' %}disabled{% endif %}>&#9200;</button>
+      <button type="submit" class="chat-send" {% if session.status == 'STOPPED' %}disabled{% endif %}>Send</button>
+    </div>
+    <label id="modeField" class="composer-mode" hidden>Permissions
+      <select id="modeSelect"></select>
+    </label>
   </form>
 </div>
 
@@ -137,14 +152,241 @@
         });
     }
 
+    // --- composer: commands, @ mentions, attachments, scheduling ---------------
+    const composerMenu = document.getElementById('composerMenu');
+    const attachmentChips = document.getElementById('attachmentChips');
+    const scheduledList = document.getElementById('scheduledList');
+    const schedulePanel = document.getElementById('schedulePanel');
+    const modeField = document.getElementById('modeField');
+    const modeSelect = document.getElementById('modeSelect');
+    const attachInput = document.getElementById('attachInput');
+    let commands = [];
+    let attachments = [];
+    let menuItems = [];
+    let menuIndex = -1;
+    let mentionTimer = null;
+
+    function postForm(url, fields) {
+      const body = new FormData();
+      Object.keys(fields || {}).forEach(k => body.append(k, fields[k]));
+      return fetch(url, {method: 'POST', body}).then(r => r.json().then(data => {
+        if (!r.ok) throw new Error(data.error || 'Request failed');
+        return data;
+      }));
+    }
+
+    function closeMenu() {
+      composerMenu.hidden = true;
+      composerMenu.replaceChildren();
+      menuItems = [];
+      menuIndex = -1;
+    }
+
+    function openMenu(items) {
+      composerMenu.replaceChildren();
+      menuItems = items;
+      menuIndex = items.length ? 0 : -1;
+      items.forEach((item, i) => {
+        const li = document.createElement('li');
+        li.setAttribute('role', 'option');
+        li.className = 'composer-menu-item';
+        li.setAttribute('aria-selected', String(i === 0));
+        const label = document.createElement('span');
+        label.textContent = item.label;
+        li.appendChild(label);
+        if (item.hint) {
+          const hint = document.createElement('span');
+          hint.className = 'composer-menu-hint';
+          hint.textContent = item.hint;
+          li.appendChild(hint);
+        }
+        li.addEventListener('mousedown', e => { e.preventDefault(); chooseMenuItem(i); });
+        composerMenu.appendChild(li);
+      });
+      composerMenu.hidden = items.length === 0;
+    }
+
+    function moveMenu(delta) {
+      menuIndex = (menuIndex + delta + menuItems.length) % menuItems.length;
+      Array.from(composerMenu.children).forEach((li, i) => {
+        li.setAttribute('aria-selected', String(i === menuIndex));
+        if (i === menuIndex) li.scrollIntoView({block: 'nearest'});
+      });
+    }
+
+    function chooseMenuItem(i) {
+      const item = menuItems[i];
+      if (!item) return;
+      promptInput.value = item.apply(promptInput.value, promptInput.selectionStart);
+      closeMenu();
+      promptInput.focus();
+    }
+
+    function updateMenu() {
+      const value = promptInput.value;
+      const caret = promptInput.selectionStart;
+      const slash = /^\/([a-z]*)$/i.exec(value);
+      if (slash) {
+        const typed = slash[1].toLowerCase();
+        openMenu(commands.filter(c => c.name.startsWith(typed)).map(c => ({
+          label: '/' + c.name + (c.args ? ' ' + c.args : ''),
+          hint: c.description,
+          apply: () => '/' + c.name + ' ',
+        })));
+        return;
+      }
+      const mention = /(^|\s)@([^\s@]*)$/.exec(value.slice(0, caret));
+      if (mention) {
+        const query = mention[2];
+        clearTimeout(mentionTimer);
+        mentionTimer = setTimeout(() => {
+          fetch(`/sessions/${sessionId}/mentions?q=${encodeURIComponent(query)}`)
+            .then(r => r.json())
+            .then(data => {
+              if (promptInput.value.slice(0, promptInput.selectionStart) !== value.slice(0, caret)) return;
+              openMenu(data.paths.map(path => ({
+                label: path,
+                apply: (v, pos) => v.slice(0, pos - query.length - 1) + '@' + path + ' ' + v.slice(pos),
+              })));
+            })
+            .catch(() => closeMenu());
+        }, 150);
+        return;
+      }
+      clearTimeout(mentionTimer);
+      closeMenu();
+    }
+
+    promptInput.addEventListener('input', updateMenu);
+    promptInput.addEventListener('click', updateMenu);
+    promptInput.addEventListener('blur', () => setTimeout(closeMenu, 100));
+    promptInput.addEventListener('keydown', (e) => {
+      if (composerMenu.hidden || !menuItems.length) return;
+      if (e.key === 'ArrowDown') { e.preventDefault(); moveMenu(1); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); moveMenu(-1); }
+      else if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); chooseMenuItem(menuIndex); }
+      else if (e.key === 'Escape') { e.preventDefault(); closeMenu(); }
+    });
+
+    function renderChips() {
+      attachmentChips.replaceChildren();
+      attachmentChips.hidden = attachments.length === 0;
+      attachments.forEach(a => {
+        const chip = document.createElement('span');
+        chip.className = 'composer-chip';
+        chip.textContent = (a.is_image ? 'Image: ' : 'File: ') + a.name;
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.className = 'composer-chip-remove';
+        remove.setAttribute('aria-label', 'Remove ' + a.name);
+        remove.textContent = '\u00d7';
+        remove.addEventListener('click', () => {
+          attachments = attachments.filter(x => x.id !== a.id);
+          renderChips();
+        });
+        chip.appendChild(remove);
+        attachmentChips.appendChild(chip);
+      });
+    }
+
+    document.getElementById('attachBtn').addEventListener('click', () => attachInput.click());
+    attachInput.addEventListener('change', () => {
+      Array.from(attachInput.files).forEach(file => {
+        postForm(`/sessions/${sessionId}/attachments`, {file})
+          .then(saved => { attachments.push(saved); renderChips(); })
+          .catch(err => agentflowFlash(err.message, 'error'));
+      });
+      attachInput.value = '';
+    });
+
+    function renderScheduled(items) {
+      scheduledList.replaceChildren();
+      scheduledList.hidden = !items || items.length === 0;
+      (items || []).forEach(m => {
+        const li = document.createElement('li');
+        const when = new Date(m.send_at.replace(' ', 'T') + 'Z').toLocaleString();
+        li.textContent = when + ': ' + (m.content.length > 60 ? m.content.slice(0, 59) + '\u2026' : m.content) + ' ';
+        const cancel = document.createElement('button');
+        cancel.type = 'button';
+        cancel.className = 'link-danger';
+        cancel.textContent = 'Cancel';
+        cancel.addEventListener('click', () => {
+          postForm(`/sessions/${sessionId}/schedule/${m.id}/cancel`)
+            .then(data => renderScheduled(data.scheduled))
+            .catch(err => agentflowFlash(err.message, 'error'));
+        });
+        li.appendChild(cancel);
+        scheduledList.appendChild(li);
+      });
+    }
+
+    document.getElementById('scheduleBtn').addEventListener('click', () => {
+      schedulePanel.hidden = !schedulePanel.hidden;
+    });
+    document.getElementById('scheduleConfirm').addEventListener('click', () => {
+      const at = document.getElementById('scheduleAt').value;
+      const content = promptInput.value.trim();
+      if (!content || !at) {
+        agentflowFlash('Type a message and pick a time first.', 'error');
+        return;
+      }
+      postForm(`/sessions/${sessionId}/schedule`, {content, send_at: new Date(at).toISOString()})
+        .then(data => {
+          promptInput.value = '';
+          schedulePanel.hidden = true;
+          renderScheduled(data.scheduled);
+        })
+        .catch(err => agentflowFlash(err.message, 'error'));
+    });
+
+    modeSelect.addEventListener('change', () => {
+      postForm(`/sessions/${sessionId}/command`, {command: '/mode ' + modeSelect.value})
+        .then(data => agentflowFlash(data.message, 'info'))
+        .catch(err => agentflowFlash(err.message, 'error'));
+    });
+
+    fetch(`/sessions/${sessionId}/composer`).then(r => r.json()).then(cfg => {
+      commands = cfg.commands;
+      renderScheduled(cfg.scheduled);
+      if (cfg.permission_modes.length) {
+        cfg.permission_modes.forEach(m => {
+          const opt = document.createElement('option');
+          opt.value = m;
+          opt.textContent = m;
+          modeSelect.appendChild(opt);
+        });
+        modeSelect.value = cfg.permission_mode || cfg.permission_modes[cfg.permission_modes.length - 1];
+        modeField.hidden = false;
+      }
+    }).catch(err => console.error('Composer config failed:', err));
+
+    function runCommand(text) {
+      postForm(`/sessions/${sessionId}/command`, {command: text})
+        .then(data => {
+          promptInput.value = '';
+          addMessage(data.message, 'system');
+          if (data.redirect) window.location.href = data.redirect;
+          else if (data.reload) window.location.reload();
+        })
+        .catch(err => addMessage(err.message, 'system'));
+    }
+
     if (chatForm) {
       chatForm.addEventListener('submit', (e) => {
         e.preventDefault();
         const prompt = promptInput.value.trim();
         if (!prompt) return;
+        closeMenu();
+
+        // "/name args" is a command; "//text" sends a literal leading slash.
+        if (prompt.startsWith('/') && !prompt.startsWith('//')) {
+          runCommand(prompt);
+          return;
+        }
 
         const formData = new FormData();
-        formData.append('prompt', prompt);
+        formData.append('prompt', prompt.startsWith('//') ? prompt.slice(1) : prompt);
+        attachments.forEach(a => formData.append('attachment', a.id));
 
         fetch(`/sessions/${sessionId}/send`, {
           method: 'POST',
@@ -154,6 +396,8 @@
         .then(data => {
           if (data.status === 'sent') {
             promptInput.value = '';
+            attachments = [];
+            renderChips();
             streamNewEvents();
           } else {
             alert(`Error: ${data.error}`);

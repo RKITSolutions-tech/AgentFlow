@@ -120,6 +120,17 @@ CREATE TABLE IF NOT EXISTS notification_preferences (
     PRIMARY KEY (kind, channel)
 );
 
+CREATE TABLE IF NOT EXISTS scheduled_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id INTEGER NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE,
+    content TEXT NOT NULL,
+    send_at TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'PENDING' CHECK(status IN ('PENDING', 'SENT', 'FAILED', 'CANCELLED')),
+    error TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    sent_at TEXT
+);
+
 CREATE TABLE IF NOT EXISTS agent_results (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id INTEGER NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE,

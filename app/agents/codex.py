@@ -15,6 +15,10 @@ from app.agents.questions import extract_questions
 from app.execution.base import ExecutionProvider
 from app.projects import models as project_models
 
+# Sandbox policies a user may pick per session. `danger-full-access` is
+# deliberately not offered from the UI.
+PERMISSION_MODES = ("read-only", "workspace-write")
+
 _VERSION_TIMEOUT_SECONDS = 5.0
 
 # Process states (docs/EXECUTION_PROVIDER.md section 9) that mean a turn's
@@ -72,7 +76,15 @@ class CodexAdapter(AgentAdapter):
 
     def capabilities(self) -> frozenset[str]:
         return frozenset(
-            {"resume", "session_discovery", "structured_events", "model_selection", "token_usage"}
+            {
+                "resume",
+                "session_discovery",
+                "structured_events",
+                "model_selection",
+                "token_usage",
+                "permission_modes",
+                "image_input",
+            }
         )
 
     def discover_sessions(self, project_id: int) -> list[AgentSession]:
@@ -132,6 +144,7 @@ class CodexAdapter(AgentAdapter):
             session.external_session_id,
             "--json",
             *self._model_flags(session.metadata.get("model")),
+            *self._permission_flags(session.metadata.get("permission_mode")),
         ]
         if prompt:
             command.append(prompt)
@@ -146,7 +159,9 @@ class CodexAdapter(AgentAdapter):
         self._sync_events(session_id)
         return models.get_agent_session(self._db, session_id)
 
-    def send(self, session_id: int, content: str) -> None:
+    def send(
+        self, session_id: int, content: str, options: dict[str, Any] | None = None
+    ) -> None:
         session = models.get_agent_session(self._db, session_id)
         if session is None:
             raise ValueError(f"Unknown agent session {session_id}")
@@ -171,6 +186,8 @@ class CodexAdapter(AgentAdapter):
             session.external_session_id,
             "--json",
             *self._model_flags(session.metadata.get("model")),
+            *self._permission_flags(session.metadata.get("permission_mode")),
+            *self._image_flags((options or {}).get("images")),
             content,
         ]
         try:
@@ -357,6 +374,21 @@ class CodexAdapter(AgentAdapter):
     @staticmethod
     def _model_flags(model: str | None) -> list[str]:
         return ["-m", model] if model else []
+
+    @staticmethod
+    def _permission_flags(mode: str | None) -> list[str]:
+        """Sandbox policy for model-run commands. `codex exec resume` has no
+        `--sandbox` flag, so this goes through the config override, which
+        both `exec` and `exec resume` accept."""
+        if mode not in PERMISSION_MODES:
+            return []
+        return ["-c", f'sandbox_mode="{mode}"']
+
+    @staticmethod
+    def _image_flags(images: list[str] | None) -> list[str]:
+        # One `--image=<file>` per image: the flag is variadic, so a bare
+        # `-i a.png "prompt"` would swallow the prompt as another image.
+        return [f"--image={path}" for path in images or []]
 
     @staticmethod
     def _parse_json_line(line: str) -> dict[str, Any] | None:

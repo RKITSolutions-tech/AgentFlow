@@ -22,7 +22,8 @@ from app.agents.models import (
     list_agent_sessions_for_project,
     skip_clarifying_question,
 )
-from app.agents.codex import CodexAdapter
+from app.agents.codex import PERMISSION_MODES, CodexAdapter
+from app.sessions import composer
 from app.agents.fake import FakeAgentAdapter
 from app.notifications import models as notification_models
 from app.projects import models as project_models
@@ -209,8 +210,6 @@ def view_session(session_id: int):
 
 @bp.post("/<int:session_id>/send")
 def send_prompt(session_id: int):
-    from app.execution.host import HostExecutionProvider
-
     db = get_db()
     session = get_agent_session(db, session_id)
     if session is None:
@@ -221,16 +220,20 @@ def send_prompt(session_id: int):
         return jsonify({"error": "Prompt is required"}), 400
 
     try:
-        if session.agent_type.lower() == "codex":
-            execution_provider = HostExecutionProvider(
-                current_app.config["DATABASE_PATH"], current_app.config["ALLOWED_PROJECT_ROOTS"]
-            )
-            adapter = CodexAdapter(db=db, execution_provider=execution_provider)
-        else:
-            adapter = FakeAgentAdapter(db=db)
+        attachments = composer.resolve_attachments(
+            current_app.config["DATABASE_PATH"], session_id, request.form.getlist("attachment")
+        )
+    except composer.ComposerError as e:
+        return jsonify({"error": str(e)}), 400
+    prompt, images = composer.compose_prompt(prompt, attachments)
 
-        adapter.send(session_id, prompt)
-        auto_title_session(db, session_id, prompt)
+    try:
+        adapter = _adapter_for(session)
+        if images and "image_input" in adapter.capabilities():
+            adapter.send(session_id, prompt, options={"images": images})
+        else:
+            adapter.send(session_id, prompt)
+        auto_title_session(db, session_id, request.form.get("prompt", ""))
         return jsonify({"status": "sent"}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 400
@@ -262,6 +265,11 @@ def stream_output(session_id: int):
     # reading list_agent_events() directly here would skip that and the
     # frontend would never see a send()-triggered turn's reply land.
     events = adapter.stream(session_id, after_id=after_id)
+    if composer.has_due(db, session_id):
+        # The stream() above synced the session's status, so a finished turn
+        # no longer blocks delivery; re-read events to include the new prompt.
+        composer.dispatch_due(db, _adapter_for, session_id)
+        events = adapter.stream(session_id, after_id=after_id)
 
     # Resolve question state now: generate() runs after the request's DB
     # connection has been closed.
@@ -493,3 +501,163 @@ def switch_model(session_id: int):
     model = request.form.get("model", "").strip() or None
     update_session_metadata(get_db(), session_id, model=model)
     return jsonify({"status": "updated", "model": model, "message": "Model updated for the next message."}), 200
+
+
+def _composer_session(session_id: int):
+    session = get_agent_session(get_db(), session_id)
+    if session is None:
+        return None, (jsonify({"error": "Session not found"}), 404)
+    return session, None
+
+
+@bp.get("/<int:session_id>/composer")
+def composer_config(session_id: int):
+    """Everything the prompt bar needs: commands, permission mode, schedule."""
+    session, error = _composer_session(session_id)
+    if error:
+        return error
+    capabilities = _adapter_for(session).capabilities()
+    return jsonify({
+        "commands": [
+            {"name": c.name, "description": c.description, "args": c.args}
+            for c in composer.available_commands(capabilities)
+        ],
+        "permission_modes": list(PERMISSION_MODES) if "permission_modes" in capabilities else [],
+        "permission_mode": session.metadata.get("permission_mode") or "",
+        "attachments": True,
+        "images": "image_input" in capabilities,
+        "scheduled": composer.list_scheduled(get_db(), session_id),
+    })
+
+
+@bp.get("/<int:session_id>/mentions")
+def mention_search(session_id: int):
+    session, error = _composer_session(session_id)
+    if error:
+        return error
+    directory = session.metadata.get("working_directory", "")
+    paths = composer.search_mentions(
+        directory, current_app.config["ALLOWED_PROJECT_ROOTS"], request.args.get("q", "")
+    ) if directory else []
+    return jsonify({"paths": paths})
+
+
+@bp.post("/<int:session_id>/attachments")
+def upload_attachment(session_id: int):
+    session, error = _composer_session(session_id)
+    if error:
+        return error
+    upload = request.files.get("file")
+    if upload is None or not upload.filename:
+        return jsonify({"error": "Choose a file to attach."}), 400
+    try:
+        saved = composer.save_attachment(
+            current_app.config["DATABASE_PATH"], session_id, upload.filename, upload.stream
+        )
+    except composer.ComposerError as e:
+        return jsonify({"error": str(e)}), 413 if "larger" in str(e) else 400
+    return jsonify(saved), 201
+
+
+@bp.post("/<int:session_id>/command")
+def run_command(session_id: int):
+    """Execute a slash command typed in the prompt bar."""
+    session, error = _composer_session(session_id)
+    if error:
+        return error
+    parsed = composer.parse_command(request.form.get("command", ""))
+    if parsed is None:
+        return jsonify({"error": "Not a command."}), 400
+    name, arg = parsed
+    db = get_db()
+    adapter = _adapter_for(session)
+    capabilities = adapter.capabilities()
+    known = {c.name: c for c in composer.available_commands(capabilities)}
+    if name not in known:
+        return jsonify({"error": f"Unknown command /{name}. Type /help for the list."}), 400
+
+    def done(message, **extra):
+        return jsonify({"status": "ok", "message": message, **extra}), 200
+
+    def fail(message):
+        return jsonify({"error": message}), 400
+
+    if name == "help":
+        lines = [f"/{c.name} {c.args}".strip() + f" - {c.description}" for c in known.values()]
+        return done("\n".join(lines))
+    if name == "rename":
+        title = rename_session_title(db, session_id, arg)
+        return done("Session renamed.", reload=True, title=title)
+    if name == "model":
+        if not arg:
+            return fail("Usage: /model <model id> (or /model default)")
+        update_session_metadata(db, session_id, model=None if arg == "default" else arg)
+        return done(f"Model set to {arg} for the next message.")
+    if name == "mode":
+        if arg not in PERMISSION_MODES:
+            return fail("Usage: /mode <" + " | ".join(PERMISSION_MODES) + ">")
+        update_session_metadata(db, session_id, permission_mode=arg)
+        return done(f"Permission mode set to {arg} for the next message.", permission_mode=arg)
+    if name == "usage":
+        usage = session_usage(session)
+        if not usage:
+            return done("No token usage recorded yet.")
+        return done(", ".join(f"{k.replace('_', ' ')}: {v}" for k, v in usage.items()))
+    if name == "fork":
+        new_id = fork_session(db, session_id)
+        return done("Session forked.", redirect=url_for("sessions.view_session", session_id=new_id))
+    if name == "archive":
+        try:
+            set_session_archived(db, session_id, True)
+        except ValueError as e:
+            return fail(str(e))
+        return done(
+            "Session archived.",
+            redirect=url_for("sessions.project_sessions", project_id=session.project_id),
+        )
+    if name == "stop":
+        try:
+            adapter.stop(session_id)
+        except Exception as e:  # noqa: BLE001
+            return fail(str(e))
+        return done("Session stopped.", reload=True)
+    return fail("Unhandled command.")
+
+
+@bp.post("/<int:session_id>/schedule")
+def schedule_message(session_id: int):
+    session, error = _composer_session(session_id)
+    if error:
+        return error
+    db = get_db()
+    try:
+        message_id = composer.schedule_message(
+            db, session_id, request.form.get("content", ""), request.form.get("send_at", "")
+        )
+    except composer.ComposerError as e:
+        return jsonify({"error": str(e)}), 400
+    return jsonify({"status": "scheduled", "id": message_id,
+                    "scheduled": composer.list_scheduled(db, session_id)}), 201
+
+
+@bp.post("/<int:session_id>/schedule/<int:message_id>/cancel")
+def cancel_scheduled_message(session_id: int, message_id: int):
+    session, error = _composer_session(session_id)
+    if error:
+        return error
+    db = get_db()
+    if not composer.cancel_scheduled(db, session_id, message_id):
+        return jsonify({"error": "Scheduled message not found."}), 404
+    return jsonify({"status": "cancelled", "scheduled": composer.list_scheduled(db, session_id)})
+
+
+@bp.cli.command("dispatch-scheduled")
+def dispatch_scheduled_command():
+    """Send every scheduled message that is due (for cron or a systemd timer).
+
+    Run as ``flask sessions dispatch-scheduled``.
+    """
+    import click
+
+    sent = composer.dispatch_due(get_db(), _adapter_for)
+    click.echo(f"Sent {sent} scheduled message(s).")

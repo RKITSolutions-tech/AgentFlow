@@ -541,11 +541,11 @@
         "description": "Bring the session prompt bar closer to CloudCLI capability.",
         "details": "See docs/CLOUDCLI_GAP_ANALYSIS.md G6. Slash commands, @ file mentions resolved against the project, attachments/images, permission-mode selection where the adapter supports it, scheduled messages; voice input is low priority. Mobile-first: chat/input bars are a listed risk area in CLAUDE.md.",
         "testStrategy": "",
-        "status": "in-progress",
+        "status": "done",
         "dependencies": [],
         "priority": "medium",
         "subtasks": [],
-        "updatedAt": "2026-09-25T22:31:59.098Z"
+        "updatedAt": "2026-09-25T22:37:48.897Z"
       },
       {
         "id": "15",
@@ -553,10 +553,11 @@
         "description": "Improve project lifecycle handling.",
         "details": "See docs/CLOUDCLI_GAP_ANALYSIS.md G7. Star/pin, rename, archive/restore, clone from URL with progress, filesystem browse when adding a project (restricted to ALLOWED_PROJECT_ROOTS), worktree create/merge/remove UI aligned with the Ralph worktree design in docs/RUN_AND_RALPH.md.",
         "testStrategy": "",
-        "status": "pending",
+        "status": "in-progress",
         "dependencies": [],
         "priority": "low",
-        "subtasks": []
+        "subtasks": [],
+        "updatedAt": "2026-09-25T22:37:52.687Z"
       },
       {
         "id": "16",
@@ -572,9 +573,9 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-09-25T22:31:59.098Z",
+      "lastModified": "2026-09-25T22:37:52.687Z",
       "taskCount": 16,
-      "completedCount": 10,
+      "completedCount": 11,
       "tags": [
         "master"
       ]

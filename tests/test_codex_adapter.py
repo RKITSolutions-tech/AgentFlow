@@ -288,7 +288,10 @@ def test_capabilities_include_resume_discovery_and_structured_events():
     adapter = CodexAdapter()
 
     assert adapter.capabilities() == frozenset(
-        {"resume", "session_discovery", "structured_events", "model_selection", "token_usage"}
+        {
+            "resume", "session_discovery", "structured_events", "model_selection",
+            "token_usage", "permission_modes", "image_input",
+        }
     )
 
 
