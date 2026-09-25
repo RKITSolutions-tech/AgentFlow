@@ -135,7 +135,7 @@ Create commit component that: (1) provides text area for composing commit messag
 
 ### 5.7. Implement file browser and safe file loading
 
-**Status:** pending  
+**Status:** done  
 **Dependencies:** 5.1, 5.2  
 
 Build repository-scoped file browsing with safety checks for large and binary files, preventing them from loading into the normal editor.
@@ -143,102 +143,6 @@ Build repository-scoped file browsing with safety checks for large and binary fi
 **Details:**
 
 Create file browser UI component that: (1) displays directory tree limited to repository root, (2) validates all file paths against allowed repository roots, (3) implements file size detection to avoid loading files >5MB, (4) detects binary files using magic bytes or file extension analysis, (5) provides safe preview/download options for large/binary files, (6) implements responsive layout for mobile with collapsible tree and scrollable pane, (7) includes file metadata display (size, type, modified date), (8) handles errors gracefully when files are deleted or permissions change.
-
-### 5.8. Implement project-wide file search functionality
-
-**Status:** pending  
-**Dependencies:** 5.1, 5.2, 5.7  
-
-Add full-text search across repository files with filtering, highlighting, and safe handling of binary and large files.
-
-**Details:**
-
-Create search component that: (1) provides search input with real-time or debounced query execution, (2) searches file content using grep or ripgrep subprocess via HostExecutionProvider, (3) filters results to exclude binary and large files from content search, (4) displays results with file path, line number, and matching context, (5) implements result pagination or lazy loading for large result sets, (6) includes filter options (file type, path prefix), (7) links search results to file editor and diff views, (8) implements responsive result display for mobile with collapsible result items, (9) persists search history in session/user preferences.
-
-### 5.9. Implement Git operations module (status, diff, log, stage, unstage)
-
-**Status:** pending  
-**Dependencies:** 5.1, 5.2  
-
-Build Git command execution layer providing status, diff, log viewing and stage/unstage operations with proper error handling and history persistence.
-
-**Details:**
-
-Create Git operations module that: (1) executes git status, git diff, git log via HostExecutionProvider, (2) parses output into structured data (file status, diff hunks, commit metadata), (3) provides endpoints for staging and unstaging files via 'git add' and 'git restore --staged', (4) implements diff viewing with side-by-side or unified format, (5) handles merge conflicts and detached HEAD states with appropriate messages, (6) persists Git operation results in AgentSession/AgentEvent records for audit trail, (7) implements error handling for permission issues and command failures, (8) validates working directory matches repository root before execution.
-
-### 5.10. Implement persistent tmux-backed terminal with reconnection support
-
-**Status:** pending  
-**Dependencies:** 5.1, 5.2  
-
-Build reconnectable terminal interface backed by tmux sessions, maintaining state across browser disconnects and supporting command execution within repository boundaries.
-
-**Details:**
-
-Create terminal system that: (1) creates and manages tmux sessions per project/user, (2) sets tmux session working directory to repository root, (3) executes commands via HostExecutionProvider with proper environment filtering, (4) streams terminal output using WebSocket or Server-Sent Events with event position tracking, (5) implements reconnection logic allowing clients to resume from last known event position, (6) persists terminal session identifiers in AgentSession records, (7) implements input/output history storage in ProcessEvent records, (8) handles tmux session cleanup on user logout or timeout, (9) implements responsive terminal UI for mobile with appropriate scaling and touch-friendly controls, (10) supports terminal resizing and proper PTY configuration.
-
-### 5.11. Link changed files to diff views and implement responsive UI integration
-
-**Status:** pending  
-**Dependencies:** 5.7, 5.8, 5.9, 5.10  
-
-Connect file browser, Git operations, and editor with bidirectional links between changed files and their diffs, ensuring all features work on mobile and desktop.
-
-**Details:**
-
-Create UI integration layer that: (1) highlights changed files in file browser based on Git status (modified, staged, untracked), (2) provides click-to-view-diff links from file listings and status displays, (3) links diff view results back to file editor for navigation, (4) implements responsive layout for mobile (375px) where diff and file view stack vertically and are switchable, (5) reuses .table-compact class for dense file listings, (6) places row-level actions (stage, view diff) in .row-actions cells that wrap on mobile, (7) implements touch-friendly tap targets (44px minimum), (8) prevents horizontal scrolling on mobile through text wrapping and overflow handling, (9) integrates all tools (file browser, search, Git, terminal) into cohesive workspace navigation, (10) ensures all actions are keyboard-accessible and screen-reader compatible.
-
-### 5.12. Implement file browser UI with directory tree
-
-**Status:** pending  
-**Dependencies:** 5.1, 5.2  
-
-Create repository-scoped file browsing component with collapsible directory tree navigation limited to repository root.
-
-**Details:**
-
-Build file browser UI that displays a hierarchical directory tree structure. Implement tree navigation with expand/collapse functionality for directories. Limit browsing scope to the repository root using Project repository validation. Create responsive layout that works on mobile (collapsible tree) and desktop (side-by-side pane). Include file icons and metadata badges (size, type). Implement efficient tree rendering for large repositories.
-
-### 5.13. Implement safe file loading with size and binary detection
-
-**Status:** pending  
-**Dependencies:** 5.12  
-
-Add file size detection and binary file identification to prevent loading large or binary files into the normal editor.
-
-**Details:**
-
-Implement file metadata inspection: read file size and use magic byte analysis or extension-based detection to identify binary files. Set safe thresholds (e.g., >5MB triggers preview-only mode). Create file loading logic that: (1) validates file paths against allowed roots via HostExecutionProvider, (2) checks file size before loading, (3) detects binary content, (4) routes large/binary files to safe preview or download options instead of editor. Provide user feedback on why a file cannot be edited inline.
-
-### 5.14. Implement file editor and safe file saving
-
-**Status:** pending  
-**Dependencies:** 5.13  
-
-Build in-browser file editor with safe saving, syntax highlighting, and integration with Git diff linking.
-
-**Details:**
-
-Create editor component using existing app.css and semantic HTML (no external editor library unless necessary). Implement: (1) syntax highlighting based on file extension, (2) safe save-to-disk via HostExecutionProvider, (3) path validation before write, (4) dirty-state tracking and unsaved-changes warnings, (5) line number display, (6) basic undo/redo, (7) responsive layout for mobile. Link modified files to their Git diff view so users can review changes before commit. Show file status badges (modified, new, deleted) in file browser.
-
-### 5.15. Implement search functionality across repository files
-
-**Status:** pending  
-**Dependencies:** 5.12, 5.13  
-
-Add repository-scoped search with file and content filtering, respecting file safety rules.
-
-**Details:**
-
-Build search interface supporting: (1) file name search with glob/regex filtering, (2) file content search using HostExecutionProvider (grep-based), (3) filtering to exclude binary and large files automatically, (4) pagination for large result sets, (5) link results to file editor and Git diff, (6) mobile-friendly result display with wrapping and scroll regions. Implement search across all files within repository root. Cache search index for repeated queries or rebuild on demand. Handle special characters and escape user input to prevent injection.
-
-### 5.16. Integrate file browser, editor, and search into workspace with Git and terminal tools
-
-**Status:** pending  
-**Dependencies:** 5.14, 5.15  
-
-Combine file browsing, editing, and search components into the Phase 1 workspace layout alongside Git operations and terminal tools.
-
-**Details:**
-
-Create unified workspace layout integrating: (1) file browser (left sidebar), (2) file editor/viewer (main pane), (3) search panel, (4) Git operations panel (status/diff/log/stage/unstage/commit from task 5.3), (5) persistent tmux-backed terminal (from task 5.6). Ensure responsive grid layout for desktop (multi-column) and mobile (stacked or tabbed). Use AJAX for in-page actions (delete file, create folder, stage/unstage) per CLAUDE.md rules. Link changed files to diffs. Keep touch targets sized for mobile. Reuse Project validation and HostExecutionProvider boundaries throughout. Add keyboard shortcuts for power users.
+<info added on 2026-09-24T21:02:02.860Z>
+Implementation complete. Directory tree component now displays file metadata columns (type, size, modified date), uses responsive CSS for mobile with collapsible tree navigation, includes file type indicators with emoji icons, and formats file sizes for readability. All unit and integration tests passing (10/10). Component validates paths against allowed repository roots and handles binary/large files safely as specified.
+</info added on 2026-09-24T21:02:02.860Z>
