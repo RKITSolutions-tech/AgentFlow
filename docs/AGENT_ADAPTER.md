@@ -170,6 +170,63 @@ Agent approval requests should be translated into AgentFlow events. Future UI ma
 
 Agent CLI approval requests are adapter-level events because they may arise inside a running AgentStep. They are distinct from declared pipeline ManualSteps, but both use the same waiting-for-human UI treatment.
 
+Some agent CLIs also raise structured clarifying questions mid-session —
+multiple choice, optionally with a free-text "other" answer — rather than a
+bare approve/deny. CloudCLI renders these as a selectable option list plus
+an editable "other" field; AgentFlow's replacement should match that. These
+are adapter-level events distinct from approvals, using the same
+waiting-for-human UI treatment, and the structured option list should be
+preserved end-to-end rather than flattened into a plain text prompt.
+
+Observed reference behaviour (CloudCLI v1.37.3, answered Claude Code
+`AskUserQuestion` in an AgentFlow session): the question renders as its own
+inline conversation item after the agent's prose, not as an approval-style
+banner. Structured payload and rendering:
+
+```text
+questions[].question     question text
+questions[].header       short chip label shown above the question
+questions[].multiSelect  single vs multiple choice
+questions[].options[]    { label, description } - one radio row each;
+                         "(Recommended)" is just part of the label text
+answer                   { "<question>": "<selected label>" }
+```
+
+The answered state shows the chosen option highlighted and the others greyed
+out.
+
+The live (pending) state, observed in the same CloudCLI version, is different
+and is the model to match:
+
+```text
+- the message input is replaced by a docked panel headed
+  "CLAUDE NEEDS YOUR INPUT" plus the header chip
+- options are numbered rows (1, 2, 3 ...), each with label + description,
+  selectable by click or by pressing the number key
+- the last row is "Other..." (key 0); selecting it reveals a
+  "Type your answer..." text field inside the panel
+- "Skip" (Esc) and "Submit" (Enter) actions; Submit stays disabled until an
+  option is chosen or the Other text is non-empty
+- the inline conversation item shows a "Running" badge while pending
+```
+
+"Other" is part of the tool's UI contract, not an option supplied by the
+agent, so AgentFlow must add it itself for every clarifying question. The
+structured form is a native Claude Code tool; Codex has no known equivalent.
+
+Open questions to resolve before implementation:
+
+```text
+does the AgentAdapter interface need a distinct event/method for
+  clarifying questions, or do they reuse the approval event shape with
+  an added options list
+how does an adapter recognize a clarifying-question event from agent
+  CLI output that wasn't designed with structured events in mind (e.g.
+  parsing free-form CLI text vs a native tool-call event)
+should "other" ever carry AI-suggested prefill text, or always start
+  blank
+```
+
 ## 13. Execution Provider
 
 Agents run through HostExecutionProvider or DockerExecutionProvider. Adapters should request execution through the provider abstraction rather than invoking subprocesses directly.
