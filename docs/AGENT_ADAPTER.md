@@ -208,6 +208,9 @@ and is the model to match:
 - "Skip" (Esc) and "Submit" (Enter) actions; Submit stays disabled until an
   option is chosen or the Other text is non-empty
 - the inline conversation item shows a "Running" badge while pending
+- Skip marks the item "Skipped" and returns a tool-rejected error to the
+  agent ("the user doesn't want to proceed ... wait for the user"), so a
+  skip is a distinct outcome from an answer and the agent stops and waits
 ```
 
 "Other" is part of the tool's UI contract, not an option supplied by the
