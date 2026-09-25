@@ -4,6 +4,16 @@ from flask import Blueprint, current_app, flash, redirect, render_template, requ
 
 from app.db import get_db
 from app.agents.models import (
+    auto_title_session,
+    fork_session,
+    is_archived,
+    list_sessions as list_sessions_across,
+    rename_session as rename_session_title,
+    search_sessions,
+    session_title,
+    session_usage,
+    set_session_archived,
+    update_session_metadata,
     create_agent_session,
     delete_agent_session,
     answer_clarifying_question,
@@ -25,7 +35,37 @@ bp = Blueprint("sessions", __name__, url_prefix="/sessions")
 def list_sessions():
     db = get_db()
     projects = project_models.list_projects(db)
-    return render_template("sessions/list.html", projects=projects)
+    names = {p.id: p.name for p in projects}
+    query = request.args.get("q", "").strip()
+    view = request.args.get("view", "recent")
+    if view not in ("recent", "running", "archived"):
+        view = "recent"
+
+    hits = []
+    if query:
+        hits = [
+            _row(db, s, names, snippet)
+            for s, snippet in search_sessions(db, query, include_archived=view == "archived")
+        ]
+    rows = [
+        _row(db, s, names)
+        for s in list_sessions_across(
+            db, archived=view == "archived", running_only=view == "running", limit=50
+        )
+    ]
+    return render_template(
+        "sessions/list.html", projects=projects, rows=rows, hits=hits, query=query, view=view
+    )
+
+
+def _row(db, session, project_names, snippet: str = "") -> dict:
+    return {
+        "session": session,
+        "title": session_title(db, session),
+        "project_name": project_names.get(session.project_id, ""),
+        "snippet": snippet,
+        "usage": session_usage(session),
+    }
 
 
 @bp.get("/project/<int:project_id>")
@@ -35,12 +75,28 @@ def project_sessions(project_id: int):
     if project is None:
         return render_template("404.html"), 404
 
-    sessions = list_agent_sessions_for_project(db, project_id)
+    show_archived = request.args.get("archived") == "1"
+    sessions = [
+        s for s in list_agent_sessions_for_project(db, project_id) if is_archived(s) == show_archived
+    ]
+    sessions.sort(key=lambda s: (s.last_activity_at, s.id), reverse=True)
+    titles = {s.id: session_title(db, s) for s in sessions}
+    query = request.args.get("q", "").strip()
+    hits = [
+        _row(db, s, {project.id: project.name}, snippet)
+        for s, snippet in search_sessions(
+            db, query, project_id=project_id, include_archived=show_archived
+        )
+    ]
     openai_models = settings_models.list_enabled_models(db, provider="openai")
     return render_template(
         "sessions/project.html",
         project=project,
         sessions=sessions,
+        titles=titles,
+        show_archived=show_archived,
+        query=query,
+        hits=hits,
         openai_models=openai_models,
     )
 
@@ -136,11 +192,18 @@ def view_session(session_id: int):
     repo_id = session.metadata.get("repo_id")
     repo = project_models.get_repository(db, session.project_id, repo_id) if repo_id else None
 
+    capabilities = _adapter_for(session).capabilities()
     return render_template(
         "sessions/chat.html",
         session=session,
         project=project,
         repo=repo,
+        title=session_title(db, session),
+        archived=is_archived(session),
+        usage=session_usage(session),
+        can_fork="fork" in capabilities,
+        can_switch_model="model_selection" in capabilities,
+        model_options=settings_models.list_enabled_models(db, provider="openai"),
     )
 
 
@@ -167,6 +230,7 @@ def send_prompt(session_id: int):
             adapter = FakeAgentAdapter(db=db)
 
         adapter.send(session_id, prompt)
+        auto_title_session(db, session_id, prompt)
         return jsonify({"status": "sent"}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 400
@@ -336,3 +400,96 @@ def delete_session(session_id: int):
 
     flash("Session deleted.", "info")
     return redirect(url_for("sessions.project_sessions", project_id=project_id))
+
+
+def _session_action_response(session_id: int, payload: dict, redirect_to: str | None = None):
+    """JSON for AJAX callers, otherwise a flash + redirect (non-JS fallback)."""
+    if _wants_json():
+        return jsonify(payload), 200
+    flash(payload.get("message", "Done."), "info")
+    return redirect(redirect_to or url_for("sessions.view_session", session_id=session_id))
+
+
+def _session_or_404(session_id: int):
+    session = get_agent_session(get_db(), session_id)
+    if session is None:
+        if _wants_json():
+            return None, (jsonify({"error": "Session not found"}), 404)
+        return None, (render_template("404.html"), 404)
+    return session, None
+
+
+@bp.post("/<int:session_id>/rename")
+def rename_session(session_id: int):
+    session, error = _session_or_404(session_id)
+    if error:
+        return error
+    db = get_db()
+    title = rename_session_title(db, session_id, request.form.get("title", ""))
+    shown = title or session_title(db, get_agent_session(db, session_id))
+    return _session_action_response(
+        session_id, {"status": "renamed", "title": shown, "message": "Session renamed."}
+    )
+
+
+@bp.post("/<int:session_id>/archive")
+def archive_session(session_id: int):
+    session, error = _session_or_404(session_id)
+    if error:
+        return error
+    try:
+        set_session_archived(get_db(), session_id, True)
+    except ValueError as e:
+        if _wants_json():
+            return jsonify({"error": str(e)}), 400
+        flash(str(e), "error")
+        return redirect(url_for("sessions.view_session", session_id=session_id))
+    return _session_action_response(
+        session_id,
+        {"status": "archived", "message": "Session archived."},
+        url_for("sessions.project_sessions", project_id=session.project_id),
+    )
+
+
+@bp.post("/<int:session_id>/restore")
+def restore_session(session_id: int):
+    session, error = _session_or_404(session_id)
+    if error:
+        return error
+    set_session_archived(get_db(), session_id, False)
+    return _session_action_response(
+        session_id,
+        {"status": "restored", "message": "Session restored."},
+        url_for("sessions.project_sessions", project_id=session.project_id),
+    )
+
+
+@bp.post("/<int:session_id>/fork")
+def fork(session_id: int):
+    session, error = _session_or_404(session_id)
+    if error:
+        return error
+    if "fork" not in _adapter_for(session).capabilities():
+        message = f"{session.agent_type} sessions cannot be forked."
+        if _wants_json():
+            return jsonify({"error": message}), 400
+        flash(message, "error")
+        return redirect(url_for("sessions.view_session", session_id=session_id))
+    new_id = fork_session(get_db(), session_id)
+    url = url_for("sessions.view_session", session_id=new_id)
+    return _session_action_response(
+        new_id, {"status": "forked", "session_id": new_id, "url": url, "message": "Session forked."}, url
+    )
+
+
+@bp.post("/<int:session_id>/model")
+def switch_model(session_id: int):
+    """Change the model used for the session's next turn (capability-gated)."""
+    session, error = _session_or_404(session_id)
+    if error:
+        return error
+    if "model_selection" not in _adapter_for(session).capabilities():
+        return jsonify({"error": f"{session.agent_type} does not support switching models."}), 400
+    model = request.form.get("model", "").strip() or None
+    update_session_metadata(get_db(), session_id, model=model)
+    return jsonify({"status": "updated", "model": model, "message": "Model updated for the next message."}), 200

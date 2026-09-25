@@ -4,6 +4,51 @@
   <h1>Sessions</h1>
   <p>Select a project to view or start a session.</p>
 
+  <form class="inline-filter" method="get" role="search">
+    <input type="search" name="q" value="{{ query }}" placeholder="Search all sessions" aria-label="Search all sessions">
+    <input type="hidden" name="view" value="{{ view }}">
+    <button type="submit">Search</button>
+  </form>
+  {% if query %}
+    <h2>Results for "{{ query }}"</h2>
+    {% if hits %}
+      <ul class="hit-list">
+        {% for hit in hits %}
+          <li>
+            <a href="{{ url_for('sessions.view_session', session_id=hit.session.id) }}">{{ hit.title or (hit.session.agent_type|capitalize ~ ' #' ~ hit.session.id) }}</a>
+            <span class="hit-project">{{ hit.project_name }}</span>
+            {% if hit.snippet %}<span class="hit-snippet">{{ hit.snippet }}</span>{% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p>No sessions match.</p>
+    {% endif %}
+  {% endif %}
+
+  <nav class="view-switch" aria-label="Session views">
+    <a href="{{ url_for('sessions.list_sessions', view='recent') }}"{% if view == 'recent' %} aria-current="page"{% endif %}>Recent</a>
+    <a href="{{ url_for('sessions.list_sessions', view='running') }}"{% if view == 'running' %} aria-current="page"{% endif %}>Running</a>
+    <a href="{{ url_for('sessions.list_sessions', view='archived') }}"{% if view == 'archived' %} aria-current="page"{% endif %}>Archived</a>
+  </nav>
+  <table class="table-compact" id="recent-sessions-table" {% if not rows %}hidden{% endif %}>
+    <thead><tr><th>Session</th><th>Project</th><th>Status</th><th>Last activity</th><th>Tokens</th></tr></thead>
+    <tbody>
+      {% for row in rows %}
+        <tr>
+          <td class="wrap-cell"><a href="{{ url_for('sessions.view_session', session_id=row.session.id) }}">{{ row.title or (row.session.agent_type|capitalize ~ ' #' ~ row.session.id) }}</a></td>
+          <td>{{ row.project_name }}</td>
+          <td>{{ row.session.status }}</td>
+          <td>{{ row.session.last_activity_at }}</td>
+          <td>{% if row.usage %}{{ (row.usage.get('input_tokens', 0) + row.usage.get('output_tokens', 0)) }}{% else %}&ndash;{% endif %}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if not rows %}<p id="no-recent-sessions">No {{ view }} sessions.</p>{% endif %}
+
+  <h2>Projects</h2>
+
   <table class="table-compact" id="projects-table" {% if not projects %}hidden{% endif %}>
     <thead><tr><th>Project</th><th>Repositories</th><th>Actions</th></tr></thead>
     <tbody>

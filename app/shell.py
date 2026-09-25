@@ -60,7 +60,7 @@ def session_state(status: str) -> str:
 
 
 def session_title(agent_type: str, session_id: int) -> str:
-    """Sessions have no user-visible title yet, so derive a stable label."""
+    """Fallback label for a session the user has not named (and has no prompt yet)."""
     return f"{agent_type.capitalize()} #{session_id}"
 
 
@@ -80,17 +80,21 @@ def _sidebar_sessions(db: sqlite3.Connection) -> dict[int, dict]:
     }
     grouped: dict[int, dict] = {pid: {"total": n, "recent": []} for pid, n in counts.items()}
     rows = db.execute(
-        "SELECT id, project_id, agent_type, status, started_at, last_activity_at "
+        "SELECT id, project_id, agent_type, status, started_at, last_activity_at, "
+        "json_extract(metadata, '$.title') AS title, "
+        "json_extract(metadata, '$.archived_at') AS archived_at "
         "FROM agent_sessions ORDER BY COALESCE(last_activity_at, started_at) DESC, id DESC"
     )
     for row in rows:
+        if row["archived_at"]:
+            continue
         bucket = grouped[row["project_id"]]
         if len(bucket["recent"]) >= SIDEBAR_SESSIONS_PER_PROJECT:
             continue
         bucket["recent"].append(
             {
                 "id": row["id"],
-                "title": session_title(row["agent_type"], row["id"]),
+                "title": row["title"] or session_title(row["agent_type"], row["id"]),
                 "state": "waiting" if row["id"] in waiting else session_state(row["status"]),
                 "age": relative_age(row["last_activity_at"] or row["started_at"]),
             }

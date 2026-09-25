@@ -703,3 +703,18 @@ textarea.editor { width: 100%; font-family: ui-monospace, monospace; padding: 0.
 .branch-name { overflow-wrap: anywhere; }
 .remote-panel { margin-bottom: 1rem; }
 .remote-panel p { overflow-wrap: anywhere; }
+
+/* Session lists: search box, view switch, hit list, header controls. */
+.inline-filter { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin: 0 0 0.75rem; }
+.inline-filter input[type="search"] { flex: 1 1 12rem; min-height: var(--tap); }
+.inline-filter button, .inline-filter a { display: inline-flex; align-items: center; min-height: var(--tap); }
+.view-switch { display: flex; gap: 0.25rem; margin: 0.75rem 0; overflow-x: auto; }
+.view-switch a { display: inline-flex; align-items: center; min-height: var(--tap); padding: 0 0.9rem; border-radius: var(--radius); color: var(--text-muted); }
+.view-switch a[aria-current="page"] { color: var(--accent); background: var(--accent-soft); font-weight: 600; }
+.hit-list { list-style: none; margin: 0 0 1rem; padding: 0; }
+.hit-list li { padding: 0.5rem 0; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+.hit-project, .hit-snippet { display: block; color: var(--text-muted); font-size: 0.85rem; }
+.wrap-cell { overflow-wrap: anywhere; }
+.model-switch { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.4rem; color: var(--text-muted); font-size: 0.85rem; }
+.model-switch select { min-height: var(--tap); max-width: 100%; }
+.chat-header-actions button { min-height: var(--tap); }

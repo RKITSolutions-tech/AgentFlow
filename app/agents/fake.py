@@ -34,7 +34,7 @@ class FakeAgentAdapter(AgentAdapter):
         return FAKE_AGENT_VERSION
 
     def capabilities(self) -> frozenset[str]:
-        return frozenset({"structured_events"})
+        return frozenset({"structured_events", "fork"})
 
     def discover_sessions(self, project_id: int) -> list[AgentSession]:
         return models.list_agent_sessions_for_project(self._db, project_id)

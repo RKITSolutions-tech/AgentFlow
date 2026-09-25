@@ -517,11 +517,11 @@
         "description": "Make large numbers of sessions manageable and inspectable.",
         "details": "See docs/CLOUDCLI_GAP_ANALYSIS.md G4. Rename, archive/restore, fork, cross-session search, recent and running views, token usage per session, switch model/effort mid-session where the adapter supports it (capability-gated per AGENT_ADAPTER.md). Auto-title untitled sessions from the first prompt.",
         "testStrategy": "",
-        "status": "in-progress",
+        "status": "done",
         "dependencies": [],
         "priority": "medium",
         "subtasks": [],
-        "updatedAt": "2026-09-25T22:24:45.295Z"
+        "updatedAt": "2026-09-25T22:29:42.527Z"
       },
       {
         "id": "13",
@@ -529,10 +529,11 @@
         "description": "Extend the file workspace beyond view and basic edit.",
         "details": "See docs/CLOUDCLI_GAP_ANALYSIS.md G5. Create file/folder, rename, delete with confirmation, upload with size limits. Enforce ALLOWED_PROJECT_ROOTS via app/security.py; handle binary and large files; AJAX per CLAUDE.md UI rules.",
         "testStrategy": "",
-        "status": "pending",
+        "status": "in-progress",
         "dependencies": [],
         "priority": "medium",
-        "subtasks": []
+        "subtasks": [],
+        "updatedAt": "2026-09-25T22:29:46.265Z"
       },
       {
         "id": "14",
@@ -570,9 +571,9 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-09-25T22:24:45.295Z",
+      "lastModified": "2026-09-25T22:29:46.265Z",
       "taskCount": 16,
-      "completedCount": 8,
+      "completedCount": 9,
       "tags": [
         "master"
       ]

@@ -7,8 +7,17 @@
 <div class="chat-page">
   <div>
     <div class="chat-header-row">
-      <h2>{{ project.name }} - {{ session.agent_type|upper }} Chat</h2>
+      <h2 id="sessionTitle" class="wrap-cell">{{ title or (project.name ~ ' - ' ~ session.agent_type|upper ~ ' Chat') }}</h2>
       <div class="chat-header-actions">
+        <button type="button" id="renameSession" data-url="{{ url_for('sessions.rename_session', session_id=session.id) }}" data-title="{{ title }}">Rename</button>
+        {% if can_fork %}
+          <button type="button" data-ajax-post="{{ url_for('sessions.fork', session_id=session.id) }}">Fork</button>
+        {% endif %}
+        {% if session.status not in ('RUNNING', 'STARTING') %}
+          <form method="post" action="{{ url_for('sessions.restore_session' if archived else 'sessions.archive_session', session_id=session.id) }}">
+            <button type="submit">{{ 'Restore' if archived else 'Archive' }}</button>
+          </form>
+        {% endif %}
         {% if session.status != 'STOPPED' %}
           <form method="post" action="{{ url_for('sessions.stop_session', session_id=session.id) }}">
             <button type="submit" class="link-danger">Stop Session</button>
@@ -20,7 +29,17 @@
         </form>
       </div>
     </div>
-    <p class="chat-status">Status: {{ session.status }} | Started: {{ session.started_at }}</p>
+    <p class="chat-status">Status: {{ session.status }} | Started: {{ session.started_at }}{% if archived %} | Archived{% endif %}{% if session.metadata.get('forked_from') %} | Forked from <a href="{{ url_for('sessions.view_session', session_id=session.metadata['forked_from']) }}">#{{ session.metadata['forked_from'] }}</a>{% endif %}{% if usage %} | Tokens: {{ usage.get('input_tokens', 0) }} in / {{ usage.get('output_tokens', 0) }} out{% endif %}</p>
+    {% if can_switch_model %}
+      <label class="model-switch">Model
+        <select id="modelSwitch" data-url="{{ url_for('sessions.switch_model', session_id=session.id) }}">
+          <option value="">(agent default)</option>
+          {% for m in model_options %}
+            <option value="{{ m.model_id }}"{% if m.model_id == session.metadata.get('model') %} selected{% endif %}>{{ m.model_id }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    {% endif %}
   </div>
 
   <div id="chatContainer" class="chat-container">

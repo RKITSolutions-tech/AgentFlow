@@ -71,7 +71,9 @@ class CodexAdapter(AgentAdapter):
         return self._version or ""
 
     def capabilities(self) -> frozenset[str]:
-        return frozenset({"resume", "session_discovery", "structured_events", "model_selection"})
+        return frozenset(
+            {"resume", "session_discovery", "structured_events", "model_selection", "token_usage"}
+        )
 
     def discover_sessions(self, project_id: int) -> list[AgentSession]:
         working_directory = self._primary_repository_path(project_id)
@@ -311,6 +313,7 @@ class CodexAdapter(AgentAdapter):
                         self._db, session_id, "AgentError", data=item.get("message", "")
                     )
             elif event_type == "turn.completed":
+                self._record_usage(metadata, payload.get("usage"))
                 models.add_agent_event(
                     self._db, session_id, "AgentComplete", data=last_agent_message
                 )
@@ -339,6 +342,17 @@ class CodexAdapter(AgentAdapter):
                 metadata["turn_finalized"] = True
 
         models.set_session_metadata(self._db, session_id, metadata)
+
+    @staticmethod
+    def _record_usage(metadata: dict[str, Any], usage: Any) -> None:
+        """Add a turn's token counts to the session's running total."""
+        if not isinstance(usage, dict):
+            return
+        total = dict(metadata.get("usage") or {})
+        for key, value in usage.items():
+            if isinstance(value, (int, float)):
+                total[key] = int(total.get(key, 0)) + int(value)
+        metadata["usage"] = total
 
     @staticmethod
     def _model_flags(model: str | None) -> list[str]:

@@ -5,17 +5,52 @@
   {{ project_tabs(project, none, 'sessions') }}
   <h1>{{ project.name }} - Sessions</h1>
 
-  <h2>Active Sessions</h2>
+  <h2>{% if show_archived %}Archived Sessions{% else %}Active Sessions{% endif %}</h2>
+  <form class="inline-filter" method="get" role="search">
+    <input type="search" name="q" value="{{ query }}" placeholder="Search sessions" aria-label="Search sessions">
+    {% if show_archived %}<input type="hidden" name="archived" value="1">{% endif %}
+    <button type="submit">Search</button>
+    {% if show_archived %}
+      <a href="{{ url_for('sessions.project_sessions', project_id=project.id) }}">Show active</a>
+    {% else %}
+      <a href="{{ url_for('sessions.project_sessions', project_id=project.id, archived=1) }}">Show archived</a>
+    {% endif %}
+  </form>
+  {% if query %}
+    <h3>Results for "{{ query }}"</h3>
+    {% if hits %}
+      <ul class="hit-list">
+        {% for hit in hits %}
+          <li>
+            <a href="{{ url_for('sessions.view_session', session_id=hit.session.id) }}">{{ hit.title or (hit.session.agent_type|capitalize ~ ' #' ~ hit.session.id) }}</a>
+            {% if hit.snippet %}<span class="hit-snippet">{{ hit.snippet }}</span>{% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p>No sessions match.</p>
+    {% endif %}
+  {% endif %}
   <table class="table-compact" id="sessions-table" {% if not sessions %}hidden{% endif %}>
-    <thead><tr><th>Agent</th><th>Status</th><th>Started</th><th>Actions</th></tr></thead>
+    <thead><tr><th>Session</th><th>Agent</th><th>Status</th><th>Last activity</th><th>Actions</th></tr></thead>
     <tbody>
       {% for session in sessions %}
         <tr data-row>
+          <td class="wrap-cell">{{ titles[session.id] or ('Session #' ~ session.id) }}</td>
           <td>{{ session.agent_type|upper }}</td>
           <td>{{ session.status }}</td>
-          <td>{{ session.started_at }}</td>
+          <td>{{ session.last_activity_at }}</td>
           <td class="row-actions">
             <a href="{{ url_for('sessions.view_session', session_id=session.id) }}">Open</a>
+            {% if show_archived %}
+              <button type="button"
+                      data-ajax-action="{{ url_for('sessions.restore_session', session_id=session.id) }}"
+                      data-on-removed="sessions:row-removed">Restore</button>
+            {% elif session.status not in ('RUNNING', 'STARTING') %}
+              <button type="button"
+                      data-ajax-action="{{ url_for('sessions.archive_session', session_id=session.id) }}"
+                      data-on-removed="sessions:row-removed">Archive</button>
+            {% endif %}
             <button type="button" class="link-danger"
                     data-ajax-action="{{ url_for('sessions.delete_session', session_id=session.id) }}"
                     data-confirm="Delete this session? This cannot be undone."
@@ -27,7 +62,7 @@
       {% endfor %}
     </tbody>
   </table>
-  <p id="no-sessions-message" {% if sessions %}hidden{% endif %}>No active sessions.</p>
+  <p id="no-sessions-message" {% if sessions %}hidden{% endif %}>{% if show_archived %}No archived sessions.{% else %}No active sessions.{% endif %}</p>
   <script>
     window.addEventListener("sessions:row-removed", function () {
       var table = document.getElementById("sessions-table");
