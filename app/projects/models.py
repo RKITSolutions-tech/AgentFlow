@@ -159,6 +159,34 @@ def get_repository(db: sqlite3.Connection, project_id: int, repo_id: int) -> Rep
     )
 
 
+def find_repository_by_path(
+    db: sqlite3.Connection, project_id: int, path: str
+) -> Repository | None:
+    row = db.execute(
+        "SELECT id FROM repositories WHERE project_id = ? AND path = ?", (project_id, path)
+    ).fetchone()
+    return get_repository(db, project_id, row["id"]) if row else None
+
+
+def remove_repository(db: sqlite3.Connection, project_id: int, repo_id: int) -> None:
+    """Unlink a repository (never touches files); the primary cannot be removed
+    while others exist only by convention, so promote another if needed."""
+    row = db.execute(
+        "SELECT is_primary FROM repositories WHERE id = ? AND project_id = ?",
+        (repo_id, project_id),
+    ).fetchone()
+    if row is None:
+        return
+    db.execute("DELETE FROM repositories WHERE id = ?", (repo_id,))
+    if row["is_primary"]:
+        db.execute(
+            "UPDATE repositories SET is_primary = 1 WHERE id = ("
+            "SELECT id FROM repositories WHERE project_id = ? ORDER BY id LIMIT 1)",
+            (project_id,),
+        )
+    db.commit()
+
+
 def _hydrate_project(db: sqlite3.Connection, row: sqlite3.Row) -> Project:
     repo_rows = db.execute(
         "SELECT * FROM repositories WHERE project_id = ? ORDER BY is_primary DESC, name",

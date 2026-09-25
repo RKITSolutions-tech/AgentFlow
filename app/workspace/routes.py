@@ -813,3 +813,115 @@ def git_undo_commit(project_id: int, repo_id: int):
         "Undid the last commit; its changes are staged",
         "workspace.git_status",
     )
+
+
+@bp.get("/git/worktrees")
+def git_worktrees(project_id: int, repo_id: int):
+    project, repo = _get_project_and_repo(project_id, repo_id)
+    roots = current_app.config["ALLOWED_PROJECT_ROOTS"]
+    db = get_db()
+    try:
+        worktrees = git.list_worktrees(_git_provider(), repo.path, allowed_roots=roots)
+    except git.GitCommandError as exc:
+        flash(f"Git error: {exc}", "error")
+        worktrees = []
+    current = os.path.realpath(repo.path)
+    rows = [
+        {
+            "info": w,
+            "current": os.path.realpath(w.path) == current,
+            "repo": project_models.find_repository_by_path(db, project_id, os.path.realpath(w.path))
+            or project_models.find_repository_by_path(db, project_id, w.path),
+        }
+        for w in worktrees
+    ]
+    return render_template(
+        "workspace/git_worktrees.html", project=project, repo=repo, rows=rows
+    )
+
+
+def _worktree_reply(project_id: int, repo_id: int, operation, message: str):
+    """Run ``operation(repo)``; JSON for AJAX, otherwise flash + back to the list."""
+    _, repo = _get_project_and_repo(project_id, repo_id)
+    try:
+        operation(repo)
+    except (ValueError, git.GitCommandError) as exc:  # PathNotAllowedError is a ValueError
+        if _wants_json():
+            return {"error": str(exc)}, 400
+        flash(f"Error: {exc}", "error")
+    else:
+        if _wants_json():
+            return {"status": "success", "message": message}, 200
+        flash(message, "success")
+    return redirect(url_for("workspace.git_worktrees", project_id=project_id, repo_id=repo_id))
+
+
+@bp.post("/git/worktrees")
+def git_create_worktree(project_id: int, repo_id: int):
+    branch = request.form.get("branch", "").strip()
+    base = request.form.get("base", "").strip() or None
+    new_branch = request.form.get("existing") != "1"
+    register = request.form.get("register", "1") == "1"
+    roots = current_app.config["ALLOWED_PROJECT_ROOTS"]
+
+    def operation(repo):
+        path = git.add_worktree(
+            _git_provider(), repo.path, branch, base=base, new_branch=new_branch,
+            allowed_roots=roots,
+        )
+        if register:
+            project_models.add_repository(
+                get_db(), project_id, branch.replace("/", "-"), path, roots
+            )
+
+    return _worktree_reply(
+        project_id, repo_id, operation, f"Created worktree for {branch}"
+    )
+
+
+@bp.post("/git/worktrees/remove")
+def git_remove_worktree(project_id: int, repo_id: int):
+    path = request.values.get("path", "")
+    force = request.values.get("force") == "1"
+    roots = current_app.config["ALLOWED_PROJECT_ROOTS"]
+
+    def operation(repo):
+        git.remove_worktree(_git_provider(), repo.path, path, force=force, allowed_roots=roots)
+        db = get_db()
+        linked = project_models.find_repository_by_path(db, project_id, os.path.realpath(path))
+        if linked is not None and linked.id != repo.id:
+            project_models.remove_repository(db, project_id, linked.id)
+
+    return _worktree_reply(project_id, repo_id, operation, "Removed worktree")
+
+
+@bp.post("/git/worktrees/merge")
+def git_merge_worktree(project_id: int, repo_id: int):
+    branch = request.values.get("branch", "").strip()
+    roots = current_app.config["ALLOWED_PROJECT_ROOTS"]
+    return _worktree_reply(
+        project_id,
+        repo_id,
+        lambda repo: git.merge_branch(_git_provider(), repo.path, branch, allowed_roots=roots),
+        f"Merged {branch}",
+    )
+
+
+@bp.post("/git/worktrees/register")
+def git_register_worktree(project_id: int, repo_id: int):
+    """Add an existing worktree of this repository as a project repository."""
+    path = request.values.get("path", "")
+    roots = current_app.config["ALLOWED_PROJECT_ROOTS"]
+
+    def operation(repo):
+        known = {
+            os.path.realpath(w.path): w
+            for w in git.list_worktrees(_git_provider(), repo.path, allowed_roots=roots)
+        }
+        worktree = known.get(os.path.realpath(path))
+        if worktree is None:
+            raise git.GitCommandError("That is not a worktree of this repository")
+        name = (worktree.branch or os.path.basename(worktree.path)).replace("/", "-")
+        project_models.add_repository(get_db(), project_id, name, worktree.path, roots)
+
+    return _worktree_reply(project_id, repo_id, operation, "Added as a repository")

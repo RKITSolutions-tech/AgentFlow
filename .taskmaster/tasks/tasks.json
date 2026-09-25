@@ -553,11 +553,11 @@
         "description": "Improve project lifecycle handling.",
         "details": "See docs/CLOUDCLI_GAP_ANALYSIS.md G7. Star/pin, rename, archive/restore, clone from URL with progress, filesystem browse when adding a project (restricted to ALLOWED_PROJECT_ROOTS), worktree create/merge/remove UI aligned with the Ralph worktree design in docs/RUN_AND_RALPH.md.",
         "testStrategy": "",
-        "status": "in-progress",
+        "status": "done",
         "dependencies": [],
         "priority": "low",
         "subtasks": [],
-        "updatedAt": "2026-09-25T22:37:52.687Z"
+        "updatedAt": "2026-09-25T22:45:36.890Z"
       },
       {
         "id": "16",
@@ -573,9 +573,9 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-09-25T22:37:52.687Z",
+      "lastModified": "2026-09-25T22:45:36.890Z",
       "taskCount": 16,
-      "completedCount": 11,
+      "completedCount": 12,
       "tags": [
         "master"
       ]

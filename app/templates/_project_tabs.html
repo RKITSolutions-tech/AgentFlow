@@ -1,7 +1,7 @@
 {#
   Project-scoped tab strip shared by the project overview, Sessions and the
   repository workspace pages. `active` is one of: overview, sessions, files,
-  search, status, log, commit, terminal. Repository tabs use `repo`, falling
+  search, status, log, commit, branches, worktrees, terminal. Repository tabs use `repo`, falling
   back to the primary (or first) repository, and are omitted when the project
   has none. Anchors keep their text tight (`>Files<`) so tests and screen
   readers get clean labels.
@@ -34,6 +34,7 @@
       <a class="tab" href="{{ url_for('workspace.git_log', project_id=project.id, repo_id=repo.id) }}"{% if active == 'log' %} aria-current="page"{% endif %}>History</a>
       <a class="tab" href="{{ url_for('workspace.git_commit_page', project_id=project.id, repo_id=repo.id) }}"{% if active == 'commit' %} aria-current="page"{% endif %}>Commit</a>
       <a class="tab" href="{{ url_for('workspace.git_branches', project_id=project.id, repo_id=repo.id) }}"{% if active == 'branches' %} aria-current="page"{% endif %}>Branches</a>
+      <a class="tab" href="{{ url_for('workspace.git_worktrees', project_id=project.id, repo_id=repo.id) }}"{% if active == 'worktrees' %} aria-current="page"{% endif %}>Worktrees</a>
       <span class="tab-sep" aria-hidden="true"></span>
       <a class="tab" href="{{ url_for('workspace.terminal_page', project_id=project.id, repo_id=repo.id) }}"{% if active == 'terminal' %} aria-current="page"{% endif %}>Terminal</a>
     {% endif %}

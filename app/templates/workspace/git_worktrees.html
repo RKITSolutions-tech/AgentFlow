@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% from "workspace/_nav.html" import workspace_nav %}
+{% block title %}{{ repo.name }} - Worktrees{% endblock %}
+{% block content %}
+  {{ workspace_nav(project, repo, 'worktrees') }}
+  <h1>{{ repo.name }} - Worktrees</h1>
+  <p class="form-hint">A worktree checks a branch out in its own folder, so an agent can work on it without disturbing this checkout. New worktrees go beside the repository in <code>{{ repo.path }}.worktrees/</code>.</p>
+
+  <form method="post" action="{{ url_for('workspace.git_create_worktree', project_id=project.id, repo_id=repo.id) }}" class="branch-form">
+    <label for="worktree-branch">Branch</label>
+    <input id="worktree-branch" name="branch" required maxlength="200" pattern="[A-Za-z0-9][A-Za-z0-9._/\-]*" placeholder="feature/name">
+    <label for="worktree-base">Start from</label>
+    <input id="worktree-base" name="base" maxlength="200" pattern="[A-Za-z0-9][A-Za-z0-9._/\-]*" placeholder="current HEAD">
+    <label class="branch-checkout"><input type="checkbox" name="existing" value="1"> Use an existing branch</label>
+    <button type="submit" class="btn-primary">Create worktree</button>
+  </form>
+
+  <table class="file-list table-compact">
+    <thead><tr><th>Worktree</th><th>Branch</th><th class="row-actions">Actions</th></tr></thead>
+    <tbody>
+      {% for row in rows %}
+        {% set w = row.info %}
+        <tr data-row>
+          <td class="wrap-cell"><code>{{ w.path }}</code>{% if w.is_main %} <strong>(main)</strong>{% endif %}{% if row.current %} <strong>(this repository)</strong>{% endif %}</td>
+          <td class="wrap-cell">{{ w.branch or ('detached at ' ~ w.head[:7]) }}</td>
+          <td class="row-actions">
+            {% if row.repo %}
+              <a href="{{ url_for('workspace.browse', project_id=project.id, repo_id=row.repo.id) }}">Open</a>
+            {% elif not row.current %}
+              <button type="button" data-ajax-reload="{{ url_for('workspace.git_register_worktree', project_id=project.id, repo_id=repo.id, path=w.path) }}">Add as repository</button>
+            {% endif %}
+            {% if w.branch and not row.current %}
+              <button type="button" data-ajax-reload="{{ url_for('workspace.git_merge_worktree', project_id=project.id, repo_id=repo.id, branch=w.branch) }}"
+                      data-confirm="Merge {{ w.branch }} into the branch checked out in {{ repo.name }}?">Merge into this</button>
+            {% endif %}
+            {% if not w.is_main %}
+              <button type="button" class="link-danger"
+                      data-ajax-action="{{ url_for('workspace.git_remove_worktree', project_id=project.id, repo_id=repo.id, path=w.path) }}"
+                      data-confirm="Remove the worktree at {{ w.path }}? Git refuses if it has uncommitted changes. The branch itself is kept.">Remove</button>
+            {% endif %}
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="3">No worktrees found.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}

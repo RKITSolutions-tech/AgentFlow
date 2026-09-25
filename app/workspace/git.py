@@ -747,3 +747,136 @@ def undo_last_commit(
     except GitCommandError:
         raise GitCommandError("Nothing to undo: there is no earlier commit") from None
     _run_git(execution_provider, repo_root, ["reset", "--soft", "HEAD~1"], allowed_roots)
+
+
+@dataclass
+class WorktreeInfo:
+    """A working tree attached to the repository (the first is the main one)."""
+
+    path: str
+    head: str
+    branch: str | None
+    is_main: bool
+    locked: bool
+
+
+def list_worktrees(
+    execution_provider: ExecutionProvider,
+    repo_root: str,
+    allowed_roots: tuple[str, ...] = (),
+) -> list[WorktreeInfo]:
+    output = _run_git(
+        execution_provider, repo_root, ["worktree", "list", "--porcelain"], allowed_roots
+    )
+    worktrees: list[WorktreeInfo] = []
+    for block in output.split("\n\n"):
+        fields = {}
+        for line in block.strip().splitlines():
+            key, _, value = line.partition(" ")
+            fields[key] = value
+        if "worktree" not in fields:
+            continue
+        branch = fields.get("branch")
+        if branch and branch.startswith("refs/heads/"):
+            branch = branch[len("refs/heads/"):]
+        worktrees.append(
+            WorktreeInfo(
+                path=fields["worktree"],
+                head=fields.get("HEAD", ""),
+                branch=branch or None,
+                is_main=not worktrees,
+                locked="locked" in fields,
+            )
+        )
+    return worktrees
+
+
+def default_worktree_path(repo_root: str, branch: str) -> str:
+    """``<repo>.worktrees/<branch>``: a sibling of the repo, never inside it,
+    so the main checkout's status stays clean."""
+    return os.path.join(
+        os.path.realpath(repo_root) + ".worktrees", validate_ref_name(branch).replace("/", "-")
+    )
+
+
+def add_worktree(
+    execution_provider: ExecutionProvider,
+    repo_root: str,
+    branch: str,
+    base: str | None = None,
+    new_branch: bool = True,
+    path: str | None = None,
+    allowed_roots: tuple[str, ...] = (),
+) -> str:
+    """Check ``branch`` out in a new worktree and return its path.
+
+    With ``new_branch`` the branch is created (from ``base`` or HEAD); otherwise
+    an existing branch that is not checked out elsewhere is used.
+    """
+    branch = validate_ref_name(branch)
+    target = validate_repository_path(
+        path or default_worktree_path(repo_root, branch), allowed_roots or (repo_root,)
+    )
+    if os.path.lexists(target):
+        raise GitCommandError(f"{target} already exists")
+    args = ["worktree", "add"]
+    if new_branch:
+        args += ["-b", branch, target]
+        if base:
+            args.append(validate_ref_name(base))
+    else:
+        args += [target, branch]
+    os.makedirs(os.path.dirname(target), exist_ok=True)
+    _run_git(execution_provider, repo_root, args, allowed_roots)
+    return target
+
+
+def remove_worktree(
+    execution_provider: ExecutionProvider,
+    repo_root: str,
+    path: str,
+    force: bool = False,
+    allowed_roots: tuple[str, ...] = (),
+) -> None:
+    """Remove a linked worktree. Git refuses one with uncommitted changes
+    unless ``force``; the main worktree can never be removed."""
+    target = os.path.realpath(path)
+    known = {
+        os.path.realpath(w.path): w
+        for w in list_worktrees(execution_provider, repo_root, allowed_roots)
+    }
+    worktree = known.get(target)
+    if worktree is None:
+        raise GitCommandError("That is not a worktree of this repository")
+    if worktree.is_main:
+        raise GitCommandError("The main worktree cannot be removed")
+    args = ["worktree", "remove"] + (["--force"] if force else []) + [worktree.path]
+    _run_git(execution_provider, repo_root, args, allowed_roots)
+
+
+def merge_branch(
+    execution_provider: ExecutionProvider,
+    repo_root: str,
+    branch: str,
+    allowed_roots: tuple[str, ...] = (),
+) -> str:
+    """Merge ``branch`` into the branch checked out at ``repo_root``.
+
+    Refuses on uncommitted changes. A conflicting merge is aborted so the
+    checkout is left exactly as it was, and the conflict is reported.
+    """
+    branch = validate_ref_name(branch)
+    if _run_git(execution_provider, repo_root, ["status", "--porcelain"], allowed_roots).strip():
+        raise GitCommandError("Commit or discard your uncommitted changes before merging")
+    try:
+        return _run_git(
+            execution_provider, repo_root, ["merge", "--no-edit", branch], allowed_roots
+        ).strip()
+    except GitCommandError as exc:
+        try:
+            _run_git(execution_provider, repo_root, ["merge", "--abort"], allowed_roots)
+        except GitCommandError:
+            pass  # nothing to abort: the merge failed before starting
+        raise GitCommandError(
+            f"Merge of {branch} was aborted (usually conflicts; nothing was changed). {exc}"
+        ) from exc
