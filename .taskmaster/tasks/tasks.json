@@ -505,10 +505,11 @@
         "description": "Extend the workspace Git view beyond status/diff/log/stage/commit.",
         "details": "See docs/CLOUDCLI_GAP_ANALYSIS.md G3. Branch list/checkout/create/delete; push/pull/fetch/publish; discard and delete-untracked; revert local commit; remote status; optional AI commit message. Validate all paths and refs via app/security.py rules; require confirmation for destructive actions; AJAX per CLAUDE.md UI rules; check 375px and 1280px.",
         "testStrategy": "",
-        "status": "pending",
+        "status": "in-progress",
         "dependencies": [],
         "priority": "high",
-        "subtasks": []
+        "subtasks": [],
+        "updatedAt": "2026-09-25T20:58:17.466Z"
       },
       {
         "id": "12",
@@ -568,7 +569,7 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-09-25T20:31:18.988Z",
+      "lastModified": "2026-09-25T20:58:17.466Z",
       "taskCount": 16,
       "completedCount": 7,
       "tags": [
