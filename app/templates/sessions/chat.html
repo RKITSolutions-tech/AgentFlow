@@ -27,6 +27,21 @@
     <p class="chat-placeholder">Loading conversation...</p>
   </div>
 
+  <section id="questionPanel" class="question-panel" role="group" aria-labelledby="questionTitle" hidden>
+    <div class="question-panel-head">
+      <span id="questionTitle" class="question-panel-title">{{ session.agent_type|upper }} needs your input</span>
+      <span id="questionChip" class="question-chip" hidden></span>
+    </div>
+    <p id="questionText" class="question-text"></p>
+    <div id="questionOptions" class="question-options"></div>
+    <input type="text" id="questionOther" class="question-other" placeholder="Type your answer..." aria-label="Your answer" hidden>
+    <p id="questionError" class="question-error" role="alert" hidden></p>
+    <div class="question-actions">
+      <button type="button" id="questionSkip" class="question-skip">Skip <kbd>Esc</kbd></button>
+      <button type="button" id="questionSubmit" class="question-submit" disabled>Submit <kbd>Enter</kbd></button>
+    </div>
+  </section>
+
   <form id="chatForm" class="chat-form">
     <input type="text" id="promptInput" class="chat-input" placeholder="Enter your prompt..." {% if session.status == 'STOPPED' %}disabled{% endif %}>
     <button type="submit" class="chat-send" {% if session.status == 'STOPPED' %}disabled{% endif %}>Send</button>
@@ -64,6 +79,8 @@
           addMessage(event.data, 'user');
         } else if (event.event_type === 'AgentText') {
           addMessage(event.data, 'assistant');
+        } else if (event.event_type === 'ClarifyingQuestion') {
+          showQuestion(JSON.parse(event.data));
         } else if (event.event_type === 'AgentError') {
           addMessage(`[${event.data}]`, 'system');
         }
@@ -128,6 +145,193 @@
         });
       });
     }
+
+    // --- clarifying questions ------------------------------------------------
+    const questionPanel = document.getElementById('questionPanel');
+    const questionOptions = document.getElementById('questionOptions');
+    const questionOther = document.getElementById('questionOther');
+    const questionSubmit = document.getElementById('questionSubmit');
+    const questionSkip = document.getElementById('questionSkip');
+    const questionError = document.getElementById('questionError');
+    const questionItems = {};
+    let activeQuestion = null;
+    let selectedLabels = [];
+    let otherSelected = false;
+
+    const STATUS_LABELS = {PENDING: 'Running', ANSWERED: 'Answered', SKIPPED: 'Skipped'};
+
+    function renderQuestionItem(q) {
+      let item = questionItems[q.id];
+      if (!item) {
+        item = document.createElement('div');
+        questionItems[q.id] = item;
+        chatContainer.appendChild(item);
+      }
+      item.className = 'chat-message chat-message-question question-' + q.status.toLowerCase();
+      item.replaceChildren();
+      const badge = document.createElement('span');
+      badge.className = 'question-badge';
+      badge.textContent = STATUS_LABELS[q.status] || q.status;
+      const text = document.createElement('p');
+      text.textContent = q.question;
+      item.append(badge, text);
+      const chosen = q.answer ? q.answer.selected.concat(q.answer.other ? [q.answer.other] : []) : [];
+      const list = document.createElement('ul');
+      q.options.forEach(o => {
+        if (o.other && !(q.answer && q.answer.other)) return;
+        const li = document.createElement('li');
+        const isChosen = o.other ? !!(q.answer && q.answer.other) : chosen.includes(o.label);
+        li.className = isChosen ? 'is-chosen' : '';
+        li.textContent = o.other ? q.answer.other : o.label;
+        list.appendChild(li);
+      });
+      item.appendChild(list);
+      chatContainer.scrollTop = chatContainer.scrollHeight;
+    }
+
+    function showQuestion(q) {
+      renderQuestionItem(q);
+      if (q.status === 'PENDING') {
+        activeQuestion = q;
+        selectedLabels = [];
+        otherSelected = false;
+        questionError.hidden = true;
+        document.getElementById('questionText').textContent = q.question;
+        const chip = document.getElementById('questionChip');
+        chip.textContent = q.header;
+        chip.hidden = !q.header;
+        questionOptions.replaceChildren();
+        q.options.forEach((o, i) => {
+          const key = o.other ? 0 : i + 1;
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'question-option';
+          btn.setAttribute('role', q.multi_select ? 'checkbox' : 'radio');
+          btn.setAttribute('aria-checked', 'false');
+          btn.dataset.label = o.label;
+          if (o.other) btn.dataset.other = '1';
+          const num = document.createElement('span');
+          num.className = 'question-option-key';
+          num.textContent = key;
+          const body = document.createElement('span');
+          const label = document.createElement('span');
+          label.className = 'question-option-label';
+          label.textContent = o.label;
+          body.appendChild(label);
+          if (o.description) {
+            const desc = document.createElement('span');
+            desc.className = 'question-option-desc';
+            desc.textContent = o.description;
+            body.appendChild(desc);
+          }
+          btn.append(num, body);
+          btn.addEventListener('click', () => toggleOption(btn));
+          questionOptions.appendChild(btn);
+        });
+        questionOther.value = '';
+        questionOther.hidden = true;
+        questionPanel.hidden = false;
+        chatForm.hidden = true;
+        updateSubmit();
+      } else if (activeQuestion && activeQuestion.id === q.id) {
+        closeQuestionPanel();
+      }
+    }
+
+    function closeQuestionPanel() {
+      activeQuestion = null;
+      questionPanel.hidden = true;
+      chatForm.hidden = false;
+    }
+
+    function toggleOption(btn) {
+      const multi = activeQuestion.multi_select;
+      const isOther = !!btn.dataset.other;
+      const on = btn.getAttribute('aria-checked') !== 'true';
+      if (!multi) {
+        questionOptions.querySelectorAll('.question-option').forEach(b => b.setAttribute('aria-checked', 'false'));
+        selectedLabels = [];
+        otherSelected = false;
+      }
+      btn.setAttribute('aria-checked', String(on));
+      if (isOther) {
+        otherSelected = on;
+      } else if (on) {
+        selectedLabels.push(btn.dataset.label);
+      } else {
+        selectedLabels = selectedLabels.filter(l => l !== btn.dataset.label);
+      }
+      questionOther.hidden = !otherSelected;
+      if (otherSelected) questionOther.focus();
+      updateSubmit();
+    }
+
+    function updateSubmit() {
+      const hasOther = otherSelected && questionOther.value.trim() !== '';
+      questionSubmit.disabled = !(selectedLabels.length > 0 || hasOther);
+    }
+
+    function sendAnswer(body) {
+      const q = activeQuestion;
+      questionSubmit.disabled = true;
+      questionSkip.disabled = true;
+      fetch(`/sessions/${sessionId}/questions/${q.id}/answer`, {method: 'POST', body})
+        .then(r => r.json().then(data => ({ok: r.ok, data})))
+        .then(({ok, data}) => {
+          if (data.question) {
+            renderQuestionItem(data.question);
+            closeQuestionPanel();
+            if (ok) streamNewEvents();
+          }
+          if (!ok) {
+            questionError.textContent = data.error;
+            questionError.hidden = false;
+          }
+        })
+        .catch(err => {
+          questionError.textContent = 'Could not send answer: ' + err.message;
+          questionError.hidden = false;
+        })
+        .finally(() => {
+          questionSkip.disabled = false;
+          if (activeQuestion) updateSubmit();
+        });
+    }
+
+    questionSubmit.addEventListener('click', () => {
+      const body = new FormData();
+      selectedLabels.forEach(l => body.append('selected', l));
+      if (otherSelected) body.append('other_text', questionOther.value);
+      sendAnswer(body);
+    });
+    questionSkip.addEventListener('click', () => {
+      const body = new FormData();
+      body.append('skip', '1');
+      sendAnswer(body);
+    });
+    questionOther.addEventListener('input', updateSubmit);
+
+    document.addEventListener('keydown', (e) => {
+      if (!activeQuestion || questionPanel.hidden) return;
+      const typing = e.target === questionOther;
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        questionSkip.click();
+      } else if (e.key === 'Enter') {
+        if (!questionSubmit.disabled) {
+          e.preventDefault();
+          questionSubmit.click();
+        }
+      } else if (!typing && /^[0-9]$/.test(e.key)) {
+        const target = e.key === '0'
+          ? questionOptions.querySelector('[data-other]')
+          : questionOptions.querySelectorAll('.question-option:not([data-other])')[Number(e.key) - 1];
+        if (target) {
+          e.preventDefault();
+          target.click();
+        }
+      }
+    });
 
     loadHistory();
     setTimeout(streamNewEvents, 500);

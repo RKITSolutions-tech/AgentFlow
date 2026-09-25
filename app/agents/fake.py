@@ -98,6 +98,15 @@ class FakeAgentAdapter(AgentAdapter):
 
             if action == "message":
                 models.add_agent_event(self._db, session_id, "AgentText", data=step["text"])
+            elif action == "ask":
+                models.create_clarifying_question(
+                    self._db,
+                    session_id,
+                    step["question"],
+                    step["options"],
+                    header=step.get("header", ""),
+                    multi_select=step.get("multi_select", False),
+                )
             elif action == "write_file":
                 self._write_fixture_file(working_directory, step["path"], step["content"])
                 models.add_agent_event(

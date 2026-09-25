@@ -6,11 +6,15 @@ from app.db import get_db
 from app.agents.models import (
     create_agent_session,
     delete_agent_session,
+    answer_clarifying_question,
     get_agent_session,
+    get_clarifying_question,
     list_agent_sessions_for_project,
+    skip_clarifying_question,
 )
 from app.agents.codex import CodexAdapter
 from app.agents.fake import FakeAgentAdapter
+from app.notifications import models as notification_models
 from app.projects import models as project_models
 from app.settings import models as settings_models
 
@@ -195,15 +199,27 @@ def stream_output(session_id: int):
     # frontend would never see a send()-triggered turn's reply land.
     events = adapter.stream(session_id, after_id=after_id)
 
+    # Resolve question state now: generate() runs after the request's DB
+    # connection has been closed.
+    payloads = []
+    for event in events:
+        data = event.data
+        if event.event_type == "ClarifyingQuestion":
+            # Send the question's current state, not just its id, so the page
+            # can render options and show answered/skipped on reload.
+            question = get_clarifying_question(db, json.loads(event.data)["question_id"])
+            if question is not None:
+                data = json.dumps(question.to_dict())
+        payloads.append({
+            "id": event.id,
+            "event_type": event.event_type,
+            "data": data,
+            "created_at": event.created_at,
+        })
+
     def generate():
-        for event in events:
-            event_json = json.dumps({
-                "id": event.id,
-                "event_type": event.event_type,
-                "data": event.data,
-                "created_at": event.created_at,
-            })
-            yield f"data: {event_json}\n\n"
+        for payload in payloads:
+            yield f"data: {json.dumps(payload)}\n\n"
 
     return stream_with_context(generate()), 200, {"Content-Type": "text/event-stream"}
 
@@ -232,6 +248,55 @@ def stop_session(session_id: int):
         flash(f"Error stopping session: {e}", "error")
 
     return redirect(url_for("sessions.view_session", session_id=session_id))
+
+
+def _adapter_for(session):
+    from app.execution.host import HostExecutionProvider
+
+    if session.agent_type.lower() == "codex":
+        execution_provider = HostExecutionProvider(
+            current_app.config["DATABASE_PATH"], current_app.config["ALLOWED_PROJECT_ROOTS"]
+        )
+        return CodexAdapter(db=get_db(), execution_provider=execution_provider)
+    return FakeAgentAdapter(db=get_db())
+
+
+@bp.post("/<int:session_id>/questions/<int:question_id>/answer")
+def answer_question(session_id: int, question_id: int):
+    """Answer or skip a pending clarifying question.
+
+    Form fields: ``selected`` (repeatable option label), ``other_text``, or
+    ``skip=1``. A skip is recorded but nothing is sent: the agent waits.
+    """
+    db = get_db()
+    session = get_agent_session(db, session_id)
+    question = get_clarifying_question(db, question_id)
+    if session is None or question is None or question.session_id != session_id:
+        return jsonify({"error": "Question not found"}), 404
+
+    try:
+        if request.form.get("skip"):
+            question = skip_clarifying_question(db, question_id)
+        else:
+            question = answer_clarifying_question(
+                db,
+                question_id,
+                selected=request.form.getlist("selected"),
+                other_text=request.form.get("other_text", ""),
+            )
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+    # The blocker is resolved (answered or skipped), so stop nagging.
+    notification_models.mark_session_read(db, session_id)
+
+    if question.status == "ANSWERED":
+        try:
+            _adapter_for(session).send(session_id, question.answer_text())
+        except Exception as e:
+            return jsonify({"error": f"Answer saved but not delivered: {e}"}), 502
+
+    return jsonify({"status": question.status.lower(), "question": question.to_dict()}), 200
 
 
 def _wants_json() -> bool:

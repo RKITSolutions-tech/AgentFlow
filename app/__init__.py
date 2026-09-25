@@ -16,12 +16,14 @@ def create_app(config: Config | None = None) -> Flask:
     from app.api import bp as api_bp
     from app.sessions.routes import bp as sessions_bp
     from app.settings.routes import bp as settings_bp
+    from app.notifications.routes import bp as notifications_bp
 
     app.register_blueprint(projects_bp)
     app.register_blueprint(workspace_bp)
     app.register_blueprint(api_bp)
     app.register_blueprint(sessions_bp)
     app.register_blueprint(settings_bp)
+    app.register_blueprint(notifications_bp)
 
     from app.shell import init_shell
 

@@ -11,6 +11,7 @@ from typing import Any
 from app.agents import models
 from app.agents.base import AgentAdapter, AgentContext
 from app.agents.models import AgentEvent, AgentSession
+from app.agents.questions import extract_questions
 from app.execution.base import ExecutionProvider
 from app.projects import models as project_models
 
@@ -296,8 +297,15 @@ class CodexAdapter(AgentAdapter):
                 item = payload.get("item", {})
                 item_type = item.get("type")
                 if item_type == "agent_message":
-                    last_agent_message = item.get("text", "")
-                    models.add_agent_event(self._db, session_id, "AgentText", data=last_agent_message)
+                    # Codex has no structured-question tool, so a reply may carry
+                    # an explicit question block (app/agents/questions.py).
+                    last_agent_message, question_specs = extract_questions(item.get("text", ""))
+                    if last_agent_message or not question_specs:
+                        models.add_agent_event(
+                            self._db, session_id, "AgentText", data=last_agent_message
+                        )
+                    for spec in question_specs:
+                        models.create_clarifying_question(self._db, session_id, **spec)
                 elif item_type == "error":
                     models.add_agent_event(
                         self._db, session_id, "AgentError", data=item.get("message", "")

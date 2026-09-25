@@ -243,7 +243,70 @@
           "5"
         ],
         "status": "pending",
-        "subtasks": []
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Design and implement Run data model and SQLite schema",
+            "description": "Create the Run entity, step tracking, and persistence layer following docs/RUN_AND_RALPH.md Phase 1. Design SQLite tables for runs, steps, events, and artifact metadata.",
+            "dependencies": [],
+            "details": "Create app/runs/models.py with Run, Step, and RunEvent dataclasses. Design SQLite schema to store run ID, status, start/end times, step sequences with status/timing/logs, prompt/reply pairs, and artifact metadata. Define CRUD operations in models.py following the pattern established in app/agents/models.py and app/execution/models.py. Support querying runs by project, filtering by status, and retrieving step history with full event trails.",
+            "status": "pending",
+            "testStrategy": "Unit tests in tests/test_runs_models.py verify schema creation, basic CRUD operations for runs and steps, and querying runs by status/project. Verify timestamp recording and event ordering.",
+            "parentId": "undefined"
+          },
+          {
+            "id": 2,
+            "title": "Implement Run lifecycle endpoints (create, list, inspect, pause, stop, restart)",
+            "description": "Add Flask routes for creating single-task command runs, listing run history, inspecting step details, and supporting pause/stop/restart actions through the web UI.",
+            "dependencies": [
+              1
+            ],
+            "details": "Create app/routes/runs.py with endpoints: POST /projects/<id>/runs (create with task/command), GET /projects/<id>/runs (list with pagination), GET /projects/<id>/runs/<run_id> (inspect run and steps), POST /projects/<id>/runs/<run_id>/pause, POST /projects/<id>/runs/<run_id>/stop, POST /projects/<id>/runs/<run_id>/restart. Support AJAX actions in the UI using data-ajax-action pattern. Return JSON for API calls and HTML for web views. Integrate with ExecutionProvider to spawn and manage processes.",
+            "status": "pending",
+            "testStrategy": "Integration tests in tests/test_runs_routes.py verify endpoint availability, create/list/inspect operations, pause/stop/restart state transitions, AJAX detection and JSON responses, and error handling for missing runs. Mock ExecutionProvider to avoid actual process spawning in tests.",
+            "parentId": "undefined"
+          },
+          {
+            "id": 3,
+            "title": "Implement artifact persistence: filesystem storage and metadata indexing",
+            "description": "Build the artifact storage layer to persist artifact content and large logs to the filesystem while maintaining metadata in SQLite for efficient querying.",
+            "dependencies": [
+              1
+            ],
+            "details": "Create app/runs/artifacts.py with functions for writing artifact content to a project-scoped artifact directory, generating unique artifact paths, storing artifact references in the database, and retrieving artifacts by run/step. Implement a naming scheme (e.g., runs/<run_id>/step_<step_num>/<artifact_type>_<timestamp>) that allows efficient filesystem traversal. Support querying artifact metadata by type (log, output, diff, etc.). Ensure artifacts are validated (no path traversal) and stored securely.",
+            "status": "pending",
+            "testStrategy": "Unit tests verify artifact write/read operations, correct path generation, metadata storage and retrieval, and path traversal rejection. Integration tests verify artifact persistence survives process restarts and querying works correctly for multi-artifact runs.",
+            "parentId": "undefined"
+          },
+          {
+            "id": 4,
+            "title": "Implement step execution, event streaming, and output capture from ExecutionProvider",
+            "description": "Integrate ExecutionProvider into the Run lifecycle to execute steps, capture stdout/stderr, record timing and status, and handle pause/stop/restart reconciliation.",
+            "dependencies": [
+              1,
+              2,
+              3
+            ],
+            "details": "Create app/runs/executor.py with a RunExecutor class that: (1) receives a Run and step list, (2) executes each step via ExecutionProvider, (3) streams events to the database in real-time, (4) captures and persists logs and artifacts, (5) records step status and timing, (6) supports pause (suspend the process group), (7) supports stop (terminate and mark Run stopped), (8) supports restart (check if previous process still exists; if missing, mark Run as blocked; if present, reconnect and resume from last event position). Follow the event-streaming pattern from app/execution/models.py for pause/resume semantics.",
+            "status": "pending",
+            "testStrategy": "Integration tests in tests/test_runs_executor.py verify: (1) successful step execution and event recording, (2) proper log and artifact capture, (3) pause and resume from same position, (4) stop termination and state transition, (5) restart with missing process detection and blocked state, (6) timing accuracy. Mock ExecutionProvider to control process behavior deterministically.",
+            "parentId": "undefined"
+          },
+          {
+            "id": 5,
+            "title": "Add secret redaction and unsafe-bind security hardening",
+            "description": "Implement secret redaction in persisted prompts/logs and require explicit opt-in configuration for unsafe all-interface binding. Add security tests and documentation.",
+            "dependencies": [
+              1,
+              2,
+              4
+            ],
+            "details": "Create app/runs/security.py with redaction functions that identify and mask common secret patterns (API keys, tokens, passwords) before persisting prompts, replies, and logs to the database or filesystem. Use a configurable redaction rule list (e.g., regex patterns) and support user-defined patterns via environment config. For binding security: modify app.py to reject FLASK_ENV=production with unsafe bindings (0.0.0.0); add a config option AGENTFLOW_UNSAFE_BIND that must be explicitly set to true to allow binding to non-loopback interfaces. Log a warning when unsafe mode is enabled. Document the security settings in README and CLAUDE.md.",
+            "status": "pending",
+            "testStrategy": "Unit tests in tests/test_runs_security.py verify redaction logic correctly identifies and masks secrets in various contexts (JSON, log lines, environment variables) while preserving non-secret content. Test that redaction works in persisted prompts/replies/logs. Test that binding rejects 0.0.0.0 unless AGENTFLOW_UNSAFE_BIND=true. Verify warning is logged when unsafe mode is active.",
+            "parentId": "undefined"
+          }
+        ]
       },
       {
         "id": "7",
@@ -357,13 +420,157 @@
           }
         ],
         "updatedAt": "2026-09-24T22:07:42.009Z"
+      },
+      {
+        "id": "10",
+        "title": "Design and build interactive agent prompts and notifications (gap G1/G2)",
+        "description": "Support structured clarifying questions and permission/approval prompts from agents, plus notifications when a session or run is blocked awaiting a human.",
+        "details": "See docs/CLOUDCLI_GAP_ANALYSIS.md G1/G2 and docs/AGENT_ADAPTER.md section 12 (observed CloudCLI behaviour: docked input panel, numbered options, auto-added Other with free text, Skip/Submit, Running badge). Decide whether a clarifying question is a distinct event kind (leaning yes). Decide adapter detection for agents without a native structured tool (Codex). Add web-push style notifications with per-channel preferences. Do not copy CloudCLI code (AGPL); implementation must be independent.",
+        "testStrategy": "",
+        "status": "done",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Design clarifying question event model and persistence",
+            "description": "Decide whether clarifying questions are a distinct AgentEvent kind, design the data model for structured questions with options, and update app/agents/models.py to persist question events separately from regular messages.",
+            "dependencies": [],
+            "details": "Review docs/CLOUDCLI_GAP_ANALYSIS.md G1 and docs/AGENT_ADAPTER.md section 12 to understand observed CloudCLI behavior (numbered options, auto-added 'Other' with free text, Skip/Submit buttons). Create a ClarifyingQuestion or QuestionEvent dataclass with fields for question text, options (list of strings), allow_other_text (bool), and response tracking. Update AgentEvent to reference this model or create a new event_type='clarifying_question'. Add SQLite schema migration to persist questions and user responses. Ensure resume() can reconstruct question state from database.\n<info added on 2026-09-25T19:42:54.662Z>\nImplementation complete. Core data model (agent_questions table, ClarifyingQuestion dataclass, CRUD functions, AgentEvent integration) is now persistent and resumes correctly from database. Test suite validates all question lifecycle operations (create, answer, skip). Design decision documented in AGENT_ADAPTER.md section 12: clarifying questions are a distinct event_type within AgentEvent, enabling structured option-based prompts with optional free-text responses and skip capability, matching observed CloudCLI behavior. Ready for UI integration in next subtask.\n</info added on 2026-09-25T19:42:54.662Z>",
+            "status": "done",
+            "testStrategy": "Unit tests for ClarifyingQuestion dataclass validation (empty options rejected, Other option auto-added), integration test that creates and retrieves a question event from the database, test that resume() correctly reconstructs question state.",
+            "updatedAt": "2026-09-25T19:43:03.424Z",
+            "parentId": "undefined"
+          },
+          {
+            "id": 2,
+            "title": "Implement structured question prompting in web UI",
+            "description": "Build a docked input panel in the web interface for structured clarifying questions, rendering numbered options with optional free-text 'Other' field, and implementing Skip/Submit actions.",
+            "dependencies": [
+              1
+            ],
+            "details": "Add a new modal or docked panel component in app/templates/ (reusing app/static/app.css design tokens) that displays clarifying questions. Render question text, enumerate options with keyboard navigation (1-9 keys), show 'Other' text input when applicable, and implement Skip and Submit buttons. Hook into the agent session page to intercept pending ClarifyingQuestion events and show the panel. Wire Submit to send the selected option (or free text) back to the agent via a new API endpoint (POST /sessions/{id}/answer-question). Ensure responsive design for mobile (44px tap targets) and desktop. Do not copy CloudCLI's code.\n<info added on 2026-09-25T19:54:02.268Z>\nImplemented docked question panel in sessions/chat.html with POST /sessions/<id>/questions/<qid>/answer endpoint. Stream includes enriched question state. Styling uses app.css design tokens with responsive layout (44px tap targets for mobile, tested at 375px and 1280px viewports). Tests in tests/test_question_ui.py verify route behavior and Playwright integration across both viewport sizes. Answer delivery via adapter.send() as plain text; skip action sends no response.\n</info added on 2026-09-25T19:54:02.268Z>",
+            "status": "done",
+            "testStrategy": "Playwright test: load session with pending question, verify options render, select option via keyboard, submit, verify response is sent. Test 'Other' text input and free-text submission. Test Skip button behavior. Verify mobile responsiveness at 375px viewport.",
+            "parentId": "undefined",
+            "updatedAt": "2026-09-25T19:54:11.056Z"
+          },
+          {
+            "id": 3,
+            "title": "Detect and adapt clarifying questions for agents without native support",
+            "description": "Implement detection logic in CodexAdapter (and other adapters) to recognize when an agent needs to ask a clarifying question, and map agent-specific question formats (or natural language prompts) to the structured ClarifyingQuestion event.",
+            "dependencies": [
+              1
+            ],
+            "details": "For Codex and adapters without native structured question tools: add heuristics in AgentAdapter.handle_response() or CodexAdapter to detect clarifying-question-like patterns (e.g., agent output containing 'options:' or 'please choose', or explicit agent API calls to structured-question endpoints if available). Decide on adapter-specific detection: does Codex have an observable API for structured prompts, or must we parse its output? If no native tool exists, add fallback pattern matching and map to ClarifyingQuestion. Document the detection strategy in docs/AGENT_ADAPTER.md section 12. Ensure detection is non-intrusive and doesn't interfere with normal message handling.\n<info added on 2026-09-25T20:08:56.332Z>\nImplemented explicit agentflow-question fenced-block detection in app/agents/questions.py, integrated into CodexAdapter._sync_events via event stream parsing. Fuzzy heuristics rejected due to misfire risk with legitimate agent output. Detection strategy documented in docs/AGENT_ADAPTER.md section 12. QUESTION_PROTOCOL_INSTRUCTIONS not yet injected into prompts (deferred). Test coverage in tests/test_agent_question_detection.py validates detection accuracy. Next step: integrate QUESTION_PROTOCOL_INSTRUCTIONS into agent system prompts and validate end-to-end flow.\n</info added on 2026-09-25T20:08:56.332Z>",
+            "status": "done",
+            "testStrategy": "Unit tests with FakeAgent script that emits question-like output, verify detection converts to ClarifyingQuestion event. Integration test with a mock Codex that returns structured question (if Codex API supports it), or test fallback pattern matching. Verify non-question output passes through unchanged.",
+            "parentId": "undefined",
+            "updatedAt": "2026-09-25T20:09:05.114Z"
+          },
+          {
+            "id": 4,
+            "title": "Design and implement notifications system with channel preferences",
+            "description": "Create a notification model to alert users when a session or run is blocked awaiting human input, support multiple channels (in-app, web-push, email), and allow per-user/per-session notification preferences.",
+            "dependencies": [
+              1
+            ],
+            "details": "Define Notification dataclass with fields: id, session_id, event_type (e.g., 'blocked_on_question', 'awaiting_permission'), message, channel (e.g., 'web-push', 'in-app', 'email'), created_at, read_at. Add NotificationPreference table to persist user choices (e.g., 'notify me on clarifying questions via web-push'). Implement web-push notifications using the Notifications API (browser-native; no external service required for MVP). Add notification badge to the UI when unread notifications exist. Store notification state in the database for reconnection and history. Design follows existing app/static/app.css styling; no new UI libraries.\n<info added on 2026-09-25T20:03:49.503Z>\nImplemented app/notifications/ package with models (Notification, NotificationPreference dataclasses) and routes (/notifications page, mark-read endpoints). Created notifications and notification_preferences tables with per-(kind, channel) preference support. Added in_app and browser (web-push) notification channels; email deferred pending SMTP. Integrated sidebar notification badge with polling in app.js to refresh unread count. Hooked notification creation into create_clarifying_question flow in sessions/routes.py. Notifications are cleared when user answers or skips a clarifying question. Tests in tests/test_notifications.py verify model persistence, preference queries, mark-read logic, and clarifying question hook integration; all tests passing.\n</info added on 2026-09-25T20:03:49.503Z>",
+            "status": "done",
+            "testStrategy": "Unit tests for Notification dataclass and preference validation. Integration test: trigger a clarifying question, verify notification is created and marked unread. Test web-push permission handling and graceful fallback if user denies permission. Test notification history retrieval. Verify preferences are honored (e.g., if user disables web-push, only in-app notification created).",
+            "parentId": "undefined",
+            "updatedAt": "2026-09-25T20:03:58.349Z"
+          },
+          {
+            "id": 5,
+            "title": "Integrate notifications into session pages and test end-to-end",
+            "description": "Wire notifications into the session UI, display pending notifications in a notification center or banner, mark as read, and conduct end-to-end testing with a real or mocked agent workflow.",
+            "dependencies": [
+              2,
+              3,
+              4
+            ],
+            "details": "Add a notification center UI element (small bell icon or banner) in base.html or session.html that displays unread notifications. Implement a notification badge counter. Add a route GET /sessions/{id}/notifications to fetch unread notifications and POST /sessions/{id}/notifications/{id}/read to mark as read. Hook the notification system into clarifying-question and permission-prompt workflows: when a ClarifyingQuestion event is created, emit a corresponding Notification. Test the flow end-to-end: start agent session, trigger clarifying question, verify notification appears, verify web-push fires (if enabled), verify session page shows question panel, user answers question, notification is marked read. Verify no AGPL code is present (all implementations are independent).\n<info added on 2026-09-25T20:31:10.267Z>\nImplementation complete. Added FakeAgent ask step to scripted adapter for testing structured questions. Implemented sidebar waiting state badge for sessions with pending ClarifyingQuestion events. Built end-to-end test suite (tests/test_question_flow_e2e.py) covering 375px and 1280px viewports with browser channel notification toggle on/off. Refactored notification routes to use global /notifications endpoints instead of per-session routes for simpler architecture. All 212 tests passing. AGPL compliance verified—no CloudCLI code copied; implementation is independent.\n</info added on 2026-09-25T20:31:10.267Z>",
+            "status": "done",
+            "testStrategy": "End-to-end Playwright test: start a session that triggers a clarifying question (using FakeAgent or mocked real adapter), verify notification badge appears, click to open notification center, verify question panel is visible, answer question, verify notification is marked read. Test with web-push enabled and disabled. Test across desktop and mobile viewports. Verify notifications persist across page refreshes.",
+            "parentId": "undefined",
+            "updatedAt": "2026-09-25T20:31:18.988Z"
+          }
+        ],
+        "updatedAt": "2026-09-25T20:31:18.988Z"
+      },
+      {
+        "id": "11",
+        "title": "Add git branch and remote operations (gap G3)",
+        "description": "Extend the workspace Git view beyond status/diff/log/stage/commit.",
+        "details": "See docs/CLOUDCLI_GAP_ANALYSIS.md G3. Branch list/checkout/create/delete; push/pull/fetch/publish; discard and delete-untracked; revert local commit; remote status; optional AI commit message. Validate all paths and refs via app/security.py rules; require confirmation for destructive actions; AJAX per CLAUDE.md UI rules; check 375px and 1280px.",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "high",
+        "subtasks": []
+      },
+      {
+        "id": "12",
+        "title": "Add session management: rename, archive, search, token usage (gap G4)",
+        "description": "Make large numbers of sessions manageable and inspectable.",
+        "details": "See docs/CLOUDCLI_GAP_ANALYSIS.md G4. Rename, archive/restore, fork, cross-session search, recent and running views, token usage per session, switch model/effort mid-session where the adapter supports it (capability-gated per AGENT_ADAPTER.md). Auto-title untitled sessions from the first prompt.",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "medium",
+        "subtasks": []
+      },
+      {
+        "id": "13",
+        "title": "Add file operations: create, rename, delete, upload (gap G5)",
+        "description": "Extend the file workspace beyond view and basic edit.",
+        "details": "See docs/CLOUDCLI_GAP_ANALYSIS.md G5. Create file/folder, rename, delete with confirmation, upload with size limits. Enforce ALLOWED_PROJECT_ROOTS via app/security.py; handle binary and large files; AJAX per CLAUDE.md UI rules.",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "medium",
+        "subtasks": []
+      },
+      {
+        "id": "14",
+        "title": "Add composer features: slash commands, @ file mentions, attachments, permission modes (gap G6)",
+        "description": "Bring the session prompt bar closer to CloudCLI capability.",
+        "details": "See docs/CLOUDCLI_GAP_ANALYSIS.md G6. Slash commands, @ file mentions resolved against the project, attachments/images, permission-mode selection where the adapter supports it, scheduled messages; voice input is low priority. Mobile-first: chat/input bars are a listed risk area in CLAUDE.md.",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "medium",
+        "subtasks": []
+      },
+      {
+        "id": "15",
+        "title": "Add project management: star, rename, archive, clone, worktree UI (gap G7)",
+        "description": "Improve project lifecycle handling.",
+        "details": "See docs/CLOUDCLI_GAP_ANALYSIS.md G7. Star/pin, rename, archive/restore, clone from URL with progress, filesystem browse when adding a project (restricted to ALLOWED_PROJECT_ROOTS), worktree create/merge/remove UI aligned with the Ralph worktree design in docs/RUN_AND_RALPH.md.",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "low",
+        "subtasks": []
+      },
+      {
+        "id": "16",
+        "title": "Decide scope for extensibility, embedded browser, auth and polish (gaps G8-G12)",
+        "description": "Record explicit accept/defer decisions for the remaining CloudCLI gaps.",
+        "details": "See docs/CLOUDCLI_GAP_ANALYSIS.md G8-G12: MCP/skills/plugins management, embedded agent browser vs UI verification (HLD 17), Task Master tab divergence, auth revisit if exposed beyond a single trusted user, dark mode and installable app. Output: decisions recorded in the gap doc, follow-up tasks only where accepted.",
+        "testStrategy": "",
+        "status": "pending",
+        "dependencies": [],
+        "priority": "low",
+        "subtasks": []
       }
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-09-25T09:25:57.979Z",
-      "taskCount": 9,
-      "completedCount": 6,
+      "lastModified": "2026-09-25T20:31:18.988Z",
+      "taskCount": 16,
+      "completedCount": 7,
       "tags": [
         "master"
       ]

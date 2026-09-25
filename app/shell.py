@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from flask import Flask, request
 
 from app.db import get_db
+from app.notifications import models as notification_models
 from app.projects import models as project_models
 
 # Recent sessions shown under each project in the sidebar. The full list is
@@ -46,7 +47,11 @@ def relative_age(value: str | None) -> str:
 
 
 def session_state(status: str) -> str:
-    """Map a raw session status to `running`, `failed` or `idle`."""
+    """Map a raw session status to `running`, `failed` or `idle`.
+
+    The sidebar overrides this with `waiting` for a session blocked on a
+    pending clarifying question.
+    """
     if status in _RUNNING:
         return "running"
     if status in _FAILED:
@@ -67,6 +72,12 @@ def _sidebar_sessions(db: sqlite3.Connection) -> dict[int, dict]:
             "SELECT project_id, COUNT(*) AS n FROM agent_sessions GROUP BY project_id"
         )
     }
+    waiting = {
+        row["session_id"]
+        for row in db.execute(
+            "SELECT DISTINCT session_id FROM agent_questions WHERE status = 'PENDING'"
+        )
+    }
     grouped: dict[int, dict] = {pid: {"total": n, "recent": []} for pid, n in counts.items()}
     rows = db.execute(
         "SELECT id, project_id, agent_type, status, started_at, last_activity_at "
@@ -80,7 +91,7 @@ def _sidebar_sessions(db: sqlite3.Connection) -> dict[int, dict]:
             {
                 "id": row["id"],
                 "title": session_title(row["agent_type"], row["id"]),
-                "state": session_state(row["status"]),
+                "state": "waiting" if row["id"] in waiting else session_state(row["status"]),
                 "age": relative_age(row["last_activity_at"] or row["started_at"]),
             }
         )
@@ -119,6 +130,7 @@ def _shell_context() -> dict:
             "active_project_id": active_project_id,
             "active_session_id": active_session_id,
             "endpoint": request.endpoint or "",
+            "unread_notifications": notification_models.unread_count(db),
         }
     }
 

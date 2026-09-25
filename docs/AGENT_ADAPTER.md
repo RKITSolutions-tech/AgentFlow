@@ -217,17 +217,36 @@ and is the model to match:
 agent, so AgentFlow must add it itself for every clarifying question. The
 structured form is a native Claude Code tool; Codex has no known equivalent.
 
-Open questions to resolve before implementation:
+Decided (task 10.1): a clarifying question is a distinct `ClarifyingQuestion`
+AgentEvent whose data is `{"question_id": N}`, pointing at a row in
+`agent_questions` (`app/agents/models.py`). The row holds header, question,
+multi-select flag, agent-supplied options, and a `PENDING`/`ANSWERED`/`SKIPPED`
+status; "Other" is added by `display_options()` and never stored. Skip is a
+distinct final outcome from an answer. All state is in SQLite, so `resume()`
+finds pending questions via `list_clarifying_questions(status="PENDING")`.
+
+Detection for agents without a native structured tool (task 10.3): Codex
+(`codex exec --json`) only emits text, so detection is explicit rather than
+heuristic. An agent that wants to ask emits a fenced `agentflow-question`
+block containing a JSON object (or list) with `question`, `options`, and
+optionally `header` and `multi_select`. `app/agents/questions.py` extracts
+valid blocks from the reply, and `CodexAdapter._sync_events` records them as
+`ClarifyingQuestion` events after the remaining prose (the `AgentText` event
+is omitted if nothing else was said). Malformed blocks and fuzzy prose such as
+"please choose one" are left as ordinary text, so a normal message is never
+altered or misread. The teaching text is the reusable prompt fragment
+`QUESTION_PROTOCOL_INSTRUCTIONS`; per section 8, prompt composition decides
+when to include it, and nothing includes it yet. Because `codex exec` ends its
+turn after asking, the answer goes back as a plain-text message that starts
+the next turn.
+
+Open questions:
 
 ```text
-does the AgentAdapter interface need a distinct event/method for
-  clarifying questions, or do they reuse the approval event shape with
-  an added options list
-how does an adapter recognize a clarifying-question event from agent
-  CLI output that wasn't designed with structured events in mind (e.g.
-  parsing free-form CLI text vs a native tool-call event)
 should "other" ever carry AI-suggested prefill text, or always start
   blank
+where should QUESTION_PROTOCOL_INSTRUCTIONS be injected once a prompt
+  composition service exists
 ```
 
 ## 13. Execution Provider

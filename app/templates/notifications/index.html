@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Notifications - AgentFlow{% endblock %}
+{% block content %}
+  <h1>Notifications</h1>
+  <p class="form-hint">
+    Raised when a session is blocked waiting on you. Browser notifications
+    only appear while an AgentFlow page is open.
+  </p>
+
+  <div class="notify-permission">
+    <button type="button" id="enableBrowserNotifications" hidden>Enable browser notifications</button>
+    <span id="browserNotificationStatus" class="form-hint"></span>
+  </div>
+
+  <h2>Recent</h2>
+  {% if notifications %}
+    <form method="post" action="{{ url_for('notifications.read_all') }}">
+      <button type="submit">Mark all read</button>
+    </form>
+  {% endif %}
+  <ul class="notify-list">
+    {% for n in notifications %}
+      <li class="notify-item{% if not n.read_at %} is-unread{% endif %}">
+        <div class="notify-item-body">
+          <a href="{{ url_for('sessions.view_session', session_id=n.session_id) }}"
+             data-notification-read="{{ url_for('notifications.read', notification_id=n.id) }}">{{ n.message }}</a>
+          <div class="notify-item-meta">{{ kinds[n.kind] }} &middot; {{ n.created_at|relative_age }}</div>
+        </div>
+      </li>
+    {% else %}
+      <li>Nothing yet.</li>
+    {% endfor %}
+  </ul>
+
+  <h2>Preferences</h2>
+  <form method="post" action="{{ url_for('notifications.save_preferences') }}">
+    <table class="table-compact notify-prefs">
+      <thead>
+        <tr><th>Notify me when</th>{% for label in channels.values() %}<th>{{ label }}</th>{% endfor %}</tr>
+      </thead>
+      <tbody>
+        {% for kind, kind_label in kinds.items() %}
+          <tr>
+            <td>{{ kind_label }}</td>
+            {% for channel, channel_label in channels.items() %}
+              <td>
+                <input type="checkbox" name="enabled" value="{{ kind }}:{{ channel }}"
+                       {% if preferences[kind][channel] %}checked{% endif %}
+                       aria-label="{{ kind_label }}: {{ channel_label }}">
+              </td>
+            {% endfor %}
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <button type="submit">Save preferences</button>
+  </form>
+{% endblock %}

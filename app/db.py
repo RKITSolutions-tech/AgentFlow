@@ -87,6 +87,39 @@ CREATE TABLE IF NOT EXISTS agent_events (
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS agent_questions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id INTEGER NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE,
+    event_id INTEGER REFERENCES agent_events(id) ON DELETE SET NULL,
+    external_id TEXT,
+    header TEXT NOT NULL DEFAULT '',
+    question TEXT NOT NULL,
+    multi_select INTEGER NOT NULL DEFAULT 0,
+    options TEXT NOT NULL DEFAULT '[]',
+    status TEXT NOT NULL DEFAULT 'PENDING',
+    answer TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    answered_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS notifications (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id INTEGER NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL,
+    channel TEXT NOT NULL,
+    message TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    read_at TEXT,
+    delivered_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS notification_preferences (
+    kind TEXT NOT NULL,
+    channel TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    PRIMARY KEY (kind, channel)
+);
+
 CREATE TABLE IF NOT EXISTS agent_results (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id INTEGER NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE,

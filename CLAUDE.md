@@ -19,7 +19,7 @@ Key modules:
   cursors, external session IDs) rather than in adapter instance memory, so
   `resume()` can reconstruct a session purely from the database.
 - `app/agents/fake.py` — `FakeAgentAdapter`, the deterministic adapter used
-  for automated tests. Driven by a scripted list of steps (`message`,
+  for automated tests. Driven by a scripted list of steps (`message`, `ask`,
   `write_file`, `fail`, `complete`) passed via `options["script"]`.
 - `app/agents/codex.py` — `CodexAdapter`, the first real adapter. Being
   built incrementally across Task Master task 4's subtasks; methods not yet

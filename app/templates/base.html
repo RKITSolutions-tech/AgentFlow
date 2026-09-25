@@ -36,6 +36,8 @@
         <a href="#" aria-disabled="true">Backlog</a>
         <a href="#" aria-disabled="true">Sprints</a>
         <a href="#" aria-disabled="true">Runs</a>
+        <a href="{{ url_for('notifications.index') }}"{% if ep.startswith('notifications.') %} aria-current="page"{% endif %}>Notifications
+          <span class="notify-badge" data-notify-badge{% if not shell.unread_notifications %} hidden{% endif %}>{{ shell.unread_notifications }}</span></a>
         <a href="{{ url_for('settings.index') }}"{% if ep.startswith('settings.') %} aria-current="page"{% endif %}>Settings</a>
       </nav>
 
@@ -57,7 +59,7 @@
               {% for s in p.sessions %}
                 <li>
                   <a class="session-row" href="{{ url_for('sessions.view_session', session_id=s.id) }}"{% if s.id == shell.active_session_id %} aria-current="page"{% endif %}>
-                    <span class="state-dot state-{{ s.state }}" aria-hidden="true"></span>
+                    <span class="state-dot state-{{ s.state }}" aria-hidden="true"></span>{% if s.state == 'waiting' %}<span class="visually-hidden">Needs your input</span>{% endif %}
                     <span class="session-title">{{ s.title }}</span>
                     <span class="session-age">{{ s.age }}</span>
                   </a>
