@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% from "workspace/_nav.html" import workspace_nav %}
+{% block title %}{{ repo.name }} - Branches{% endblock %}
+{% block content %}
+  {{ workspace_nav(project, repo, 'branches') }}
+  <h1>{{ repo.name }} - Branches</h1>
+
+  <form method="post" action="{{ url_for('workspace.git_create_branch', project_id=project.id, repo_id=repo.id) }}" class="branch-form">
+    <label for="branch-name">New branch</label>
+    <input id="branch-name" name="name" required maxlength="200" pattern="[A-Za-z0-9][A-Za-z0-9._/\-]*" placeholder="feature/name">
+    <label class="branch-checkout"><input type="checkbox" name="checkout" value="1" checked> Switch to it</label>
+    <button type="submit" class="btn-primary">Create</button>
+  </form>
+
+  {% if branches %}
+    <table class="file-list table-compact">
+      <thead>
+        <tr><th>Branch</th><th>Upstream</th><th class="row-actions">Actions</th></tr>
+      </thead>
+      <tbody>
+        {% for branch in branches %}
+          <tr data-row>
+            <td class="branch-name">
+              {{ branch.name }}
+              {% if branch.current %}<strong>(current)</strong>{% endif %}
+            </td>
+            <td>{{ branch.upstream or '—' }}</td>
+            <td class="row-actions">
+              {% if not branch.current %}
+                <button type="button"
+                        data-ajax-action="{{ url_for('workspace.git_checkout_branch', project_id=project.id, repo_id=repo.id, name=branch.name) }}"
+                        data-confirm="Switch to {{ branch.name }}? Uncommitted changes may block or travel with the switch.">
+                  Switch
+                </button>
+                <button type="button" class="link-danger"
+                        data-ajax-action="{{ url_for('workspace.git_delete_branch', project_id=project.id, repo_id=repo.id, name=branch.name) }}"
+                        data-confirm="Delete branch {{ branch.name }}? Git refuses if it has unmerged commits.">
+                  Delete
+                </button>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p>No branches found.</p>
+  {% endif %}
+{% endblock %}

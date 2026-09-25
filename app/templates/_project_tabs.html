@@ -33,6 +33,7 @@
       <a class="tab" href="{{ url_for('workspace.git_status', project_id=project.id, repo_id=repo.id) }}"{% if active == 'status' %} aria-current="page"{% endif %}>Status</a>
       <a class="tab" href="{{ url_for('workspace.git_log', project_id=project.id, repo_id=repo.id) }}"{% if active == 'log' %} aria-current="page"{% endif %}>History</a>
       <a class="tab" href="{{ url_for('workspace.git_commit_page', project_id=project.id, repo_id=repo.id) }}"{% if active == 'commit' %} aria-current="page"{% endif %}>Commit</a>
+      <a class="tab" href="{{ url_for('workspace.git_branches', project_id=project.id, repo_id=repo.id) }}"{% if active == 'branches' %} aria-current="page"{% endif %}>Branches</a>
       <span class="tab-sep" aria-hidden="true"></span>
       <a class="tab" href="{{ url_for('workspace.terminal_page', project_id=project.id, repo_id=repo.id) }}"{% if active == 'terminal' %} aria-current="page"{% endif %}>Terminal</a>
     {% endif %}

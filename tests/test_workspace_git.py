@@ -273,3 +273,44 @@ class TestBranches:
         with app.app_context():
             with pytest.raises(git.GitCommandError):
                 git.checkout_branch(provider, tmp_repo, "nope", allowed_roots=self._roots(app))
+
+
+class TestBranchRoutes:
+    AJAX = {"X-Requested-With": "XMLHttpRequest"}
+
+    @pytest.fixture
+    def urls(self, client, app):
+        from tests.conftest import create_project_with_repo
+
+        project_id, repo_path = create_project_with_repo(
+            client, app.config["allowed_root"], "branch-repo"
+        )
+        subprocess.run(["git", "init"], cwd=repo_path, check=True, capture_output=True)
+        for key, value in (("user.email", "t@t.com"), ("user.name", "T")):
+            subprocess.run(["git", "config", key, value], cwd=repo_path, check=True)
+        _commit_file(Path(repo_path))
+        return f"/projects/{project_id}/repos/1/git/branches"
+
+    def test_page_lists_branches(self, client, urls):
+        resp = client.get(urls)
+        assert resp.status_code == 200
+        assert b"Branches" in resp.data
+        assert b"(current)" in resp.data
+
+    def test_create_switch_delete_via_ajax(self, client, urls):
+        resp = client.post(urls, data={"name": "feature/a"}, headers=self.AJAX)
+        assert resp.status_code == 200
+        assert b"feature/a" in client.get(urls).data
+
+        resp = client.post(f"{urls}/feature/a/checkout", headers=self.AJAX)
+        assert resp.status_code == 200
+        # cannot delete the checked-out branch
+        resp = client.post(f"{urls}/feature/a/delete", headers=self.AJAX)
+        assert resp.status_code == 400
+        assert "error" in resp.get_json()
+
+    def test_invalid_name_rejected(self, client, urls):
+        resp = client.post(urls, data={"name": "--force"}, headers=self.AJAX)
+        assert resp.status_code == 400
+        resp = client.post(f"{urls}/-D/delete", headers=self.AJAX)
+        assert resp.status_code == 400

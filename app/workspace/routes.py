@@ -537,3 +537,90 @@ def git_create_commit(project_id: int, repo_id: int):
         return redirect(
             url_for("workspace.git_commit_page", project_id=project_id, repo_id=repo_id)
         )
+
+
+def _wants_json() -> bool:
+    return request.headers.get("X-Requested-With") == "XMLHttpRequest"
+
+
+def _git_provider() -> HostExecutionProvider:
+    return HostExecutionProvider(
+        current_app.config["DATABASE_PATH"], current_app.config["ALLOWED_PROJECT_ROOTS"]
+    )
+
+
+@bp.get("/git/branches")
+def git_branches(project_id: int, repo_id: int):
+    project, repo = _get_project_and_repo(project_id, repo_id)
+    try:
+        branches = git.list_branches(
+            _git_provider(),
+            repo.path,
+            allowed_roots=current_app.config["ALLOWED_PROJECT_ROOTS"],
+        )
+    except git.GitCommandError as exc:
+        flash(f"Git error: {exc}", "error")
+        branches = []
+
+    return render_template(
+        "workspace/git_branches.html", project=project, repo=repo, branches=branches
+    )
+
+
+def _branch_action(project_id: int, repo_id: int, action, success_message: str):
+    """Run a branch operation, answering JSON for AJAX calls and redirecting otherwise."""
+    _, repo = _get_project_and_repo(project_id, repo_id)
+    try:
+        action(
+            _git_provider(),
+            repo.path,
+            allowed_roots=current_app.config["ALLOWED_PROJECT_ROOTS"],
+        )
+    except (ValueError, git.GitCommandError) as exc:  # PathNotAllowedError is a ValueError
+        if _wants_json():
+            return {"error": str(exc)}, 400
+        flash(f"Error: {exc}", "error")
+    else:
+        if _wants_json():
+            return {"status": "success", "message": success_message}, 200
+        flash(success_message, "success")
+    return redirect(url_for("workspace.git_branches", project_id=project_id, repo_id=repo_id))
+
+
+@bp.post("/git/branches")
+def git_create_branch(project_id: int, repo_id: int):
+    name = request.form.get("name", "").strip()
+    checkout = request.form.get("checkout") == "1"
+    return _branch_action(
+        project_id,
+        repo_id,
+        lambda provider, root, allowed_roots: git.create_branch(
+            provider, root, name, checkout=checkout, allowed_roots=allowed_roots
+        ),
+        f"Created branch {name}",
+    )
+
+
+@bp.post("/git/branches/<path:name>/checkout")
+def git_checkout_branch(project_id: int, repo_id: int, name: str):
+    return _branch_action(
+        project_id,
+        repo_id,
+        lambda provider, root, allowed_roots: git.checkout_branch(
+            provider, root, name, allowed_roots=allowed_roots
+        ),
+        f"Switched to {name}",
+    )
+
+
+@bp.post("/git/branches/<path:name>/delete")
+def git_delete_branch(project_id: int, repo_id: int, name: str):
+    force = request.args.get("force") == "1"
+    return _branch_action(
+        project_id,
+        repo_id,
+        lambda provider, root, allowed_roots: git.delete_branch(
+            provider, root, name, force=force, allowed_roots=allowed_roots
+        ),
+        f"Deleted branch {name}",
+    )

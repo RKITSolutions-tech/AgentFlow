@@ -695,3 +695,9 @@ textarea.editor { width: 100%; font-family: ui-monospace, monospace; padding: 0.
   .file-list .file-name { display: block; font-weight: 500; }
   .file-list .file-link { text-decoration: none; }
 }
+
+/* Git branches page: create form wraps on narrow screens. */
+.branch-form { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem; margin-bottom: 1rem; }
+.branch-form input[name="name"] { flex: 1 1 14rem; min-width: 0; }
+.branch-checkout { display: inline-flex; align-items: center; gap: 0.35rem; }
+.branch-name { overflow-wrap: anywhere; }
