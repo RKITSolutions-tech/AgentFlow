@@ -1,0 +1,70 @@
+{#
+  Folder picker restricted to the allowed project roots (the /api/directories
+  endpoint enforces that server-side). `dir_browser(input_id, button_id, roots)`
+  wires the button to open a modal listing subfolders and writes the chosen
+  path into the input. It starts in the input's current folder if it has one,
+  else the first allowed root, and "Up" stops at a root.
+#}
+{% macro dir_browser(input_id, button_id, roots) %}
+  <div class="modal" data-dir-browser hidden>
+    <div class="modal-panel" role="dialog" aria-modal="true" aria-label="Select a folder">
+      <h2>Select a folder</h2>
+      <div class="input-with-action">
+        <input type="text" data-dir-current readonly aria-label="Current folder">
+        <button type="button" data-dir-up>&uarr; Up</button>
+      </div>
+      <div class="dir-list" data-dir-list><p>Loading...</p></div>
+      <div class="modal-actions">
+        <button type="button" data-dir-select>Select</button>
+        <button type="button" data-dir-cancel>Cancel</button>
+      </div>
+    </div>
+  </div>
+  <script>
+    (function () {
+      var roots = {{ roots|tojson }};
+      var modal = document.querySelector("[data-dir-browser]");
+      var input = document.getElementById({{ input_id|tojson }});
+      var current = null;
+
+      function load(path) {
+        current = path;
+        modal.querySelector("[data-dir-current]").value = path;
+        modal.querySelector("[data-dir-up]").disabled = roots.indexOf(path) !== -1;
+        var list = modal.querySelector("[data-dir-list]");
+        list.textContent = "Loading...";
+        fetch("/api/directories?path=" + encodeURIComponent(path))
+          .then(function (r) { return r.json(); })
+          .then(function (data) {
+            list.replaceChildren();
+            if (data.error) { list.textContent = "Error: " + data.error; return; }
+            if (!data.directories.length) { list.textContent = "No subdirectories"; return; }
+            data.directories.forEach(function (dir) {
+              var item = document.createElement("button");
+              item.type = "button";
+              item.className = "dir-item";
+              item.textContent = "\uD83D\uDCC1 " + dir.name;
+              item.addEventListener("click", function () { load(dir.path); });
+              list.appendChild(item);
+            });
+          })
+          .catch(function (err) { list.textContent = "Error: " + err.message; });
+      }
+
+      document.getElementById({{ button_id|tojson }}).addEventListener("click", function () {
+        modal.hidden = false;
+        var typed = input.value.trim();
+        load(typed || roots[0] || "/");
+      });
+      modal.querySelector("[data-dir-up]").addEventListener("click", function () {
+        load(current.substring(0, current.lastIndexOf("/")) || "/");
+      });
+      modal.querySelector("[data-dir-select]").addEventListener("click", function () {
+        if (current) input.value = current;
+        modal.hidden = true;
+      });
+      modal.querySelector("[data-dir-cancel]").addEventListener("click", function () { modal.hidden = true; });
+      modal.addEventListener("click", function (e) { if (e.target === modal) modal.hidden = true; });
+    })();
+  </script>
+{% endmacro %}

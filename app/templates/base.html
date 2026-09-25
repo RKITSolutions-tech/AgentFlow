@@ -50,7 +50,7 @@
         {% for p in shell.projects %}
           <details class="project-node"{% if p.id == shell.active_project_id %} open{% endif %}>
             <summary>
-              <span class="project-name">{{ p.name }}</span>
+              <span class="project-name">{% if p.starred %}<span aria-label="Starred" title="Starred">&#9733;</span> {% endif %}{{ p.name }}{% if p.archived %} (archived){% endif %}</span>
               <span class="count" title="{{ p.session_total }} session{{ '' if p.session_total == 1 else 's' }}">{{ p.session_total }}</span>
             </summary>
             <ul class="session-list">

@@ -117,15 +117,22 @@ def _active_ids(db: sqlite3.Connection) -> tuple[int | None, int | None]:
 
 def _shell_context() -> dict:
     db = get_db()
-    projects = project_models.list_projects(db)
     sessions = _sidebar_sessions(db)
     active_project_id, active_session_id = _active_ids(db)
+    # Archived projects leave the sidebar, except the one being viewed.
+    projects = [
+        p
+        for p in project_models.list_projects(db, archived=None)
+        if not p.archived or p.id == active_project_id
+    ]
     return {
         "shell": {
             "projects": [
                 {
                     "id": project.id,
                     "name": project.name,
+                    "starred": project.starred,
+                    "archived": project.archived,
                     "session_total": sessions.get(project.id, {}).get("total", 0),
                     "sessions": sessions.get(project.id, {}).get("recent", []),
                 }

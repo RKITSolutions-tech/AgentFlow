@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block title %}Clone repository - AgentFlow{% endblock %}
+{% block content %}
+  <h1>Clone from URL</h1>
+  <form class="stacked" id="cloneForm">
+    <label>Repository URL
+      <input type="text" name="url" id="cloneUrl" required placeholder="https://github.com/owner/repo.git" autocomplete="off">
+    </label>
+    <label>Clone into
+      <div class="input-with-action">
+        <input type="text" name="parent" id="cloneParent" value="{{ default_parent }}" required>
+        <button type="button" id="cloneBrowse">Browse</button>
+      </div>
+    </label>
+    <label>Folder name
+      <input type="text" name="folder" id="cloneFolder" placeholder="defaults to the repository name">
+    </label>
+    <label>Project name
+      <input type="text" name="name" id="cloneName" placeholder="defaults to the folder name">
+    </label>
+    <button type="submit" id="cloneStart">Clone</button>
+    <p class="form-hint">HTTPS, SSH (<code>git@host:owner/repo</code>) and <code>ssh://</code> URLs are accepted. Private repositories need credentials that work without a prompt (an SSH key or credential helper).</p>
+  </form>
+
+  <section id="cloneProgress" class="clone-progress" aria-live="polite" hidden>
+    <progress id="cloneBar" max="100"></progress>
+    <p id="cloneMessage"></p>
+    <button type="button" id="cloneCancel" class="link-danger">Cancel</button>
+  </section>
+
+  {% from "projects/_dir_browser.html" import dir_browser %}
+  {{ dir_browser('cloneParent', 'cloneBrowse', roots) }}
+
+  <script>
+    (function () {
+      var form = document.getElementById("cloneForm");
+      var panel = document.getElementById("cloneProgress");
+      var bar = document.getElementById("cloneBar");
+      var message = document.getElementById("cloneMessage");
+      var startBtn = document.getElementById("cloneStart");
+      var cancelBtn = document.getElementById("cloneCancel");
+      var jobId = null;
+      var timer = null;
+
+      function show(text) { message.textContent = text; }
+
+      function finish(text, failed) {
+        clearTimeout(timer);
+        show(text);
+        cancelBtn.hidden = true;
+        startBtn.disabled = false;
+        if (failed) agentflowFlash(text, "error");
+      }
+
+      function poll() {
+        fetch("/projects/clone/" + jobId)
+          .then(function (r) { return r.json(); })
+          .then(function (job) {
+            if (job.error) { finish(job.error, true); return; }
+            if (job.status === "DONE") {
+              finish("Cloned. Opening the project...", false);
+              window.location.href = job.project_url;
+            } else if (job.status === "FAILED") {
+              finish("Clone failed: " + job.message, true);
+            } else if (job.status === "CANCELLED") {
+              finish("Clone cancelled.", false);
+            } else {
+              if (job.percent === null) bar.removeAttribute("value"); else bar.value = job.percent;
+              show(job.percent === null ? "Cloning..." : "Cloning... " + job.percent + "%");
+              timer = setTimeout(poll, 1000);
+            }
+          })
+          .catch(function () { timer = setTimeout(poll, 2000); });
+      }
+
+      form.addEventListener("submit", function (event) {
+        event.preventDefault();
+        startBtn.disabled = true;
+        fetch("/projects/clone", { method: "POST", body: new FormData(form) })
+          .then(function (r) { return r.json().then(function (data) { return { ok: r.ok, data: data }; }); })
+          .then(function (result) {
+            if (!result.ok) throw new Error(result.data.error || "Could not start the clone");
+            jobId = result.data.id;
+            panel.hidden = false;
+            cancelBtn.hidden = false;
+            bar.removeAttribute("value");
+            show("Starting...");
+            poll();
+          })
+          .catch(function (err) {
+            startBtn.disabled = false;
+            agentflowFlash(err.message, "error");
+          });
+      });
+
+      cancelBtn.addEventListener("click", function () {
+        cancelBtn.disabled = true;
+        fetch("/projects/clone/" + jobId + "/cancel", { method: "POST" })
+          .then(function () { cancelBtn.disabled = false; });
+      });
+    })();
+  </script>
+{% endblock %}

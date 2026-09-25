@@ -5,7 +5,11 @@
   {{ project_tabs(project, none, 'overview') }}
   <h1>{{ project.name }}</h1>
   <p>{{ project.description }}</p>
-  <p><a href="{{ url_for('projects.edit_project', project_id=project.id) }}">Edit</a></p>
+  <p class="row-actions">
+    <a href="{{ url_for('projects.edit_project', project_id=project.id) }}">Rename or edit</a>
+    <button type="button" data-ajax-reload="{{ url_for('projects.unstar_project' if project.starred else 'projects.star_project', project_id=project.id) }}">{{ 'Unstar' if project.starred else 'Star' }}</button>
+    <button type="button" data-ajax-reload="{{ url_for('projects.restore_project' if project.archived else 'projects.archive_project', project_id=project.id) }}">{{ 'Restore' if project.archived else 'Archive' }}</button>
+  </p>
 
   <h2>Repositories</h2>
   {% if project.repositories %}
@@ -31,11 +35,16 @@
       <input type="text" name="name" required>
     </label>
     <label>Path
-      <input type="text" name="path" required>
+      <div class="input-with-action">
+        <input type="text" name="path" id="repoPath" required>
+        <button type="button" id="browseBtn">Browse</button>
+      </div>
     </label>
     <label>
       <input type="checkbox" name="is_primary"> Primary repository
     </label>
     <button type="submit">Add repository</button>
   </form>
+  {% from "projects/_dir_browser.html" import dir_browser %}
+  {{ dir_browser('repoPath', 'browseBtn', roots) }}
 {% endblock %}

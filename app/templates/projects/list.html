@@ -2,16 +2,34 @@
 {% block title %}Projects - AgentFlow{% endblock %}
 {% block content %}
   <h1>Projects</h1>
-  <p><a href="{{ url_for('projects.new_project') }}">New project</a></p>
+  <p class="row-actions">
+    <a href="{{ url_for('projects.new_project') }}">New project</a>
+    <a href="{{ url_for('projects.clone_page') }}">Clone from URL</a>
+    {% if show_archived %}
+      <a href="{{ url_for('projects.list_projects') }}">Show active</a>
+    {% else %}
+      <a href="{{ url_for('projects.list_projects', archived=1) }}">Show archived</a>
+    {% endif %}
+  </p>
   <table class="table-compact" id="projects-table" {% if not projects %}hidden{% endif %}>
     <thead><tr><th>Name</th><th>Repositories</th><th>Actions</th></tr></thead>
     <tbody>
       {% for project in projects %}
         <tr data-row>
-          <td><a href="{{ url_for('projects.view_project', project_id=project.id) }}">{{ project.name }}</a></td>
+          <td class="wrap-cell">{% if project.starred %}<span aria-label="Starred">&#9733;</span> {% endif %}<a href="{{ url_for('projects.view_project', project_id=project.id) }}">{{ project.name }}</a></td>
           <td>{{ project.repositories | length }}</td>
           <td class="row-actions">
-            <a href="{{ url_for('projects.edit_project', project_id=project.id) }}">Edit</a>
+            <a href="{{ url_for('projects.edit_project', project_id=project.id) }}">Rename</a>
+            {% if project.starred %}
+              <button type="button" data-ajax-reload="{{ url_for('projects.unstar_project', project_id=project.id) }}">Unstar</button>
+            {% else %}
+              <button type="button" data-ajax-reload="{{ url_for('projects.star_project', project_id=project.id) }}">Star</button>
+            {% endif %}
+            {% if show_archived %}
+              <button type="button" data-ajax-action="{{ url_for('projects.restore_project', project_id=project.id) }}" data-on-removed="projects:row-removed">Restore</button>
+            {% else %}
+              <button type="button" data-ajax-action="{{ url_for('projects.archive_project', project_id=project.id) }}" data-on-removed="projects:row-removed">Archive</button>
+            {% endif %}
             <button type="button" class="link-danger"
                     data-ajax-action="{{ url_for('projects.delete_project', project_id=project.id) }}"
                     data-confirm="Remove {{ project.name }}? This deletes its repositories and sessions too."
@@ -23,7 +41,7 @@
       {% endfor %}
     </tbody>
   </table>
-  <p id="no-projects-message" {% if projects %}hidden{% endif %}>No projects yet.</p>
+  <p id="no-projects-message" {% if projects %}hidden{% endif %}>{% if show_archived %}No archived projects.{% else %}No projects yet.{% endif %}</p>
   <script>
     window.addEventListener("projects:row-removed", function () {
       var table = document.getElementById("projects-table");

@@ -29,6 +29,11 @@ class Project:
     description: str
     status: str
     repositories: list[Repository]
+    starred: bool = False
+
+    @property
+    def archived(self) -> bool:
+        return self.status == "ARCHIVED"
 
 
 def _unique_slug(db: sqlite3.Connection, base_slug: str) -> str:
@@ -98,9 +103,30 @@ def add_repository(
     return cur.lastrowid
 
 
-def list_projects(db: sqlite3.Connection) -> list[Project]:
-    rows = db.execute("SELECT * FROM projects ORDER BY name").fetchall()
+def list_projects(db: sqlite3.Connection, archived: bool | None = False) -> list[Project]:
+    """Projects with starred ones first, then by name.
+
+    ``archived`` False (default) hides archived projects, True shows only
+    those, None returns everything.
+    """
+    where = {False: "WHERE status != 'ARCHIVED'", True: "WHERE status = 'ARCHIVED'", None: ""}[
+        archived
+    ]
+    rows = db.execute(f"SELECT * FROM projects {where} ORDER BY starred DESC, name").fetchall()
     return [_hydrate_project(db, row) for row in rows]
+
+
+def set_starred(db: sqlite3.Connection, project_id: int, starred: bool) -> None:
+    db.execute("UPDATE projects SET starred = ? WHERE id = ?", (int(starred), project_id))
+    db.commit()
+
+
+def set_archived(db: sqlite3.Connection, project_id: int, archived: bool) -> None:
+    db.execute(
+        "UPDATE projects SET status = ?, updated_at = datetime('now') WHERE id = ?",
+        ("ARCHIVED" if archived else "ACTIVE", project_id),
+    )
+    db.commit()
 
 
 def get_project(db: sqlite3.Connection, project_id: int) -> Project | None:
@@ -155,4 +181,5 @@ def _hydrate_project(db: sqlite3.Connection, row: sqlite3.Row) -> Project:
         description=row["description"],
         status=row["status"],
         repositories=repositories,
+        starred=bool(row["starred"]),
     )

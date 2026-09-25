@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS projects (
     slug TEXT NOT NULL UNIQUE,
     description TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT 'ACTIVE',
+    starred INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -131,6 +132,20 @@ CREATE TABLE IF NOT EXISTS scheduled_messages (
     sent_at TEXT
 );
 
+CREATE TABLE IF NOT EXISTS clone_jobs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    url TEXT NOT NULL,
+    destination TEXT NOT NULL,
+    project_name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    context_id INTEGER,
+    process_id INTEGER,
+    status TEXT NOT NULL DEFAULT 'RUNNING' CHECK(status IN ('RUNNING', 'DONE', 'FAILED', 'CANCELLED')),
+    message TEXT NOT NULL DEFAULT '',
+    project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS agent_results (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id INTEGER NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE,
@@ -219,6 +234,21 @@ def _seed_model_catalog(db: sqlite3.Connection) -> None:
     db.commit()
 
 
+# Columns added after a table first shipped. `CREATE TABLE IF NOT EXISTS` leaves
+# an existing table untouched, so databases created earlier get them here.
+_ADDED_COLUMNS = (
+    ("projects", "starred", "INTEGER NOT NULL DEFAULT 0"),
+)
+
+
+def _migrate(db: sqlite3.Connection) -> None:
+    for table, column, definition in _ADDED_COLUMNS:
+        existing = {row["name"] for row in db.execute(f"PRAGMA table_info({table})")}
+        if column not in existing:
+            db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+    db.commit()
+
+
 def get_db() -> sqlite3.Connection:
     if "db" not in g:
         db_path = current_app.config["DATABASE_PATH"]
@@ -240,7 +270,7 @@ def init_db(app: Flask) -> None:
     with app.app_context():
         db = get_db()
         db.executescript(SCHEMA)
-        db.commit()
+        _migrate(db)
         _seed_model_catalog(db)
 
     app.cli.add_command(init_db_command)
@@ -251,6 +281,6 @@ def init_db_command() -> None:
     """Clear existing data and recreate tables."""
     db = get_db()
     db.executescript(SCHEMA)
-    db.commit()
+    _migrate(db)
     _seed_model_catalog(db)
     click.echo("Initialized the database.")
