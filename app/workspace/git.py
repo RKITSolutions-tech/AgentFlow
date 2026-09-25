@@ -442,3 +442,126 @@ def commit(
 
     finally:
         execution_provider.destroy_context(context.id)
+
+
+@dataclass
+class BranchInfo:
+    """A local branch."""
+
+    name: str
+    current: bool
+    upstream: str | None
+
+
+_REF_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
+
+
+def validate_ref_name(name: str) -> str:
+    """Validate a branch name, rejecting anything git or a shell could misread.
+
+    Returns the stripped name. Raises ValueError for option-like names, path
+    traversal segments, and other characters git disallows in refs.
+    """
+    name = name.strip()
+    if not name or len(name) > 200 or not _REF_PATTERN.match(name):
+        raise ValueError(f"Invalid branch name: {name!r}")
+    if (
+        ".." in name
+        or "//" in name
+        or name.endswith(("/", ".", ".lock"))
+        or any(part.startswith(".") or part.endswith(".lock") for part in name.split("/"))
+    ):
+        raise ValueError(f"Invalid branch name: {name!r}")
+    return name
+
+
+def _run_git(
+    execution_provider: ExecutionProvider,
+    repo_root: str,
+    args: list[str],
+    allowed_roots: tuple[str, ...] = (),
+) -> str:
+    """Run a git command in `repo_root`, returning stdout or raising GitCommandError."""
+    validate_repository_path(repo_root, allowed_roots or (repo_root,))
+
+    context = execution_provider.create_context({"working_directory": repo_root})
+    try:
+        process = execution_provider.execute(
+            ["git", *args],
+            options={"context_id": context.id, "timeout": GIT_TIMEOUT_SECONDS},
+        )
+        events = list(execution_provider.stream_output(process.id))
+        if process.exit_code != 0:
+            stderr = "\n".join(
+                e.data for e in events if e.event_type == "ProcessOutput" and e.stream == "stderr"
+            )
+            raise GitCommandError(f"git {args[0]} failed: {stderr.strip()}")
+        return "\n".join(
+            e.data for e in events if e.event_type == "ProcessOutput" and e.stream == "stdout"
+        )
+    finally:
+        execution_provider.destroy_context(context.id)
+
+
+def list_branches(
+    execution_provider: ExecutionProvider,
+    repo_root: str,
+    allowed_roots: tuple[str, ...] = (),
+) -> list[BranchInfo]:
+    """List local branches with their upstream, marking the current one."""
+    output = _run_git(
+        execution_provider,
+        repo_root,
+        ["branch", "--format=%(HEAD)|%(refname:short)|%(upstream:short)"],
+        allowed_roots,
+    )
+    branches = []
+    for line in output.splitlines():
+        parts = line.split("|")
+        if len(parts) != 3 or not parts[1]:
+            continue  # e.g. detached HEAD pseudo-entry
+        branches.append(
+            BranchInfo(name=parts[1], current=parts[0] == "*", upstream=parts[2] or None)
+        )
+    return branches
+
+
+def checkout_branch(
+    execution_provider: ExecutionProvider,
+    repo_root: str,
+    name: str,
+    allowed_roots: tuple[str, ...] = (),
+) -> None:
+    """Switch to an existing local branch."""
+    name = validate_ref_name(name)
+    _run_git(execution_provider, repo_root, ["switch", name], allowed_roots)
+
+
+def create_branch(
+    execution_provider: ExecutionProvider,
+    repo_root: str,
+    name: str,
+    checkout: bool = True,
+    allowed_roots: tuple[str, ...] = (),
+) -> None:
+    """Create a branch from HEAD, optionally switching to it."""
+    name = validate_ref_name(name)
+    args = ["switch", "-c", name] if checkout else ["branch", name]
+    _run_git(execution_provider, repo_root, args, allowed_roots)
+
+
+def delete_branch(
+    execution_provider: ExecutionProvider,
+    repo_root: str,
+    name: str,
+    force: bool = False,
+    allowed_roots: tuple[str, ...] = (),
+) -> None:
+    """Delete a local branch. Without `force`, git refuses unmerged branches."""
+    name = validate_ref_name(name)
+    _run_git(
+        execution_provider,
+        repo_root,
+        ["branch", "-D" if force else "-d", name],
+        allowed_roots,
+    )

@@ -228,3 +228,48 @@ class TestGitCommit:
         assert commit_info.message == "initial: updated message"
         assert len(commits) == 1
         assert commits[0].message == "initial: updated message"
+
+
+def _commit_file(repo, name="a.txt"):
+    (repo / name).write_text("x")
+    subprocess.run(["git", "add", name], cwd=repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=repo, check=True, capture_output=True)
+
+
+class TestBranches:
+    def _roots(self, app):
+        return app.config["ALLOWED_PROJECT_ROOTS"]
+
+    def test_create_list_checkout_delete(self, tmp_repo, app, provider):
+        _commit_file(tmp_repo)
+        roots = self._roots(app)
+        with app.app_context():
+            git.create_branch(provider, tmp_repo, "feature/x", checkout=False, allowed_roots=roots)
+            names = {b.name for b in git.list_branches(provider, tmp_repo, allowed_roots=roots)}
+            assert "feature/x" in names
+
+            git.checkout_branch(provider, tmp_repo, "feature/x", allowed_roots=roots)
+            current = [b for b in git.list_branches(provider, tmp_repo, allowed_roots=roots) if b.current]
+            assert [b.name for b in current] == ["feature/x"]
+
+            with pytest.raises(git.GitCommandError):
+                git.delete_branch(provider, tmp_repo, "feature/x", allowed_roots=roots)
+
+            other = next(b.name for b in git.list_branches(provider, tmp_repo, allowed_roots=roots) if not b.current)
+            git.checkout_branch(provider, tmp_repo, other, allowed_roots=roots)
+            git.delete_branch(provider, tmp_repo, "feature/x", allowed_roots=roots)
+            names = {b.name for b in git.list_branches(provider, tmp_repo, allowed_roots=roots)}
+            assert "feature/x" not in names
+
+    @pytest.mark.parametrize(
+        "bad", ["", "-D", "--force", "a..b", "a b", "a//b", "x/", "x.lock", ".hidden", "a;rm", "a/.b"]
+    )
+    def test_invalid_ref_names_rejected(self, bad):
+        with pytest.raises(ValueError):
+            git.validate_ref_name(bad)
+
+    def test_checkout_missing_branch_fails(self, tmp_repo, app, provider):
+        _commit_file(tmp_repo)
+        with app.app_context():
+            with pytest.raises(git.GitCommandError):
+                git.checkout_branch(provider, tmp_repo, "nope", allowed_roots=self._roots(app))
