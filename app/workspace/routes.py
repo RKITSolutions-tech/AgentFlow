@@ -571,6 +571,14 @@ def git_branches(project_id: int, repo_id: int):
 
 def _branch_action(project_id: int, repo_id: int, action, success_message: str):
     """Run a branch operation, answering JSON for AJAX calls and redirecting otherwise."""
+    return _branch_action_to(
+        project_id, repo_id, action, success_message, "workspace.git_branches"
+    )
+
+
+def _branch_action_to(
+    project_id: int, repo_id: int, action, success_message: str, endpoint: str
+):
     _, repo = _get_project_and_repo(project_id, repo_id)
     try:
         action(
@@ -586,7 +594,7 @@ def _branch_action(project_id: int, repo_id: int, action, success_message: str):
         if _wants_json():
             return {"status": "success", "message": success_message}, 200
         flash(success_message, "success")
-    return redirect(url_for("workspace.git_branches", project_id=project_id, repo_id=repo_id))
+    return redirect(url_for(endpoint, project_id=project_id, repo_id=repo_id))
 
 
 @bp.post("/git/branches")
@@ -667,4 +675,40 @@ def git_publish(project_id: int, repo_id: int):
             provider, root, allowed_roots=allowed_roots
         ),
         "Published branch to origin",
+    )
+
+
+def _path_action(project_id: int, repo_id: int, operation, verb: str):
+    path = request.form.get("path", "").strip()
+    return _branch_action_to(
+        project_id,
+        repo_id,
+        lambda provider, root, allowed_roots: operation(
+            provider, root, path, allowed_roots=allowed_roots
+        ),
+        f"{verb} {path}",
+        "workspace.git_status",
+    )
+
+
+@bp.post("/git/discard")
+def git_discard(project_id: int, repo_id: int):
+    return _path_action(project_id, repo_id, git.discard_changes, "Discarded changes to")
+
+
+@bp.post("/git/delete-untracked")
+def git_delete_untracked(project_id: int, repo_id: int):
+    return _path_action(project_id, repo_id, git.delete_untracked, "Deleted")
+
+
+@bp.post("/git/undo-commit")
+def git_undo_commit(project_id: int, repo_id: int):
+    return _branch_action_to(
+        project_id,
+        repo_id,
+        lambda provider, root, allowed_roots: git.undo_last_commit(
+            provider, root, allowed_roots=allowed_roots
+        ),
+        "Undid the last commit; its changes are staged",
+        "workspace.git_status",
     )

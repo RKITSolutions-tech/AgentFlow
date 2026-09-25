@@ -371,3 +371,69 @@ class TestRemotes:
         with app.app_context():
             with pytest.raises(ValueError):
                 git.fetch(provider, cloned, remote=bad, allowed_roots=app.config["ALLOWED_PROJECT_ROOTS"])
+
+
+class TestDestructive:
+    def _roots(self, app):
+        return app.config["ALLOWED_PROJECT_ROOTS"]
+
+    def test_discard_restores_file(self, tmp_repo, app, provider):
+        _commit_file(tmp_repo)
+        (tmp_repo / "a.txt").write_text("changed")
+        with app.app_context():
+            git.discard_changes(provider, tmp_repo, "a.txt", allowed_roots=self._roots(app))
+        assert (tmp_repo / "a.txt").read_text() == "x"
+
+    def test_delete_untracked_only_removes_untracked(self, tmp_repo, app, provider):
+        _commit_file(tmp_repo)
+        (tmp_repo / "junk.txt").write_text("j")
+        (tmp_repo / "dir").mkdir()
+        (tmp_repo / "dir" / "f.txt").write_text("f")
+        roots = self._roots(app)
+        with app.app_context():
+            git.delete_untracked(provider, tmp_repo, "junk.txt", allowed_roots=roots)
+            git.delete_untracked(provider, tmp_repo, "dir", allowed_roots=roots)
+            # a tracked file is left alone by clean
+            git.delete_untracked(provider, tmp_repo, "a.txt", allowed_roots=roots)
+        assert not (tmp_repo / "junk.txt").exists()
+        assert not (tmp_repo / "dir").exists()
+        assert (tmp_repo / "a.txt").exists()
+
+    @pytest.mark.parametrize("bad", ["", ".", "../other", "/etc/passwd", "a/../.."])
+    def test_paths_must_stay_in_repo(self, tmp_repo, app, provider, bad):
+        _commit_file(tmp_repo)
+        sibling = Path(app.config["allowed_root"]) / "other"
+        sibling.mkdir(exist_ok=True)
+        (sibling / "keep.txt").write_text("k")
+        roots = self._roots(app)
+        with app.app_context():
+            for op in (git.discard_changes, git.delete_untracked):
+                with pytest.raises(ValueError):
+                    op(provider, tmp_repo, bad, allowed_roots=roots)
+        assert (sibling / "keep.txt").exists()
+
+    def test_undo_last_commit_keeps_changes_staged(self, tmp_repo, app, provider):
+        _commit_file(tmp_repo)
+        _commit_file(tmp_repo, "b.txt")
+        with app.app_context():
+            git.undo_last_commit(provider, tmp_repo, allowed_roots=self._roots(app))
+        assert (tmp_repo / "b.txt").exists()
+        staged = subprocess.run(
+            ["git", "diff", "--cached", "--name-only"], cwd=tmp_repo, capture_output=True, text=True
+        ).stdout.split()
+        assert staged == ["b.txt"]
+
+    def test_undo_refuses_first_commit_and_pushed_commit(self, tmp_repo, app, provider):
+        _commit_file(tmp_repo)
+        roots = self._roots(app)
+        with app.app_context():
+            with pytest.raises(git.GitCommandError):
+                git.undo_last_commit(provider, tmp_repo, allowed_roots=roots)
+
+            bare = Path(app.config["allowed_root"]) / "o.git"
+            subprocess.run(["git", "init", "--bare", str(bare)], check=True, capture_output=True)
+            subprocess.run(["git", "remote", "add", "origin", str(bare)], cwd=tmp_repo, check=True)
+            _commit_file(tmp_repo, "b.txt")
+            git.publish_branch(provider, tmp_repo, allowed_roots=roots)
+            with pytest.raises(git.GitCommandError, match="already pushed"):
+                git.undo_last_commit(provider, tmp_repo, allowed_roots=roots)

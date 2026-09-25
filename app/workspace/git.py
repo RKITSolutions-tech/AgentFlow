@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass
 
@@ -686,3 +687,63 @@ def publish_branch(
         allowed_roots,
         network=True,
     )
+
+
+def _repo_relative_path(repo_root: str, path: str, allowed_roots: tuple[str, ...]) -> str:
+    """Validate `path` for a destructive operation: it must stay inside `repo_root`.
+
+    The allowed-roots check used elsewhere would accept a sibling repository;
+    destructive actions are stricter and never leave this repository.
+    """
+    path = path.strip()
+    if not path or "\x00" in path:
+        raise ValueError("Path required")
+    if os.path.isabs(path):
+        raise ValueError("Path must be relative to the repository")
+    root = validate_repository_path(repo_root, allowed_roots or (repo_root,))
+    target = validate_repository_path(f"{root}/{path}", (root,))
+    if target == root:
+        raise ValueError("Refusing to act on the repository root")
+    return path
+
+
+def discard_changes(
+    execution_provider: ExecutionProvider,
+    repo_root: str,
+    path: str,
+    allowed_roots: tuple[str, ...] = (),
+) -> None:
+    """Throw away unstaged changes to a tracked file (irreversible)."""
+    path = _repo_relative_path(repo_root, path, allowed_roots)
+    _run_git(execution_provider, repo_root, ["restore", "--", path], allowed_roots)
+
+
+def delete_untracked(
+    execution_provider: ExecutionProvider,
+    repo_root: str,
+    path: str,
+    allowed_roots: tuple[str, ...] = (),
+) -> None:
+    """Delete an untracked file or directory (irreversible; tracked files are never touched)."""
+    path = _repo_relative_path(repo_root, path, allowed_roots)
+    _run_git(execution_provider, repo_root, ["clean", "-fd", "--", path], allowed_roots)
+
+
+def undo_last_commit(
+    execution_provider: ExecutionProvider,
+    repo_root: str,
+    allowed_roots: tuple[str, ...] = (),
+) -> None:
+    """Undo the latest commit, keeping its changes staged.
+
+    Only allowed while that commit has not been pushed, so published history
+    is never rewritten.
+    """
+    status = remote_status(execution_provider, repo_root, allowed_roots)
+    if status.upstream and status.ahead == 0:
+        raise GitCommandError("The latest commit is already pushed; refusing to rewrite it")
+    try:
+        _run_git(execution_provider, repo_root, ["rev-parse", "--verify", "HEAD~1"], allowed_roots)
+    except GitCommandError:
+        raise GitCommandError("Nothing to undo: there is no earlier commit") from None
+    _run_git(execution_provider, repo_root, ["reset", "--soft", "HEAD~1"], allowed_roots)

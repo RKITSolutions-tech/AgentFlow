@@ -8,7 +8,13 @@
 
   {% if status %}
     {% if status.branch %}
-      <p>Branch: <strong>{{ status.branch }}</strong></p>
+      <p>Branch: <strong>{{ status.branch }}</strong>
+        <button type="button" class="link-danger"
+                data-ajax-action="{{ url_for('workspace.git_undo_commit', project_id=project.id, repo_id=repo.id) }}"
+                data-confirm="Undo the latest commit? Its changes stay staged. Only unpushed commits can be undone.">
+          Undo last commit
+        </button>
+      </p>
     {% endif %}
 
     {% if status.staged %}
@@ -67,6 +73,10 @@
                 <button class="link-danger" data-git-action="stage" data-path="{{ file.path }}"
                         data-url="{{ url_for('workspace.git_stage_file', project_id=project.id, repo_id=repo.id) }}"
                         data-row="unstaged-{{ file.path|replace('/', '-') }}">Stage</button>
+                <button class="link-danger" data-git-action="discard" data-path="{{ file.path }}"
+                        data-confirm="Discard all unstaged changes to {{ file.path }}? This cannot be undone."
+                        data-url="{{ url_for('workspace.git_discard', project_id=project.id, repo_id=repo.id) }}"
+                        data-row="unstaged-{{ file.path|replace('/', '-') }}">Discard</button>
               </td>
             </tr>
           {% endfor %}
@@ -95,6 +105,10 @@
                 <button class="link-danger" data-git-action="stage" data-path="{{ file.path }}"
                         data-url="{{ url_for('workspace.git_stage_file', project_id=project.id, repo_id=repo.id) }}"
                         data-row="untracked-{{ file.path|replace('/', '-') }}">Stage</button>
+                <button class="link-danger" data-git-action="delete" data-path="{{ file.path }}"
+                        data-confirm="Permanently delete {{ file.path }}? This cannot be undone."
+                        data-url="{{ url_for('workspace.git_delete_untracked', project_id=project.id, repo_id=repo.id) }}"
+                        data-row="untracked-{{ file.path|replace('/', '-') }}">Delete</button>
               </td>
             </tr>
           {% endfor %}
