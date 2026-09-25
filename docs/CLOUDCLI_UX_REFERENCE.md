@@ -23,6 +23,8 @@ Adopt behaviour and information architecture; choose our own palette,
 
 ```text
 reference     CloudCLI v1.37.3, desktop viewport 1440x900, dark theme
+instance      http://devserver:3001 (self-hosted; driven through the
+              cloudcli-browser MCP for observation)
 observed      project sidebar, chat (answered and pending question,
               slash menu), Files, Source Control, Shell, Tasks, Browser,
               Settings (Agents > Permissions), session row menu
