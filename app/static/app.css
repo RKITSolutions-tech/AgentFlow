@@ -718,3 +718,11 @@ textarea.editor { width: 100%; font-family: ui-monospace, monospace; padding: 0.
 .model-switch { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.4rem; color: var(--text-muted); font-size: 0.85rem; }
 .model-switch select { min-height: var(--tap); max-width: 100%; }
 .chat-header-actions button { min-height: var(--tap); }
+
+/* File browser tools: create/upload forms sit above the listing. */
+.file-tools { display: flex; flex-wrap: wrap; gap: 0.5rem 1.5rem; margin-bottom: 0.5rem; }
+.file-tools .inline-filter { margin: 0; }
+.file-tools input[type="text"] { flex: 1 1 10rem; min-height: var(--tap); }
+.file-tools input[type="file"] { max-width: 100%; }
+.file-list .row-actions button { min-height: var(--tap); }
+@media (pointer: fine) { .file-list .row-actions button { min-height: 0; } }

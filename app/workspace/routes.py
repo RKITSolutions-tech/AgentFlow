@@ -125,6 +125,107 @@ def download_file(project_id: int, repo_id: int):
     return send_file(file_path, as_attachment=True, download_name=filename)
 
 
+def _file_action(project_id: int, repo_id: int, directory: str, operation, message: str):
+    """Run a file operation; JSON for AJAX callers, flash + redirect otherwise.
+
+    ``operation`` receives the repository root and returns a repo-relative
+    path (or ``None``); ``directory`` is where the redirect lands.
+    """
+    _, repo = _get_project_and_repo(project_id, repo_id)
+    try:
+        result = operation(repo.path)
+    except PathNotAllowedError:
+        error, code = "That path is outside the repository.", 400
+    except files.FileNotFoundInRepositoryError as exc:
+        error, code = str(exc), 404
+    except files.FileExistsInRepositoryError as exc:
+        error, code = str(exc), 409
+    except files.UploadTooLargeError as exc:
+        error, code = str(exc), 413
+    except files.FileOperationError as exc:
+        error, code = str(exc), 400
+    except OSError as exc:
+        error, code = f"Filesystem error: {exc.strerror or exc}", 400
+    else:
+        if _wants_json():
+            return {"status": "success", "message": message, "path": result}, 200
+        flash(message, "success")
+        return redirect(
+            url_for("workspace.browse", project_id=project_id, repo_id=repo_id, path=directory)
+        )
+    if _wants_json():
+        return {"error": error}, code
+    flash(error, "error")
+    return redirect(
+        url_for("workspace.browse", project_id=project_id, repo_id=repo_id, path=directory)
+    )
+
+
+@bp.post("/files/create")
+def create_entry(project_id: int, repo_id: int):
+    directory = request.form.get("path", "")
+    name = request.form.get("name", "")
+    is_folder = request.form.get("kind") == "folder"
+    operation = files.create_folder if is_folder else files.create_file
+    return _file_action(
+        project_id,
+        repo_id,
+        directory,
+        lambda root: operation(root, directory, name),
+        f"Created {'folder' if is_folder else 'file'} {name.strip()}",
+    )
+
+
+@bp.post("/files/rename")
+def rename_entry(project_id: int, repo_id: int):
+    path = request.values.get("path", "")
+    new_name = request.form.get("new_name", "")
+    return _file_action(
+        project_id,
+        repo_id,
+        os.path.dirname(path.strip("/")),
+        lambda root: files.rename_entry(root, path, new_name),
+        f"Renamed to {new_name.strip()}",
+    )
+
+
+@bp.post("/files/delete")
+def delete_entry(project_id: int, repo_id: int):
+    # The path travels in the query string so the generic `data-ajax-action`
+    # handler in app.js (which posts no body) can drive it.
+    path = request.values.get("path", "")
+    return _file_action(
+        project_id,
+        repo_id,
+        os.path.dirname(path.strip("/")),
+        lambda root: files.delete_entry(root, path),
+        f"Deleted {os.path.basename(path.strip('/'))}",
+    )
+
+
+@bp.post("/files/upload")
+def upload_files(project_id: int, repo_id: int):
+    directory = request.form.get("path", "")
+    uploads = [u for u in request.files.getlist("files") if u.filename]
+    max_bytes = current_app.config.get("MAX_UPLOAD_BYTES", files.MAX_UPLOAD_SIZE)
+
+    def operation(root: str):
+        if not uploads:
+            raise files.FileOperationError("Choose at least one file to upload.")
+        saved = [
+            files.save_upload(root, directory, u.filename, u.stream, max_bytes) for u in uploads
+        ]
+        return saved[0] if len(saved) == 1 else saved
+
+    return _file_action(
+        project_id,
+        repo_id,
+        directory,
+        operation,
+        f"Uploaded {len(uploads)} file{'s' if len(uploads) != 1 else ''}",
+    )
+
+
 @bp.get("/files/search")
 def search_files(project_id: int, repo_id: int):
     project, repo = _get_project_and_repo(project_id, repo_id)

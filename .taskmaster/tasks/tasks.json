@@ -529,11 +529,11 @@
         "description": "Extend the file workspace beyond view and basic edit.",
         "details": "See docs/CLOUDCLI_GAP_ANALYSIS.md G5. Create file/folder, rename, delete with confirmation, upload with size limits. Enforce ALLOWED_PROJECT_ROOTS via app/security.py; handle binary and large files; AJAX per CLAUDE.md UI rules.",
         "testStrategy": "",
-        "status": "in-progress",
+        "status": "done",
         "dependencies": [],
         "priority": "medium",
         "subtasks": [],
-        "updatedAt": "2026-09-25T22:29:46.265Z"
+        "updatedAt": "2026-09-25T22:31:55.334Z"
       },
       {
         "id": "14",
@@ -541,10 +541,11 @@
         "description": "Bring the session prompt bar closer to CloudCLI capability.",
         "details": "See docs/CLOUDCLI_GAP_ANALYSIS.md G6. Slash commands, @ file mentions resolved against the project, attachments/images, permission-mode selection where the adapter supports it, scheduled messages; voice input is low priority. Mobile-first: chat/input bars are a listed risk area in CLAUDE.md.",
         "testStrategy": "",
-        "status": "pending",
+        "status": "in-progress",
         "dependencies": [],
         "priority": "medium",
-        "subtasks": []
+        "subtasks": [],
+        "updatedAt": "2026-09-25T22:31:59.098Z"
       },
       {
         "id": "15",
@@ -571,9 +572,9 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-09-25T22:29:46.265Z",
+      "lastModified": "2026-09-25T22:31:59.098Z",
       "taskCount": 16,
-      "completedCount": 9,
+      "completedCount": 10,
       "tags": [
         "master"
       ]

@@ -13,6 +13,20 @@
     {% endfor %}
   </nav>
 
+  <div class="file-tools">
+    <form class="inline-filter" data-ajax-form method="post" action="{{ url_for('workspace.create_entry', project_id=project.id, repo_id=repo.id) }}">
+      <input type="hidden" name="path" value="{{ current_path }}">
+      <input type="text" name="name" placeholder="New name" aria-label="New file or folder name" required>
+      <button type="submit" name="kind" value="file">New file</button>
+      <button type="submit" name="kind" value="folder">New folder</button>
+    </form>
+    <form class="inline-filter" data-ajax-form method="post" enctype="multipart/form-data" action="{{ url_for('workspace.upload_files', project_id=project.id, repo_id=repo.id) }}">
+      <input type="hidden" name="path" value="{{ current_path }}">
+      <input type="file" name="files" multiple aria-label="Files to upload" required>
+      <button type="submit">Upload</button>
+    </form>
+  </div>
+
   <table class="file-list table-compact">
     <thead>
       <tr>
@@ -20,6 +34,7 @@
         <th class="file-type-header">Type</th>
         <th class="file-size-header">Size</th>
         <th class="file-date-header">Modified</th>
+        <th>Actions</th>
       </tr>
     </thead>
     <tbody>
@@ -29,10 +44,11 @@
           <td class="file-type-header"></td>
           <td class="file-size-header"></td>
           <td class="file-date-header"></td>
+          <td></td>
         </tr>
       {% endif %}
       {% for entry in entries %}
-        <tr class="{% if entry.is_dir %}file-entry-dir{% else %}file-entry-file{% endif %}">
+        <tr data-row class="{% if entry.is_dir %}file-entry-dir{% else %}file-entry-file{% endif %}">
           <td class="file-name">
             {% if entry.is_dir %}
               <a href="{{ url_for('workspace.browse', project_id=project.id, repo_id=repo.id, path=entry.relative_path) }}" class="file-link">📁 {{ entry.name }}/</a>
@@ -55,10 +71,16 @@
           <td class="file-date-header">
             <span class="file-date">{{ entry.modified_at.strftime('%Y-%m-%d %H:%M') }}</span>
           </td>
+          <td class="row-actions">
+            <button type="button" data-rename-url="{{ url_for('workspace.rename_entry', project_id=project.id, repo_id=repo.id, path=entry.relative_path) }}" data-name="{{ entry.name }}">Rename</button>
+            <button type="button" class="link-danger"
+                    data-ajax-action="{{ url_for('workspace.delete_entry', project_id=project.id, repo_id=repo.id, path=entry.relative_path) }}"
+                    data-confirm="Delete {{ entry.name }}{% if entry.is_dir %} and everything in it{% endif %}? This cannot be undone.">Delete</button>
+          </td>
         </tr>
       {% endfor %}
       {% if not entries and parent_path is none %}
-        <tr><td colspan="4">This repository is empty.</td></tr>
+        <tr><td colspan="5">This repository is empty.</td></tr>
       {% endif %}
     </tbody>
   </table>
