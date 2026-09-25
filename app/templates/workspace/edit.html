@@ -1,6 +1,11 @@
 {% extends "base.html" %}
+{% from "workspace/_nav.html" import workspace_nav %}
 {% block title %}Edit {{ file.relative_path }} - {{ repo.name }} - AgentFlow{% endblock %}
 {% block content %}
+  <p><a href="{{ url_for('projects.view_project', project_id=project.id) }}">&larr; {{ project.name }}</a></p>
+
+  {{ workspace_nav(project, repo, 'files') }}
+
   <nav class="breadcrumbs" aria-label="Path">
     <a href="{{ url_for('workspace.browse', project_id=project.id, repo_id=repo.id) }}">{{ repo.name }}</a>
     {% for crumb in breadcrumbs %}

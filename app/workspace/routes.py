@@ -257,7 +257,7 @@ def git_diff(project_id: int, repo_id: int):
 @bp.get("/git/log")
 def git_log(project_id: int, repo_id: int):
     project, repo = _get_project_and_repo(project_id, repo_id)
-    max_count = request.args.get("max_count", "20", type=int)
+    max_count = request.args.get("max_count", 20, type=int)
     max_count = max(1, min(max_count, 100))
 
     provider = HostExecutionProvider(

@@ -1,4 +1,3 @@
-import os
 import shutil
 import subprocess
 import time
@@ -9,19 +8,13 @@ import pytest
 from app.execution.host import HostExecutionProvider
 from app.security import PathNotAllowedError
 from app.workspace import terminal, terminal_models
+from tests.conftest import create_project_with_repo
 
 pytestmark = pytest.mark.skipif(shutil.which("tmux") is None, reason="tmux not installed")
 
 
 def _create_project_with_repo(client, allowed_root, repo_name="repo-a"):
-    repo_path = os.path.join(allowed_root, repo_name)
-    os.makedirs(repo_path)
-
-    client.post("/projects/new", data={"name": "Proj", "description": ""})
-    client.post(
-        "/projects/1/repositories",
-        data={"name": repo_name, "path": repo_path, "is_primary": "on"},
-    )
+    _project_id, repo_path = create_project_with_repo(client, allowed_root, repo_name)
     return repo_path
 
 

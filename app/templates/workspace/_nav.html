@@ -1,0 +1,21 @@
+{% macro workspace_nav(project, repo, active) %}
+  <nav class="git-nav">
+    <a href="{{ url_for('workspace.browse', project_id=project.id, repo_id=repo.id) }}"{% if active == 'files' %} aria-disabled="true"{% endif %}>Files</a>
+    <a href="{{ url_for('workspace.search_files', project_id=project.id, repo_id=repo.id) }}"{% if active == 'search' %} aria-disabled="true"{% endif %}>Search</a>
+    <a href="{{ url_for('workspace.git_status', project_id=project.id, repo_id=repo.id) }}"{% if active == 'status' %} aria-disabled="true"{% endif %}>Status</a>
+    <a href="{{ url_for('workspace.git_log', project_id=project.id, repo_id=repo.id) }}"{% if active == 'log' %} aria-disabled="true"{% endif %}>History</a>
+    <a href="{{ url_for('workspace.git_commit_page', project_id=project.id, repo_id=repo.id) }}"{% if active == 'commit' %} aria-disabled="true"{% endif %}>Commit</a>
+    <a href="{{ url_for('workspace.terminal_page', project_id=project.id, repo_id=repo.id) }}"{% if active == 'terminal' %} aria-disabled="true"{% endif %}>Terminal</a>
+  </nav>
+  {% if project.repositories|length > 1 %}
+    <form class="repo-switcher">
+      <label>Repository
+        <select data-nav-select>
+          {% for r in project.repositories %}
+            <option value="{{ url_for('workspace.browse', project_id=project.id, repo_id=r.id) }}"{% if r.id == repo.id %} selected{% endif %}>{{ r.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    </form>
+  {% endif %}
+{% endmacro %}

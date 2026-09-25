@@ -1,3 +1,4 @@
+import os
 import threading
 
 import pytest
@@ -5,6 +6,35 @@ from werkzeug.serving import make_server
 
 from app import create_app
 from app.config import Config
+
+
+def create_project_with_repo(client, allowed_root, repo_name="repo-a", project_name="Proj"):
+    """Create a project with one repository under `allowed_root`.
+
+    Returns (project_id, repo_path). Shared by workspace tests that need a
+    project/repo to exercise workspace routes against.
+    """
+    repo_path = os.path.join(allowed_root, repo_name)
+    os.makedirs(repo_path, exist_ok=True)
+
+    resp = client.post("/projects/new", data={"name": project_name, "description": ""})
+    project_id = int(resp.headers["Location"].rstrip("/").rsplit("/", 1)[-1])
+    client.post(
+        f"/projects/{project_id}/repositories",
+        data={"name": repo_name, "path": repo_path, "is_primary": "on"},
+    )
+    return project_id, repo_path
+
+
+def add_repository(client, project_id, allowed_root, repo_name):
+    """Add an additional repository to an existing project. Returns repo_path."""
+    repo_path = os.path.join(allowed_root, repo_name)
+    os.makedirs(repo_path, exist_ok=True)
+    client.post(
+        f"/projects/{project_id}/repositories",
+        data={"name": repo_name, "path": repo_path},
+    )
+    return repo_path
 
 
 @pytest.fixture

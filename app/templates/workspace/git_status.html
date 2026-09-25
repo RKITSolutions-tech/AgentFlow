@@ -1,17 +1,11 @@
 {% extends "base.html" %}
+{% from "workspace/_nav.html" import workspace_nav %}
 {% block title %}{{ repo.name }} - Git status{% endblock %}
 {% block content %}
   <p><a href="{{ url_for('projects.view_project', project_id=project.id) }}">&larr; {{ project.name }}</a></p>
   <h1>{{ repo.name }} - Git Status</h1>
 
-  <nav class="git-nav">
-    <a href="{{ url_for('workspace.browse', project_id=project.id, repo_id=repo.id) }}">Files</a>
-    <a href="{{ url_for('workspace.search_files', project_id=project.id, repo_id=repo.id) }}">Search</a>
-    <a href="{{ url_for('workspace.git_status', project_id=project.id, repo_id=repo.id) }}" aria-disabled="true">Status</a>
-    <a href="{{ url_for('workspace.git_log', project_id=project.id, repo_id=repo.id) }}">History</a>
-    <a href="{{ url_for('workspace.git_commit_page', project_id=project.id, repo_id=repo.id) }}">Commit</a>
-    <a href="{{ url_for('workspace.terminal_page', project_id=project.id, repo_id=repo.id) }}">Terminal</a>
-  </nav>
+  {{ workspace_nav(project, repo, 'status') }}
 
   {% if status %}
     {% if status.branch %}
