@@ -505,11 +505,11 @@
         "description": "Extend the workspace Git view beyond status/diff/log/stage/commit.",
         "details": "See docs/CLOUDCLI_GAP_ANALYSIS.md G3. Branch list/checkout/create/delete; push/pull/fetch/publish; discard and delete-untracked; revert local commit; remote status; optional AI commit message. Validate all paths and refs via app/security.py rules; require confirmation for destructive actions; AJAX per CLAUDE.md UI rules; check 375px and 1280px.",
         "testStrategy": "",
-        "status": "in-progress",
+        "status": "done",
         "dependencies": [],
         "priority": "high",
         "subtasks": [],
-        "updatedAt": "2026-09-25T20:58:17.466Z"
+        "updatedAt": "2026-09-25T22:24:41.547Z"
       },
       {
         "id": "12",
@@ -517,10 +517,11 @@
         "description": "Make large numbers of sessions manageable and inspectable.",
         "details": "See docs/CLOUDCLI_GAP_ANALYSIS.md G4. Rename, archive/restore, fork, cross-session search, recent and running views, token usage per session, switch model/effort mid-session where the adapter supports it (capability-gated per AGENT_ADAPTER.md). Auto-title untitled sessions from the first prompt.",
         "testStrategy": "",
-        "status": "pending",
+        "status": "in-progress",
         "dependencies": [],
         "priority": "medium",
-        "subtasks": []
+        "subtasks": [],
+        "updatedAt": "2026-09-25T22:24:45.295Z"
       },
       {
         "id": "13",
@@ -569,9 +570,9 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-09-25T20:58:17.466Z",
+      "lastModified": "2026-09-25T22:24:45.295Z",
       "taskCount": 16,
-      "completedCount": 7,
+      "completedCount": 8,
       "tags": [
         "master"
       ]
