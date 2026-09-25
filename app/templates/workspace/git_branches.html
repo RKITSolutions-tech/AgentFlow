@@ -5,6 +5,35 @@
   {{ workspace_nav(project, repo, 'branches') }}
   <h1>{{ repo.name }} - Branches</h1>
 
+  {% if remote %}
+    <section class="remote-panel">
+      <p>
+        {% if not remote.remotes %}
+          No remote configured.
+        {% elif remote.upstream %}
+          <strong>{{ remote.branch }}</strong> tracks <code>{{ remote.upstream }}</code>:
+          {{ remote.ahead }} ahead, {{ remote.behind }} behind.
+        {% else %}
+          <strong>{{ remote.branch or 'Detached HEAD' }}</strong> has no upstream yet.
+        {% endif %}
+      </p>
+      {% if remote.remotes %}
+        <div class="row-actions">
+          <button type="button" class="btn-secondary" data-ajax-action="{{ url_for('workspace.git_fetch', project_id=project.id, repo_id=repo.id) }}">Fetch</button>
+          {% if remote.upstream %}
+            <button type="button" class="btn-secondary" data-ajax-action="{{ url_for('workspace.git_pull', project_id=project.id, repo_id=repo.id) }}"
+                    data-confirm="Pull {{ remote.upstream }} into {{ remote.branch }} (fast-forward only)?">Pull</button>
+            <button type="button" class="btn-secondary" data-ajax-action="{{ url_for('workspace.git_push', project_id=project.id, repo_id=repo.id) }}"
+                    data-confirm="Push {{ remote.ahead }} commit(s) to {{ remote.upstream }}?">Push</button>
+          {% elif remote.branch %}
+            <button type="button" class="btn-secondary" data-ajax-action="{{ url_for('workspace.git_publish', project_id=project.id, repo_id=repo.id) }}"
+                    data-confirm="Publish {{ remote.branch }} to origin?">Publish</button>
+          {% endif %}
+        </div>
+      {% endif %}
+    </section>
+  {% endif %}
+
   <form method="post" action="{{ url_for('workspace.git_create_branch', project_id=project.id, repo_id=repo.id) }}" class="branch-form">
     <label for="branch-name">New branch</label>
     <input id="branch-name" name="name" required maxlength="200" pattern="[A-Za-z0-9][A-Za-z0-9._/\-]*" placeholder="feature/name">

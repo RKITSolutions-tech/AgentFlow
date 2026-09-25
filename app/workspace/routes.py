@@ -552,18 +552,20 @@ def _git_provider() -> HostExecutionProvider:
 @bp.get("/git/branches")
 def git_branches(project_id: int, repo_id: int):
     project, repo = _get_project_and_repo(project_id, repo_id)
+    roots = current_app.config["ALLOWED_PROJECT_ROOTS"]
     try:
-        branches = git.list_branches(
-            _git_provider(),
-            repo.path,
-            allowed_roots=current_app.config["ALLOWED_PROJECT_ROOTS"],
-        )
+        branches = git.list_branches(_git_provider(), repo.path, allowed_roots=roots)
+        remote = git.remote_status(_git_provider(), repo.path, allowed_roots=roots)
     except git.GitCommandError as exc:
         flash(f"Git error: {exc}", "error")
-        branches = []
+        branches, remote = [], None
 
     return render_template(
-        "workspace/git_branches.html", project=project, repo=repo, branches=branches
+        "workspace/git_branches.html",
+        project=project,
+        repo=repo,
+        branches=branches,
+        remote=remote,
     )
 
 
@@ -623,4 +625,46 @@ def git_delete_branch(project_id: int, repo_id: int, name: str):
             provider, root, name, force=force, allowed_roots=allowed_roots
         ),
         f"Deleted branch {name}",
+    )
+
+
+@bp.post("/git/fetch")
+def git_fetch(project_id: int, repo_id: int):
+    return _branch_action(
+        project_id,
+        repo_id,
+        lambda provider, root, allowed_roots: git.fetch(provider, root, allowed_roots=allowed_roots),
+        "Fetched from origin",
+    )
+
+
+@bp.post("/git/pull")
+def git_pull(project_id: int, repo_id: int):
+    return _branch_action(
+        project_id,
+        repo_id,
+        lambda provider, root, allowed_roots: git.pull(provider, root, allowed_roots=allowed_roots),
+        "Pulled (fast-forward only)",
+    )
+
+
+@bp.post("/git/push")
+def git_push(project_id: int, repo_id: int):
+    return _branch_action(
+        project_id,
+        repo_id,
+        lambda provider, root, allowed_roots: git.push(provider, root, allowed_roots=allowed_roots),
+        "Pushed",
+    )
+
+
+@bp.post("/git/publish")
+def git_publish(project_id: int, repo_id: int):
+    return _branch_action(
+        project_id,
+        repo_id,
+        lambda provider, root, allowed_roots: git.publish_branch(
+            provider, root, allowed_roots=allowed_roots
+        ),
+        "Published branch to origin",
     )

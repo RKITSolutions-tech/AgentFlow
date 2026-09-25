@@ -7,6 +7,12 @@ from app.execution.base import ExecutionProvider
 from app.security import PathNotAllowedError, validate_repository_path
 
 GIT_TIMEOUT_SECONDS = 30.0
+GIT_NETWORK_TIMEOUT_SECONDS = 120.0
+# Network operations must never wait on a credential prompt nobody can answer.
+_NON_INTERACTIVE_ENV = {
+    "GIT_TERMINAL_PROMPT": "0",
+    "GIT_SSH_COMMAND": "ssh -o BatchMode=yes",
+}
 
 
 class GitCommandError(RuntimeError):
@@ -480,16 +486,18 @@ def _run_git(
     repo_root: str,
     args: list[str],
     allowed_roots: tuple[str, ...] = (),
+    network: bool = False,
 ) -> str:
     """Run a git command in `repo_root`, returning stdout or raising GitCommandError."""
     validate_repository_path(repo_root, allowed_roots or (repo_root,))
 
     context = execution_provider.create_context({"working_directory": repo_root})
     try:
-        process = execution_provider.execute(
-            ["git", *args],
-            options={"context_id": context.id, "timeout": GIT_TIMEOUT_SECONDS},
-        )
+        options: dict = {"context_id": context.id, "timeout": GIT_TIMEOUT_SECONDS}
+        if network:
+            options["timeout"] = GIT_NETWORK_TIMEOUT_SECONDS
+            options["environment"] = _NON_INTERACTIVE_ENV
+        process = execution_provider.execute(["git", *args], options=options)
         events = list(execution_provider.stream_output(process.id))
         if process.exit_code != 0:
             stderr = "\n".join(
@@ -564,4 +572,117 @@ def delete_branch(
         repo_root,
         ["branch", "-D" if force else "-d", name],
         allowed_roots,
+    )
+
+
+@dataclass
+class RemoteStatus:
+    """Where the current branch stands relative to its upstream."""
+
+    branch: str | None
+    upstream: str | None
+    ahead: int
+    behind: int
+    remotes: list[str]
+
+
+def remote_status(
+    execution_provider: ExecutionProvider,
+    repo_root: str,
+    allowed_roots: tuple[str, ...] = (),
+) -> RemoteStatus:
+    """Report remotes and the current branch's ahead/behind counts (local data only)."""
+    remotes = _run_git(execution_provider, repo_root, ["remote"], allowed_roots).split()
+    branch = _run_git(
+        execution_provider, repo_root, ["branch", "--show-current"], allowed_roots
+    ).strip() or None
+
+    upstream = None
+    ahead = behind = 0
+    if branch:
+        try:
+            upstream = _run_git(
+                execution_provider,
+                repo_root,
+                ["rev-parse", "--abbrev-ref", f"{branch}@{{upstream}}"],
+                allowed_roots,
+            ).strip() or None
+        except GitCommandError:
+            upstream = None  # no upstream configured
+    if upstream:
+        counts = _run_git(
+            execution_provider,
+            repo_root,
+            ["rev-list", "--left-right", "--count", f"{branch}...{upstream}"],
+            allowed_roots,
+        ).split()
+        if len(counts) == 2:
+            ahead, behind = int(counts[0]), int(counts[1])
+    return RemoteStatus(
+        branch=branch, upstream=upstream, ahead=ahead, behind=behind, remotes=remotes
+    )
+
+
+def _validate_remote(execution_provider, repo_root, remote, allowed_roots) -> str:
+    """Only accept a remote that is actually configured (also blocks option-like values)."""
+    remote = validate_ref_name(remote)
+    configured = _run_git(execution_provider, repo_root, ["remote"], allowed_roots).split()
+    if remote not in configured:
+        raise ValueError(f"Unknown remote: {remote!r}")
+    return remote
+
+
+def fetch(
+    execution_provider: ExecutionProvider,
+    repo_root: str,
+    remote: str = "origin",
+    allowed_roots: tuple[str, ...] = (),
+) -> None:
+    """Fetch from a configured remote, pruning deleted branches."""
+    remote = _validate_remote(execution_provider, repo_root, remote, allowed_roots)
+    _run_git(
+        execution_provider, repo_root, ["fetch", "--prune", remote], allowed_roots, network=True
+    )
+
+
+def pull(
+    execution_provider: ExecutionProvider,
+    repo_root: str,
+    allowed_roots: tuple[str, ...] = (),
+) -> None:
+    """Fast-forward the current branch from its upstream; never creates merge commits."""
+    _run_git(
+        execution_provider, repo_root, ["pull", "--ff-only"], allowed_roots, network=True
+    )
+
+
+def push(
+    execution_provider: ExecutionProvider,
+    repo_root: str,
+    allowed_roots: tuple[str, ...] = (),
+) -> None:
+    """Push the current branch to its upstream. Never forces."""
+    _run_git(execution_provider, repo_root, ["push"], allowed_roots, network=True)
+
+
+def publish_branch(
+    execution_provider: ExecutionProvider,
+    repo_root: str,
+    remote: str = "origin",
+    allowed_roots: tuple[str, ...] = (),
+) -> None:
+    """Push the current branch to `remote` and set it as the upstream."""
+    remote = _validate_remote(execution_provider, repo_root, remote, allowed_roots)
+    branch = _run_git(
+        execution_provider, repo_root, ["branch", "--show-current"], allowed_roots
+    ).strip()
+    if not branch:
+        raise GitCommandError("Cannot publish a detached HEAD")
+    branch = validate_ref_name(branch)
+    _run_git(
+        execution_provider,
+        repo_root,
+        ["push", "--set-upstream", remote, branch],
+        allowed_roots,
+        network=True,
     )

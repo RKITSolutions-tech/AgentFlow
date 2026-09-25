@@ -701,3 +701,5 @@ textarea.editor { width: 100%; font-family: ui-monospace, monospace; padding: 0.
 .branch-form input[name="name"] { flex: 1 1 14rem; min-width: 0; }
 .branch-checkout { display: inline-flex; align-items: center; gap: 0.35rem; }
 .branch-name { overflow-wrap: anywhere; }
+.remote-panel { margin-bottom: 1rem; }
+.remote-panel p { overflow-wrap: anywhere; }

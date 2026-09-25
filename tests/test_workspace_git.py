@@ -309,8 +309,65 @@ class TestBranchRoutes:
         assert resp.status_code == 400
         assert "error" in resp.get_json()
 
+    def test_remote_routes_and_panel(self, client, urls):
+        assert b"No remote configured" in client.get(urls).data
+        # no remote configured: fetch is refused cleanly, not a 500
+        resp = client.post(urls.replace("/branches", "/fetch"), headers=self.AJAX)
+        assert resp.status_code == 400
+        assert "error" in resp.get_json()
+
     def test_invalid_name_rejected(self, client, urls):
         resp = client.post(urls, data={"name": "--force"}, headers=self.AJAX)
         assert resp.status_code == 400
         resp = client.post(f"{urls}/-D/delete", headers=self.AJAX)
         assert resp.status_code == 400
+
+
+class TestRemotes:
+    @pytest.fixture
+    def cloned(self, tmp_repo, app):
+        """tmp_repo with one commit and a local bare 'origin' (no network needed)."""
+        _commit_file(tmp_repo)
+        bare = Path(app.config["allowed_root"]) / "origin.git"
+        subprocess.run(["git", "init", "--bare", str(bare)], check=True, capture_output=True)
+        subprocess.run(["git", "remote", "add", "origin", str(bare)], cwd=tmp_repo, check=True)
+        return tmp_repo
+
+    def test_publish_then_ahead_behind_and_push(self, cloned, app, provider):
+        roots = app.config["ALLOWED_PROJECT_ROOTS"]
+        with app.app_context():
+            st = git.remote_status(provider, cloned, allowed_roots=roots)
+            assert st.remotes == ["origin"] and st.upstream is None
+
+            git.publish_branch(provider, cloned, allowed_roots=roots)
+            st = git.remote_status(provider, cloned, allowed_roots=roots)
+            assert st.upstream and (st.ahead, st.behind) == (0, 0)
+
+            _commit_file(cloned, "b.txt")
+            st = git.remote_status(provider, cloned, allowed_roots=roots)
+            assert st.ahead == 1
+            git.push(provider, cloned, allowed_roots=roots)
+            assert git.remote_status(provider, cloned, allowed_roots=roots).ahead == 0
+
+    def test_fetch_and_pull_fast_forward(self, cloned, app, provider, tmp_path):
+        roots = app.config["ALLOWED_PROJECT_ROOTS"]
+        with app.app_context():
+            git.publish_branch(provider, cloned, allowed_roots=roots)
+            other = Path(app.config["allowed_root"]) / "other"
+            bare = Path(app.config["allowed_root"]) / "origin.git"
+            subprocess.run(["git", "clone", str(bare), str(other)], check=True, capture_output=True)
+            for key, value in (("user.email", "o@o.com"), ("user.name", "O")):
+                subprocess.run(["git", "config", key, value], cwd=other, check=True)
+            _commit_file(other, "c.txt")
+            subprocess.run(["git", "push"], cwd=other, check=True, capture_output=True)
+
+            git.fetch(provider, cloned, allowed_roots=roots)
+            assert git.remote_status(provider, cloned, allowed_roots=roots).behind == 1
+            git.pull(provider, cloned, allowed_roots=roots)
+            assert (cloned / "c.txt").exists()
+
+    @pytest.mark.parametrize("bad", ["--upload-pack=x", "nope", "-o"])
+    def test_bad_remote_rejected(self, cloned, app, provider, bad):
+        with app.app_context():
+            with pytest.raises(ValueError):
+                git.fetch(provider, cloned, remote=bad, allowed_roots=app.config["ALLOWED_PROJECT_ROOTS"])
