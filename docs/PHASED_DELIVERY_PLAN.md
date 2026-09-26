@@ -342,6 +342,26 @@ Carried in from the Phase 1 review (see `PHASE2_PLANNING.md`): context-file
 resolution alongside P2.9, document review event types alongside P2.4, and
 the deferred Run/terminal items listed there.
 
+### Phase 2 build status (Task Master tasks 17-26)
+
+| Item | Status | Notes |
+| --- | --- | --- |
+| P2.1 Backlog | built | inbox, triage, sprint pages, attachments (SPRINT_PLANNING §49) |
+| P2.2 Sprint Planning | built | Sprint, PLANNING-role agent, readiness, approval history |
+| P2.3 Acceptance | built | criteria, templates, evidence suggestion, completion gate |
+| P2.4 Pipeline Engine | built | definitions, versions, composition, engine (PIPELINE_ENGINE §22) |
+| P2.5 Ralph | built | iterations, steering, no-progress, auto commit (RUN_AND_RALPH §22) |
+| P2.6 Visual Monitoring | partly | execution graph + inspector; no replay, no collapsing sub-pipelines |
+| P2.7 Historical Replay | not started | events are recorded; no replay UI |
+| P2.8 Artifact Library | built | index, search, compare; images compared byte-wise only |
+| P2.9 Prompt Library | not started | AGENT steps use a small built-in template table |
+| P2.10 External Rigging | partly | process/HTTP/health/wait steps; SSH/Docker run as plain commands |
+
+Not yet joined up: nothing turns an approved Sprint's tasks into Ralph runs
+(Sprint execution queue, SPRINT_PLANNING §28) and there is no Project lock, so
+the "Definition of Useful" below is not met end to end. Front-end JavaScript
+and the viewport tests have not been exercised in a real browser.
+
 ## 9. Phase 2 Definition of Useful
 
 Phase 2 is complete when a reviewed Sprint can autonomously execute released Tasks through a visible, inspectable pipeline with evidence and controlled Ralph retries.

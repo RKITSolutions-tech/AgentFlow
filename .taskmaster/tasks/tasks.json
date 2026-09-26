@@ -941,18 +941,19 @@
           "20",
           "25"
         ],
-        "status": "pending",
+        "status": "done",
         "subtasks": [],
         "complexity": 5,
         "recommendedSubtasks": 5,
-        "expansionPrompt": "Break down acceptance criteria system implementation into focused tasks: (1) Create AcceptanceCriteria, AcceptanceCriteriaTemplate, and CriteriaEvidence SQLAlchemy models with relationships to tasks and artifacts, template support with field placeholders, and approval workflow fields (approver, timestamps); (2) Implement acceptance criteria templates library with predefined templates (API responses, test coverage, performance, security, etc.) and template variable substitution logic; (3) Implement evidence linking system: automatic keyword matching between artifacts/test results and open criteria, suggestion display to operator, manual linking interface; (4) Implement approval workflow: enforce non-implementer approvals, track approver identity and timestamp, prevent task completion without verified criteria; (5) Write unit tests for criteria creation from templates, evidence linking, status transitions; integration tests for auto-linkage suggestion from executed pipelines; Playwright tests for criteria management UI, approval workflow, and unapproved completion prevention."
+        "expansionPrompt": "Break down acceptance criteria system implementation into focused tasks: (1) Create AcceptanceCriteria, AcceptanceCriteriaTemplate, and CriteriaEvidence SQLAlchemy models with relationships to tasks and artifacts, template support with field placeholders, and approval workflow fields (approver, timestamps); (2) Implement acceptance criteria templates library with predefined templates (API responses, test coverage, performance, security, etc.) and template variable substitution logic; (3) Implement evidence linking system: automatic keyword matching between artifacts/test results and open criteria, suggestion display to operator, manual linking interface; (4) Implement approval workflow: enforce non-implementer approvals, track approver identity and timestamp, prevent task completion without verified criteria; (5) Write unit tests for criteria creation from templates, evidence linking, status transitions; integration tests for auto-linkage suggestion from executed pipelines; Playwright tests for criteria management UI, approval workflow, and unapproved completion prevention.",
+        "updatedAt": "2026-09-26T11:36:21.786Z"
       }
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-09-26T11:32:14.228Z",
+      "lastModified": "2026-09-26T11:36:21.787Z",
       "taskCount": 26,
-      "completedCount": 25,
+      "completedCount": 26,
       "tags": [
         "master"
       ]

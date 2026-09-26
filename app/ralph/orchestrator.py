@@ -16,6 +16,7 @@ import time
 from typing import Callable
 
 from app.agents.base import AgentContext
+from app.acceptance import service as acceptance
 from app.artifacts import collector
 from app.pipelines import executions
 from app.pipelines.engine import PipelineEngine
@@ -80,7 +81,8 @@ class RalphOrchestrator:
         if message.strip():
             models.add_steering(self._db, run_id, message, run.current_iteration)
         models.update_run(
-            self._db, run_id, pause_requested=0, needs_attention=0, status="CREATED", reason=""
+            self._db, run_id, pause_requested=0, needs_attention=0, awaiting_acceptance=0,
+            status="CREATED", reason="",
         )
 
     # -- main loop ------------------------------------------------------------------------
@@ -120,7 +122,7 @@ class RalphOrchestrator:
                     )
                 outcome, detail = self._iterate(run, context_id)
                 if outcome == "PASSED":
-                    return self._finish_success(run_id, context_id, started)
+                    return self._complete_or_wait(run_id, context_id, started)
                 if outcome == "BLOCKED":
                     models.update_run(db, run_id, needs_attention=1)
                     return self._end(run_id, "BLOCKED", detail, started)
@@ -321,6 +323,39 @@ class RalphOrchestrator:
         from app.execution import models as exec_models
 
         return exec_models.get_execution_context(self._db, context_id).working_directory
+
+    def _complete_or_wait(self, run_id: int, context_id: int, started: float) -> models.RalphRun:
+        """Verification passed. Completion still needs every required acceptance
+        criterion verified or waived (RUN_AND_RALPH §14); until then the run
+        waits for a person, with evidence already suggested for them."""
+        acceptance.suggest_for_run(self._db, run_id)
+        blockers = acceptance.completion_blockers(self._db, run_id)
+        if not blockers:
+            return self._finish_success(run_id, context_id, started)
+        models.update_run(self._db, run_id, awaiting_acceptance=1, needs_attention=1)
+        names = "; ".join(f"{c.title} ({c.status.lower()})" for c in blockers[:5])
+        return self._end(
+            run_id, "WAITING_FOR_HUMAN",
+            f"Verification passed; acceptance criteria need sign-off: {names}", started,
+        )
+
+    def finalize(self, run_id: int) -> models.RalphRun:
+        """Complete a run that was waiting on acceptance, once its criteria are
+        verified or waived: commits (if enabled) and marks it COMPLETED."""
+        run = self._require(run_id)
+        if run.status != "WAITING_FOR_HUMAN" or not run.awaiting_acceptance:
+            raise ValueError("This run is not waiting for acceptance sign-off")
+        blockers = acceptance.completion_blockers(self._db, run_id)
+        if blockers:
+            raise ValueError(
+                "Still required: " + "; ".join(f"{c.title} ({c.status.lower()})" for c in blockers[:5])
+            )
+        context = self._provider.create_context({"working_directory": self._workdir(run)})
+        try:
+            models.update_run(self._db, run_id, awaiting_acceptance=0, needs_attention=0)
+            return self._finish_success(run_id, context.id, self._clock())
+        finally:
+            self._provider.destroy_context(context.id)
 
     def _finish_success(self, run_id: int, context_id: int, started: float) -> models.RalphRun:
         run = self._require(run_id)

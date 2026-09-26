@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% from "_project_tabs.html" import project_tabs %}
+{% block title %}Criterion #{{ c.id }} - {{ project.name }} - AgentFlow{% endblock %}
+{% block content %}
+  {{ project_tabs(project, none, 'acceptance') }}
+  <h1 class="wrap-cell">{{ c.title }} <span class="run-status">{{ c.status|capitalize }}</span></h1>
+  <dl class="run-meta">
+    <dt>Required</dt><dd>{{ 'yes' if c.required else 'advisory' }}</dd>
+    <dt>Origin</dt><dd>{{ c.origin|capitalize }}{% if c.iteration %}, iteration {{ c.iteration }}{% endif %}{% if c.template_key %} ({{ c.template_key }}){% endif %}</dd>
+    <dt>Author</dt><dd>{{ c.created_by or '–' }}</dd>
+    <dt>Approved</dt><dd>{% if c.approved_by %}{{ c.approved_by }}, {{ c.approved_at[:19] }}{% else %}–{% endif %}</dd>
+    <dt>{{ 'Waived' if c.status == 'WAIVED' else 'Verified' }}</dt><dd>{% if c.verified_by %}{{ c.verified_by }}, {{ c.verified_at[:19] }}{% else %}–{% endif %}</dd>
+    {% if c.waived_reason %}<dt>Waiver reason</dt><dd>{{ c.waived_reason }}</dd>{% endif %}
+    {% if c.work_item_id %}<dt>Task</dt><dd>#{{ c.work_item_id }}</dd>{% endif %}
+    {% if c.ralph_run_id %}<dt>Ralph run</dt><dd><a href="{{ url_for('ralph.view_run', project_id=project.id, run_id=c.ralph_run_id) }}">#{{ c.ralph_run_id }}</a></dd>{% endif %}
+  </dl>
+  {% if c.description %}<p class="wrap-cell">{{ c.description }}</p>{% endif %}
+
+  {% macro action(name, label, fields) %}
+    <form method="post" action="{{ url_for('acceptance.' ~ name, project_id=project.id, criterion_id=c.id) }}" class="stacked" data-ajax-form>
+      <label>Your name <input name="by" required maxlength="80"></label>
+      {% for f in fields %}<label>{{ f[1] }} <input name="{{ f[0] }}" {% if f[2] %}required{% endif %}></label>{% endfor %}
+      <button type="submit"{% if name in ('approve', 'verify') %} class="btn-primary"{% endif %}>{{ label }}</button>
+    </form>
+  {% endmacro %}
+
+  {% if c.status == 'DRAFT' %}
+    <h2>Review</h2>{{ action('approve', 'Approve criterion', []) }}
+    {{ action('waive', 'Waive', [('reason', 'Reason', true)]) }}
+  {% elif c.status == 'APPROVED' %}
+    <h2>Verify</h2>{{ action('verify', 'Mark verified', [('note', 'Manual check (optional if evidence is linked)', false)]) }}
+    {{ action('fail', 'Mark failed', [('note', 'What failed', false)]) }}
+    {{ action('waive', 'Waive', [('reason', 'Reason', true)]) }}
+  {% else %}
+    <h2>Re-open</h2>{{ action('reopen', 'Re-open for review', []) }}
+  {% endif %}
+
+  <h2>Evidence</h2>
+  <ul>
+    {% for e, link in evidence %}
+      <li class="wrap-cell" data-row>
+        <span class="run-status">{{ e.state|capitalize }}</span>
+        {{ e.evidence_type|replace('_', ' ')|capitalize }}:
+        {% if link %}<a href="{{ link[1] }}">{{ link[0] }}</a>{% endif %}
+        {{ e.note }}
+        {% if e.state == 'SUGGESTED' %}
+          <form class="inline-filter" method="post" action="{{ url_for('acceptance.review_evidence', project_id=project.id, criterion_id=c.id, evidence_id=e.id, action='accept') }}" data-ajax-form>
+            <input name="by" placeholder="Your name" required aria-label="Your name"><button type="submit">Link</button>
+          </form>
+          <form class="inline-filter" method="post" action="{{ url_for('acceptance.review_evidence', project_id=project.id, criterion_id=c.id, evidence_id=e.id, action='dismiss') }}" data-ajax-form>
+            <input name="by" placeholder="Your name" aria-label="Your name"><button type="submit" class="link-danger">Dismiss</button>
+          </form>
+        {% endif %}
+      </li>
+    {% else %}
+      <li class="form-hint">No evidence yet.</li>
+    {% endfor %}
+  </ul>
+  <form method="post" action="{{ url_for('acceptance.suggest', project_id=project.id, criterion_id=c.id) }}" data-ajax-form>
+    <button type="submit">Find suggested evidence</button>
+  </form>
+  <form method="post" action="{{ url_for('acceptance.add_evidence', project_id=project.id, criterion_id=c.id) }}" class="stacked" data-ajax-form>
+    <label>Link
+      <select name="type"><option value="MANUAL">Manual note</option><option value="ARTIFACT">Artifact id</option><option value="TEST_RESULT">Step result id</option></select>
+    </label>
+    <label>Reference id (artifact / step) <input name="reference_id" type="number" min="1"></label>
+    <label>Note <input name="note"></label>
+    <label>Your name <input name="by" required maxlength="80"></label>
+    <button type="submit">Add evidence</button>
+  </form>
+
+  {% if c.status == 'DRAFT' or c.status == 'APPROVED' %}
+    <h2>Edit</h2>
+    <form method="post" action="{{ url_for('acceptance.update_criterion', project_id=project.id, criterion_id=c.id) }}" class="stacked" data-ajax-form>
+      <label>Title <input name="title" value="{{ c.title }}" maxlength="200"></label>
+      <label>Description <textarea name="description" rows="2">{{ c.description }}</textarea></label>
+      <label class="backlog-select"><input type="checkbox" name="required"{% if c.required %} checked{% endif %}> Required</label>
+      <button type="submit">Save</button>
+      {% if c.status == 'APPROVED' %}<p class="form-hint">Changing the title withdraws the approval.</p>{% endif %}
+    </form>
+  {% endif %}
+{% endblock %}

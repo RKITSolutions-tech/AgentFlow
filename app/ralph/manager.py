@@ -78,6 +78,9 @@ class RalphManager:
     def steer(self, run_id: int, message: str) -> int:
         return self._flag("steer", run_id, message)
 
+    def finalize(self, run_id: int):
+        return self._flag("finalize", run_id)
+
     def unblock(self, run_id: int, message: str = "") -> None:
         self._flag("unblock", run_id, message)
         self.start(run_id)

@@ -157,6 +157,12 @@ def steer(project_id: int, run_id: int):
     return _control(project_id, run_id, "steer", "Steering saved for the next iteration", request.form.get("message", ""))
 
 
+@bp.post("/<int:run_id>/complete")
+def complete(project_id: int, run_id: int):
+    """Finish a run whose acceptance criteria are now signed off."""
+    return _control(project_id, run_id, "finalize", "Run completed")
+
+
 @bp.post("/<int:run_id>/unblock")
 def unblock(project_id: int, run_id: int):
     return _control(project_id, run_id, "unblock", "Continuing", request.form.get("message", ""))

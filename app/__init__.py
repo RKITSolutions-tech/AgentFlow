@@ -48,6 +48,10 @@ def create_app(config: Config | None = None) -> Flask:
     from app.artifacts.views import bp as artifacts_bp
 
     app.register_blueprint(artifacts_bp)
+
+    from app.acceptance.views import bp as acceptance_bp
+
+    app.register_blueprint(acceptance_bp)
     app.extensions["run_manager"].reconcile()
 
     from app.pipelines.persistence import seed_builtins

@@ -27,6 +27,13 @@
     {% endif %}
   </div>
 
+  {% if run.status == 'WAITING_FOR_HUMAN' and run.awaiting_acceptance %}
+    <p>Verification passed. Sign off the acceptance criteria, then complete the run.
+      <a href="{{ url_for('acceptance.list_criteria', project_id=project.id, run=run.id) }}">Criteria for this run</a></p>
+    <div class="row-actions">
+      <button type="button" class="btn-primary" data-ajax-reload="{{ url_for('ralph.complete', project_id=project.id, run_id=run.id) }}">Complete run</button>
+    </div>
+  {% endif %}
   {% if run.status in ('BLOCKED', 'WAITING_FOR_HUMAN') %}
     <form method="post" action="{{ url_for('ralph.unblock', project_id=project.id, run_id=run.id) }}" class="stacked" data-ajax-form>
       <label>Guidance for the next iteration (optional) <textarea name="message" rows="2"></textarea></label>

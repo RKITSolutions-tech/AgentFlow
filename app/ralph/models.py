@@ -42,6 +42,7 @@ class RalphRun:
     pause_requested: bool
     cancel_requested: bool
     needs_attention: bool
+    awaiting_acceptance: bool
     script: list | None
     started_at: str | None
     completed_at: str | None
@@ -83,7 +84,7 @@ def _run(row: sqlite3.Row) -> RalphRun:
     d = dict(row)
     d["acceptance"] = json.loads(d["acceptance"])
     d["script"] = json.loads(d["script"]) if d["script"] else None
-    for key in ("auto_commit", "pause_requested", "cancel_requested", "needs_attention"):
+    for key in ("auto_commit", "pause_requested", "cancel_requested", "needs_attention", "awaiting_acceptance"):
         d[key] = bool(d[key])
     return RalphRun(**d)
 

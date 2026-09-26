@@ -144,6 +144,9 @@ def approve(db: sqlite3.Connection, sprint_id: int, approved_by: str, comment: s
         if work.status != "REJECTED":
             sprints.update_work_item(db, work.id, status="APPROVED")
     sprints.record_approval(db, sprint_id, "APPROVED", approved_by, comment)
+    from app.acceptance import service as acceptance
+
+    acceptance.sync_from_work_items(db, sprint_id, approved_by)
     sprints.set_status(db, sprint_id, "READY")
     _move_items(db, sprint, "PLANNED", "READY", f"sprint approved by {approved_by}")
 

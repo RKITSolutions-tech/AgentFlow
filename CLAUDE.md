@@ -62,6 +62,22 @@ Key modules:
   `AgentAdapter` session whose JSON reply becomes SUGGESTED tasks;
   `AGENTFLOW_PLANNING_AGENT=fake` for deterministic runs), `readiness.py`
   (explicit pass/fail/warn checks).
+- `app/pipelines/` — Phase 2 Pipeline Engine (docs/PIPELINE_ENGINE.md §22):
+  JSON definitions (`schema.py`, `validator.py`, `composer.py`), versioned
+  storage (`persistence.py`, built-ins in `definitions/*.json` seeded at start),
+  the re-entrant `PipelineEngine` (`engine.py`; persisted cursor, retries,
+  compensation, manual pause/resume, teardown) and `PipelineManager` threads
+  (`app.extensions["pipeline_manager"]`), `visualization.py` graph JSON and the
+  execution view (`views.py`, `static/pipeline.js`).
+- `app/ralph/` — Ralph iteration loop (docs/RUN_AND_RALPH.md §22):
+  `orchestrator.py` runs agent work → collect changes → verification pipeline →
+  failure analysis, with steering, no-progress blocking and local auto commit;
+  pause/cancel/steer are DB flags; `manager.py` is `ralph_manager`.
+- `app/artifacts/` — Artifact Library (docs/PIPELINE_VISUALISATION.md §30):
+  step logs and `config.collect` files are indexed with their originating step;
+  search, tags, text/byte comparison.
+- `app/acceptance/` — acceptance criteria, templates, evidence suggestion and
+  the Ralph completion gate (docs/SPRINT_PLANNING_AND_BACKLOG.md §49).
 - `app/projects/` — Project and repository records; `app/security.py`
   validates repository paths against `ALLOWED_PROJECT_ROOTS`.
 

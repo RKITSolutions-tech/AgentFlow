@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% from "_project_tabs.html" import project_tabs %}
+{% block title %}{{ project.name }} - Acceptance - AgentFlow{% endblock %}
+{% block content %}
+  {{ project_tabs(project, none, 'acceptance') }}
+  <h1>{{ project.name }} - Acceptance criteria</h1>
+
+  <form method="post" action="{{ url_for('acceptance.create_criterion', project_id=project.id) }}" class="stacked" data-ajax-form>
+    <label>Template
+      <select name="template" data-template-select>
+        <option value="">Write my own</option>
+        {% for t in templates %}<option value="{{ t.key }}" data-fields="{{ t.fields|join(',') }}">{{ t.name }}</option>{% endfor %}
+      </select>
+    </label>
+    <div data-template-fields></div>
+    <label>Title <input name="title" maxlength="200"></label>
+    <label>Description <textarea name="description" rows="2"></textarea></label>
+    <div class="run-form-row">
+      <label>Planned task id <input name="work_item_id" type="number" min="1" value="{{ work_item }}"></label>
+      <label>Ralph run id <input name="ralph_run_id" type="number" min="1" value="{{ run }}"></label>
+      <label>Your name <input name="author" required maxlength="80"></label>
+    </div>
+    <label class="backlog-select"><input type="checkbox" name="required" checked> Required for completion</label>
+    <button type="submit" class="btn-primary">Add criterion</button>
+    <p class="form-hint">Attach it to a planned task or a Ralph run. A criterion must be approved by someone other than its author.</p>
+  </form>
+
+  <form class="inline-filter" method="get">
+    <label>Status
+      <select name="status"><option value="">All</option>{% for s in statuses %}<option value="{{ s }}"{% if s == status %} selected{% endif %}>{{ s|capitalize }}</option>{% endfor %}</select>
+    </label>
+    <button type="submit">Filter</button>
+  </form>
+
+  <table class="table-compact">
+    <thead><tr><th>Criterion</th><th>Status</th><th>Attached to</th><th>Origin</th></tr></thead>
+    <tbody>
+      {% for c in criteria %}
+        <tr>
+          <td class="wrap-cell"><a href="{{ url_for('acceptance.view_criterion', project_id=project.id, criterion_id=c.id) }}">{{ c.title }}</a>{% if not c.required %} <span class="form-hint">(advisory)</span>{% endif %}</td>
+          <td><span class="run-status run-status-{{ {'VERIFIED': 'completed', 'FAILED': 'failed', 'APPROVED': 'running', 'WAIVED': 'paused'}.get(c.status, 'created') }}">{{ c.status|capitalize }}</span></td>
+          <td>{% if c.work_item_id %}task #{{ c.work_item_id }}{% endif %}{% if c.ralph_run_id %} <a href="{{ url_for('ralph.view_run', project_id=project.id, run_id=c.ralph_run_id) }}">run #{{ c.ralph_run_id }}</a>{% endif %}</td>
+          <td>{{ c.origin|capitalize }}{% if c.iteration %} (iteration {{ c.iteration }}){% endif %}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="4">No criteria yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='acceptance.js') }}" defer></script>{% endblock %}

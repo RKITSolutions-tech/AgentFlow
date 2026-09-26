@@ -1063,3 +1063,43 @@ These were made without the owner in the loop while building Phase 2 (tasks
 - The task graph groups tasks into dependency layers: columns left-to-right at
   ≥861px, stacked top-to-bottom below it. Edges are shown as "after <task>"
   labels rather than drawn lines (drawn edges belong with task 24's visualiser).
+
+### Acceptance criteria (task 26)
+
+- Criteria are first-class rows (`acceptance_criteria`, `acceptance_evidence` in
+  `app/acceptance/`) attached to a **planned task** (`work_item_id`) and/or a
+  **Ralph run** (`ralph_run_id`); the task text's `task_id` does not exist as an
+  entity yet. A run's effective criteria are its own plus its planned task's,
+  which is how criteria added *during* execution (origin `AGENT`, with the
+  `iteration`) sit beside the reviewed ones (RUN_AND_RALPH §15).
+- Status: `DRAFT` -> `APPROVED` -> `VERIFIED` | `FAILED`, plus `WAIVED` (with a
+  reason and name). Failed/verified/waived criteria can be re-opened. Editing an
+  approved criterion's title withdraws the approval.
+- **Sprint approval seeds criteria.** When a Sprint is approved, each planned
+  task's acceptance lines become criteria (origin `PLANNING`) already
+  `APPROVED`, attributed to the Sprint approver, because readiness already
+  forced a person to review them. Re-running the sync is a no-op.
+- **Independence without roles.** There is no user/role model, so "approved by a
+  non-implementer" is a case-insensitive comparison between the approver and the
+  criterion's author (a soft control that catches honest mistakes, not
+  impersonation). Verification is evidence-based instead: it needs an approved
+  criterion and at least one *linked* evidence item (an artifact, a passed step
+  result, or a manual note), but the same person may verify what they approved.
+- **Templates** (`templates.py`): the six named in the task, each with required
+  `{field}` placeholders (a missing field is an error, never a literal
+  placeholder) and *hints* (step types / artifact kinds that usually prove it).
+- **Evidence suggestion.** After a Ralph run's verification passes (and on
+  demand) passed step results and artifacts from that run's verification
+  executions are matched to open criteria by keyword overlap with the title or
+  by the template's hints. Matches are stored `SUGGESTED`; a person links or
+  dismisses each one, and dismissed items never resurface. Nothing is auto-linked.
+- **Completion gate.** A Ralph run whose verification passes now completes only
+  when every *required* criterion is `VERIFIED` or `WAIVED`; otherwise it waits
+  in `WAITING_FOR_HUMAN` (`awaiting_acceptance`) with evidence suggested. Draft
+  (unreviewed) criteria block, which is the conservative reading of "policy
+  decides"; advisory (`required = false`) criteria never block. "Complete run"
+  finalises (commit included) once criteria are satisfied; "Continue" with
+  guidance instead sends the agent round again. Runs with no criteria behave
+  exactly as before.
+- Routes are project-scoped (`/projects/<id>/acceptance/...`) rather than
+  `/tasks/<id>/criteria`; the list takes `?work_item=` and `?run=` filters.

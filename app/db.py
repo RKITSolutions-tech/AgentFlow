@@ -482,6 +482,7 @@ CREATE TABLE IF NOT EXISTS ralph_runs (
     pause_requested INTEGER NOT NULL DEFAULT 0,
     cancel_requested INTEGER NOT NULL DEFAULT 0,
     needs_attention INTEGER NOT NULL DEFAULT 0,
+    awaiting_acceptance INTEGER NOT NULL DEFAULT 0,
     script TEXT,
     elapsed_seconds REAL NOT NULL DEFAULT 0,
     started_at TEXT,
@@ -554,6 +555,44 @@ CREATE TABLE IF NOT EXISTS artifact_comparisons (
     created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS acceptance_criteria (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    work_item_id INTEGER REFERENCES planned_work_items(id) ON DELETE CASCADE,
+    ralph_run_id INTEGER REFERENCES ralph_runs(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'DRAFT' CHECK(status IN ('DRAFT', 'APPROVED', 'VERIFIED', 'FAILED', 'WAIVED')),
+    required INTEGER NOT NULL DEFAULT 1,
+    origin TEXT NOT NULL DEFAULT 'MANUAL' CHECK(origin IN ('MANUAL', 'PLANNING', 'TEMPLATE', 'AGENT')),
+    iteration INTEGER,
+    created_by TEXT NOT NULL DEFAULT '',
+    approved_by TEXT,
+    approved_at TEXT,
+    verified_by TEXT,
+    verified_at TEXT,
+    waived_reason TEXT NOT NULL DEFAULT '',
+    template_key TEXT NOT NULL DEFAULT '',
+    hints TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    CHECK(work_item_id IS NOT NULL OR ralph_run_id IS NOT NULL)
+);
+CREATE INDEX IF NOT EXISTS idx_acceptance_work_item ON acceptance_criteria(work_item_id);
+CREATE INDEX IF NOT EXISTS idx_acceptance_run ON acceptance_criteria(ralph_run_id);
+
+CREATE TABLE IF NOT EXISTS acceptance_evidence (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    criterion_id INTEGER NOT NULL REFERENCES acceptance_criteria(id) ON DELETE CASCADE,
+    evidence_type TEXT NOT NULL CHECK(evidence_type IN ('ARTIFACT', 'TEST_RESULT', 'MANUAL')),
+    reference_id INTEGER,
+    note TEXT NOT NULL DEFAULT '',
+    state TEXT NOT NULL DEFAULT 'LINKED' CHECK(state IN ('SUGGESTED', 'LINKED', 'DISMISSED')),
+    recorded_by TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_acceptance_evidence_criterion ON acceptance_evidence(criterion_id);
+
 CREATE TABLE IF NOT EXISTS sprint_approvals (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     sprint_id INTEGER NOT NULL REFERENCES sprints(id) ON DELETE CASCADE,
@@ -593,13 +632,14 @@ def _seed_model_catalog(db: sqlite3.Connection) -> None:
 # an existing table untouched, so databases created earlier get them here.
 _ADDED_COLUMNS = (
     ("projects", "starred", "INTEGER NOT NULL DEFAULT 0"),
+    ("ralph_runs", "awaiting_acceptance", "INTEGER NOT NULL DEFAULT 0"),
 )
 
 
 def _migrate(db: sqlite3.Connection) -> None:
     for table, column, definition in _ADDED_COLUMNS:
         existing = {row["name"] for row in db.execute(f"PRAGMA table_info({table})")}
-        if column not in existing:
+        if existing and column not in existing:  # no columns = table not created yet
             db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
     db.commit()
 
