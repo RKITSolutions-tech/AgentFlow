@@ -1,0 +1,6 @@
+{% macro status_badge(status) %}
+  <span class="run-status run-status-{{ status|lower }}">{{ status|replace('_', ' ') }}</span>
+{% endmacro %}
+{% macro seconds(value) -%}
+  {%- if value is none -%}&ndash;{%- elif value < 60 -%}{{ '%.1f'|format(value) }}s{%- else -%}{{ (value // 60)|int }}m {{ (value % 60)|int }}s{%- endif -%}
+{%- endmacro %}

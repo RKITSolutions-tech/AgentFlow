@@ -7,7 +7,7 @@ import subprocess
 import threading
 import time
 from dataclasses import dataclass
-from typing import Any, IO
+from typing import Any, Callable, IO
 
 from app.execution import models
 from app.execution.base import ExecutionProvider
@@ -35,7 +35,16 @@ class HostExecutionProvider(ExecutionProvider):
     See docs/EXECUTION_PROVIDER.md sections 4, 7, 8, 10-13, 17, 20, 21.
     """
 
-    def __init__(self, database_path: str, allowed_roots: tuple[str, ...]):
+    def __init__(
+        self,
+        database_path: str,
+        allowed_roots: tuple[str, ...],
+        redactor: Callable[[str], str] | None = None,
+    ):
+        # `redactor` masks each output line before it is persisted (secrets
+        # must not reach process_events). It works line by line, so a secret
+        # spanning several lines is only masked where a line matches on its own.
+        self._redactor = redactor
         self._database_path = database_path
         self._allowed_roots = allowed_roots
         self._local = threading.local()
@@ -90,7 +99,8 @@ class HostExecutionProvider(ExecutionProvider):
             raise ValueError(f"Unknown execution context {context_id}")
 
         env = self._build_environment(context.environment_profile, options.get("environment"))
-        command_summary = " ".join(command)
+        # Callers that may pass secrets on the command line supply a redacted summary.
+        command_summary = options.get("command_summary") or " ".join(command)
 
         process_id = models.create_process(
             db,
@@ -229,8 +239,11 @@ class HostExecutionProvider(ExecutionProvider):
         db = self._db()
         try:
             for line in iter(stream.readline, ""):
+                text = line.rstrip("\n")
+                if self._redactor is not None:
+                    text = self._redactor(text)
                 self._emit(
-                    db, context_id, process_id, "ProcessOutput", data=line.rstrip("\n"), stream=name
+                    db, context_id, process_id, "ProcessOutput", data=text, stream=name
                 )
         finally:
             stream.close()

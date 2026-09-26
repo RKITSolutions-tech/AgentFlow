@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% from "_project_tabs.html" import project_tabs %}
+{% from "runs/_helpers.html" import status_badge, seconds %}
+{% block title %}Run #{{ run.id }} - {{ project.name }} - AgentFlow{% endblock %}
+{% block content %}
+  {{ project_tabs(project, none, 'runs') }}
+  {% if run.active %}<div data-autorefresh="2000" hidden></div>{% endif %}
+  <h1>Run #{{ run.id }}: {{ run.title }}</h1>
+  <p>
+    {{ status_badge(run.status) }}
+    {% if run.status_reason %}<span class="form-hint">{{ run.status_reason }}</span>{% endif %}
+  </p>
+  <dl class="run-meta">
+    <dt>Created</dt><dd>{{ run.created_at }}</dd>
+    <dt>Started</dt><dd>{{ run.started_at or '–' }}</dd>
+    <dt>Finished</dt><dd>{{ run.completed_at or '–' }}</dd>
+    <dt>Duration</dt><dd>{{ seconds(run.duration) }}</dd>
+    {% if run.restart_of %}<dt>Restart of</dt><dd><a href="{{ url_for('runs.view_run', project_id=project.id, run_id=run.restart_of) }}">#{{ run.restart_of }}</a></dd>{% endif %}
+  </dl>
+
+  <div class="row-actions">
+    {% if run.status == 'RUNNING' %}
+      <button type="button" data-ajax-reload="{{ url_for('runs.pause_run', project_id=project.id, run_id=run.id) }}">Pause</button>
+    {% elif run.status == 'PAUSED' %}
+      <button type="button" data-ajax-reload="{{ url_for('runs.resume_run', project_id=project.id, run_id=run.id) }}">Resume</button>
+    {% endif %}
+    {% if run.active and executing %}
+      <button type="button" class="link-danger" data-ajax-reload="{{ url_for('runs.stop_run', project_id=project.id, run_id=run.id) }}" data-confirm="Stop this run?">Stop</button>
+    {% endif %}
+    {% if run.status in ('COMPLETED', 'FAILED', 'CANCELLED', 'TIMED_OUT', 'BLOCKED') %}
+      <button type="button" data-ajax-reload="{{ url_for('runs.restart_run', project_id=project.id, run_id=run.id) }}">Restart as new run</button>
+    {% endif %}
+    <a href="{{ url_for('runs.list_runs', project_id=project.id) }}">All runs</a>
+  </div>
+
+  <h2>Steps</h2>
+  {% for step in run.steps %}
+    <section class="run-step">
+      <h3>{{ step.seq }}. {{ status_badge(step.status) }} <code class="wrap-cell">{{ step.command }}</code></h3>
+      <p class="form-hint">
+        Duration {{ seconds(step.duration) }}
+        {% if step.exit_code is not none %} · exit code {{ step.exit_code }}{% endif %}
+        {% if step.command_redacted %} · command redacted{% endif %}
+      </p>
+      {% if log_previews[step.id] is defined %}
+        <pre class="run-log">{{ log_previews[step.id] }}</pre>
+      {% endif %}
+      {% set step_artifacts = artifacts|selectattr('step_id', 'equalto', step.id)|list %}
+      {% if step_artifacts %}
+        <ul class="run-artifacts">
+          {% for a in step_artifacts %}
+            <li><a href="{{ url_for('runs.download_artifact', project_id=project.id, run_id=run.id, artifact_id=a.id) }}">{{ a.name }}</a>
+              <span class="form-hint">({{ a.kind }}, {{ a.size }} bytes{% if a.redacted %}, secrets redacted{% endif %})</span></li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+    </section>
+  {% endfor %}
+
+  <h2>Events</h2>
+  <table class="table-compact">
+    <thead><tr><th>Time</th><th>Event</th><th>Detail</th></tr></thead>
+    <tbody>
+      {% for e in events %}
+        <tr><td>{{ e.created_at }}</td><td>{{ e.event_type }}</td><td class="wrap-cell">{{ e.data }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}

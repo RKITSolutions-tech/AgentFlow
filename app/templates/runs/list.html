@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% from "_project_tabs.html" import project_tabs %}
+{% from "runs/_helpers.html" import status_badge, seconds %}
+{% block title %}{{ project.name }} - Runs - AgentFlow{% endblock %}
+{% block content %}
+  {{ project_tabs(project, none, 'runs') }}
+  <h1>{{ project.name }} - Runs</h1>
+  {% if active %}<div data-autorefresh="3000" hidden></div>{% endif %}
+
+  <form method="post" action="{{ url_for('runs.create_run', project_id=project.id) }}" class="stacked run-form">
+    <label>Title (optional)
+      <input name="title" maxlength="120" placeholder="Run the test suite">
+    </label>
+    <label>Commands, one per line (each is a step; a failing step stops the run)
+      <textarea name="commands" rows="3" required placeholder="pytest -q"></textarea>
+    </label>
+    <label>Files to keep from the last step, one per line (optional)
+      <textarea name="collect" rows="2" placeholder="reports/junit.xml"></textarea>
+    </label>
+    <div class="run-form-row">
+      <label>Repository
+        <select name="repository_id" required>
+          {% for r in project.repositories %}
+            <option value="{{ r.id }}"{% if r.is_primary %} selected{% endif %}>{{ r.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Step timeout (seconds)
+        <input name="timeout" type="number" min="1" step="any" placeholder="none">
+      </label>
+    </div>
+    <button type="submit" class="btn-primary"{% if not project.repositories %} disabled{% endif %}>Start run</button>
+    {% if not project.repositories %}<p class="form-hint">Add a repository to this project first.</p>{% endif %}
+  </form>
+
+  <form class="inline-filter" method="get">
+    <label>Status
+      <select name="status">
+        <option value="">All</option>
+        {% for s in statuses %}<option value="{{ s }}"{% if s == status %} selected{% endif %}>{{ s|replace('_', ' ')|capitalize }}</option>{% endfor %}
+      </select>
+    </label>
+    <button type="submit">Filter</button>
+  </form>
+
+  <table class="table-compact">
+    <thead><tr><th>Run</th><th>Status</th><th>Steps</th><th>Duration</th><th>Started</th><th class="row-actions">Actions</th></tr></thead>
+    <tbody>
+      {% for run in runs %}
+        <tr data-row>
+          <td class="wrap-cell"><a href="{{ url_for('runs.view_run', project_id=project.id, run_id=run.id) }}">#{{ run.id }} {{ run.title }}</a></td>
+          <td>{{ status_badge(run.status) }}</td>
+          <td>{{ run.steps|selectattr('status', 'equalto', 'PASSED')|list|length }}/{{ run.steps|length }}</td>
+          <td>{{ seconds(run.duration) }}</td>
+          <td>{{ run.started_at or run.created_at }}</td>
+          <td class="row-actions">
+            {% if run.status == 'RUNNING' %}
+              <button type="button" data-ajax-reload="{{ url_for('runs.pause_run', project_id=project.id, run_id=run.id) }}">Pause</button>
+            {% elif run.status == 'PAUSED' %}
+              <button type="button" data-ajax-reload="{{ url_for('runs.resume_run', project_id=project.id, run_id=run.id) }}">Resume</button>
+            {% endif %}
+            {% if run.active %}
+              <button type="button" class="link-danger" data-ajax-reload="{{ url_for('runs.stop_run', project_id=project.id, run_id=run.id) }}" data-confirm="Stop run #{{ run.id }}?">Stop</button>
+            {% endif %}
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="6">No runs yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {% if pages > 1 %}
+    <nav class="pager" aria-label="Pages">
+      {% if page > 1 %}<a href="{{ url_for('runs.list_runs', project_id=project.id, page=page - 1, status=status or None) }}">Newer</a>{% endif %}
+      <span>Page {{ page }} of {{ pages }}</span>
+      {% if page < pages %}<a href="{{ url_for('runs.list_runs', project_id=project.id, page=page + 1, status=status or None) }}">Older</a>{% endif %}
+    </nav>
+  {% endif %}
+{% endblock %}

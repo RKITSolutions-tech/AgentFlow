@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import secrets
 from dataclasses import dataclass, field
@@ -20,6 +21,12 @@ class Config:
     PORT: int = 5000
     ALLOWED_PROJECT_ROOTS: tuple[str, ...] = field(default_factory=tuple)
     TESTING: bool = False
+    # Extra regexes masked in persisted Run logs/prompts, on top of the
+    # built-in secret rules (AGENTFLOW_REDACT_PATTERNS: a JSON list).
+    REDACT_PATTERNS: tuple[str, ...] = field(default_factory=tuple)
+    # Where Run artifact content and large logs live; defaults to
+    # `artifacts/` beside the database.
+    ARTIFACT_DIR: str = ""
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -40,6 +47,14 @@ class Config:
                     f"({host!r}) without AGENTFLOW_ALLOW_UNSAFE_BIND=1. "
                     "See docs/HIGH_LEVEL_DESIGN.md section 20."
                 )
+            logging.getLogger(__name__).warning(
+                "AGENTFLOW_ALLOW_UNSAFE_BIND=1: binding to %s exposes AgentFlow, "
+                "which can run commands on this host, beyond loopback and has no "
+                "authentication.",
+                host,
+            )
+
+        from app.runs.security import extra_patterns_from_env
 
         return cls(
             DATABASE_PATH=os.environ.get(
@@ -49,4 +64,6 @@ class Config:
             HOST=host,
             PORT=int(os.environ.get("AGENTFLOW_PORT", "5000")),
             ALLOWED_PROJECT_ROOTS=roots,
+            REDACT_PATTERNS=extra_patterns_from_env(),
+            ARTIFACT_DIR=os.environ.get("AGENTFLOW_ARTIFACT_DIR", ""),
         )

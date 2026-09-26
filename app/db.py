@@ -207,6 +207,59 @@ CREATE TABLE IF NOT EXISTS document_refs (
     relationship TEXT NOT NULL CHECK(relationship IN ('DERIVES_FROM', 'REFERENCES', 'SUPERSEDES')),
     PRIMARY KEY (document_id, referenced_document_id)
 );
+
+CREATE TABLE IF NOT EXISTS runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    repository_id INTEGER NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'CREATED',
+    status_reason TEXT NOT NULL DEFAULT '',
+    restart_of INTEGER REFERENCES runs(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL,
+    started_at TEXT,
+    completed_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS run_steps (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+    seq INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    command TEXT NOT NULL,
+    command_redacted INTEGER NOT NULL DEFAULT 0,
+    timeout_seconds REAL,
+    collect TEXT NOT NULL DEFAULT '[]',
+    status TEXT NOT NULL DEFAULT 'PENDING',
+    process_id INTEGER REFERENCES processes(id) ON DELETE SET NULL,
+    exit_code INTEGER,
+    prompt TEXT,
+    reply TEXT,
+    started_at TEXT,
+    completed_at TEXT,
+    UNIQUE(run_id, seq)
+);
+
+CREATE TABLE IF NOT EXISTS run_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+    step_id INTEGER REFERENCES run_steps(id) ON DELETE CASCADE,
+    event_type TEXT NOT NULL,
+    data TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS run_artifacts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+    step_id INTEGER REFERENCES run_steps(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL,
+    name TEXT NOT NULL,
+    path TEXT NOT NULL,
+    size INTEGER NOT NULL DEFAULT 0,
+    redacted INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+);
 """
 
 # Starter catalog, seeded once (see `_seed_model_catalog`) so the model

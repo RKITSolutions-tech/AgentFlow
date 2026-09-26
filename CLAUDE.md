@@ -34,6 +34,18 @@ Key modules:
   Project's execution context and use `shutil.which`/`subprocess` directly.
 - `app/execution/host.py` + `app/execution/models.py` — process/context
   lifecycle and event persistence for host-executed commands.
+- `app/runs/` — Phase 1 Runs (docs/RUN_AND_RALPH.md): a Run is an ordered
+  list of command Steps executed through the `ExecutionProvider` by
+  `RunManager` (`executor.py`, one instance at
+  `app.extensions["run_manager"]`, so pause/stop from later requests reach the
+  worker thread). Status, timing, events and artifact metadata live in SQLite
+  (`models.py`); artifact content and full logs live on disk under
+  `AGENTFLOW_ARTIFACT_DIR` (default `artifacts/` beside the database,
+  `artifacts.py`, path-traversal checked). `RunManager.reconcile()` runs at app
+  start: a RUNNING/PAUSED Run whose process is gone becomes BLOCKED.
+  `security.py` redacts secrets before anything is persisted (built-in rules
+  plus `AGENTFLOW_REDACT_PATTERNS`, a JSON list of regexes); the unredacted
+  command is held in memory only, so a redacted step cannot be restarted.
 - `app/projects/` — Project and repository records; `app/security.py`
   validates repository paths against `ALLOWED_PROJECT_ROOTS`.
 
@@ -42,6 +54,16 @@ Testing: pytest, `tests/` mirrors `app/`'s layout. Shared fixtures
 real external CLI installed (e.g. Codex) use
 `@pytest.mark.skipif(shutil.which(...) is None, ...)` rather than failing
 when the tool is absent.
+
+## Security Configuration
+
+- AgentFlow binds to loopback only. `AGENTFLOW_HOST` set to any other address
+  is refused at startup unless `AGENTFLOW_ALLOW_UNSAFE_BIND=1` is also set,
+  and a warning is logged when it is (the app runs commands on the host and
+  has no authentication).
+- `AGENTFLOW_REDACT_PATTERNS` (JSON list of regexes) adds to the built-in
+  secret redaction applied to Run commands, logs, replies and collected files.
+- `AGENTFLOW_ARTIFACT_DIR` relocates Run artifact storage.
 
 ## Temporary UI and Mobile Rules
 

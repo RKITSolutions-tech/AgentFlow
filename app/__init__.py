@@ -25,6 +25,13 @@ def create_app(config: Config | None = None) -> Flask:
     app.register_blueprint(settings_bp)
     app.register_blueprint(notifications_bp)
 
+    from app.runs.executor import RunManager
+    from app.runs.routes import bp as runs_bp
+
+    app.extensions["run_manager"] = RunManager(app.config)
+    app.register_blueprint(runs_bp)
+    app.extensions["run_manager"].reconcile()
+
     from app.shell import init_shell
 
     init_shell(app)
