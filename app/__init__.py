@@ -44,6 +44,10 @@ def create_app(config: Config | None = None) -> Flask:
 
     app.register_blueprint(pipelines_bp)
     app.register_blueprint(ralph_bp)
+
+    from app.artifacts.views import bp as artifacts_bp
+
+    app.register_blueprint(artifacts_bp)
     app.extensions["run_manager"].reconcile()
 
     from app.pipelines.persistence import seed_builtins

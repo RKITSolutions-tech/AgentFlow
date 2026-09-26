@@ -509,7 +509,7 @@ What evidence exists?
 Why did it succeed or fail?
 ```
 
-## 25. Implementation Decisions (Phase 2, autonomous assumptions)
+## 30. Implementation Decisions (Phase 2, autonomous assumptions)
 
 Made without the owner in the loop while building task 24; recommendations to
 confirm.
@@ -552,3 +552,41 @@ confirm.
   where Playwright or a browser is missing, which is the case in the
   environment these tasks were built in; the front-end JavaScript has only had
   a syntax check, so it needs a real browser pass.
+
+### Artifact library (task 25)
+
+- One index table (`artifact_library`, plus `artifact_tags` and
+  `artifact_comparisons`) with content on disk under the artifact root. Each row
+  keeps its originating `step_execution_id`, `execution_id` and step name and,
+  for Ralph, `ralph_run_id` + `iteration_number` (§15). Routes live under
+  `/projects/<id>/artifacts` (list/filter, `search`, `export.csv`, detail,
+  `preview`, `download`, `tags`, `compare`); a project tab was added.
+- **Collection.** Every step's captured output is indexed as a `log` artifact.
+  Any element may list `config.collect` globs (relative to the repository; absolute
+  paths, `..` and symlinks resolving outside the repository are ignored, max 50
+  files and 25 MiB each) and `ARTIFACT_CAPTURE` elements use `config.paths`.
+  Files are **copied** under `pipelines/<execution>/step_<id>/`, so a later edit
+  in the repository does not change stored evidence. Each Ralph iteration also
+  stores its `git diff` (with untracked files listed in a header) as a `diff`
+  artifact. A collection failure records an `ArtifactCollectionFailed` event and
+  never fails the step. It hooks step completion inside the engine rather than
+  listing files through the ExecutionProvider, because host execution shares the
+  filesystem; a Docker provider will need a file-copy method.
+- **Classification** is by extension: images -> `screenshot`, `.mp4/.webm/.mov`
+  -> `video`, `.diff/.patch` -> `diff`, `*trace*.zip|.trace|.har` -> `trace`,
+  `.log/.txt/.out/.err` -> `log`, `.html/.json/.xml/.csv/.md` -> `report`, else
+  `file`. (The task text mapped `.html` to trace; a Playwright trace is a zip, so
+  `.html` is a report here.) Text kinds are redacted before they are written and
+  flagged; images record PNG/GIF dimensions from the header.
+- **Comparison** is a unified text diff for two text artifacts (capped at 2000
+  lines) and a byte-level comparison for two screenshots (identical / dimensions /
+  differing bytes). True visual diffing needs an imaging library, which is not a
+  dependency, so it is left out and the result says so. Results are stored.
+- **Safety.** Inline preview is limited to raster images and text; SVG and HTML
+  are never rendered inline (they can carry script) and only download. Previews
+  send `nosniff` and a restrictive CSP. CSV export neutralises formula cells.
+  Search escapes `LIKE` wildcards. Every route 404s when the artifact is not in
+  the project in the URL.
+- Phase 1 Run artifacts (`app/runs`) are **not** migrated into the library; they
+  stay on the Run pages. Only pipeline and Ralph evidence is indexed. Filtering by
+  Sprint or Task is not offered because neither has an execution link yet.

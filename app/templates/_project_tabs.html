@@ -1,6 +1,6 @@
 {#
   Project-scoped tab strip shared by the project overview, Sessions and the
-  repository workspace pages. `active` is one of: overview, sessions, backlog, sprints, pipelines, ralph, runs (needs a repository), files,
+  repository workspace pages. `active` is one of: overview, sessions, backlog, sprints, pipelines, ralph, artifacts, runs (needs a repository), files,
   search, status, log, commit, branches, worktrees, terminal. Repository tabs use `repo`, falling
   back to the primary (or first) repository, and are omitted when the project
   has none. Anchors keep their text tight (`>Files<`) so tests and screen
@@ -29,6 +29,7 @@
     <a class="tab" href="{{ url_for('sprints.list_sprints', project_id=project.id) }}"{% if active == 'sprints' %} aria-current="page"{% endif %}>Sprints</a>
     <a class="tab" href="{{ url_for('pipelines.list_pipelines', project_id=project.id) }}"{% if active == 'pipelines' %} aria-current="page"{% endif %}>Pipelines</a>
     <a class="tab" href="{{ url_for('ralph.list_runs', project_id=project.id) }}"{% if active == 'ralph' %} aria-current="page"{% endif %}>Ralph</a>
+    <a class="tab" href="{{ url_for('artifacts.library', project_id=project.id) }}"{% if active == 'artifacts' %} aria-current="page"{% endif %}>Artifacts</a>
     {% if repo %}
     <a class="tab" href="{{ url_for('runs.list_runs', project_id=project.id) }}"{% if active == 'runs' %} aria-current="page"{% endif %}>Runs</a>
       <span class="tab-sep" aria-hidden="true"></span>

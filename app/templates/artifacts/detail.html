@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% from "_project_tabs.html" import project_tabs %}
+{% block title %}{{ artifact.name }} - Artifacts - AgentFlow{% endblock %}
+{% block content %}
+  {{ project_tabs(project, none, 'artifacts') }}
+  <h1 class="wrap-cell">{{ artifact.name }} <span class="run-status">{{ artifact.kind }}</span></h1>
+  <dl class="run-meta">
+    <dt>Size</dt><dd>{{ artifact.size }} bytes</dd>
+    <dt>Type</dt><dd>{{ artifact.mime_type }}</dd>
+    <dt>Created</dt><dd>{{ artifact.created_at }}</dd>
+    {% if artifact.execution_id %}<dt>Pipeline run</dt><dd><a href="{{ url_for('pipelines.view_execution', project_id=project.id, execution_id=artifact.execution_id) }}{% if artifact.step_name %}#{{ artifact.step_name|urlencode }}{% endif %}">#{{ artifact.execution_id }}{% if artifact.step_name %} / {{ artifact.step_name }}{% endif %}</a></dd>{% endif %}
+    {% if artifact.ralph_run_id %}<dt>Ralph run</dt><dd><a href="{{ url_for('ralph.view_run', project_id=project.id, run_id=artifact.ralph_run_id) }}">#{{ artifact.ralph_run_id }}</a>{% if artifact.iteration_number %} iteration {{ artifact.iteration_number }}{% endif %}</dd>{% endif %}
+    {% for k, v in artifact.metadata.items() %}<dt>{{ k|replace('_', ' ')|capitalize }}</dt><dd>{{ v }}</dd>{% endfor %}
+  </dl>
+  {% if artifact.redacted %}<p class="form-hint">Secrets were redacted from this file.</p>{% endif %}
+  <div class="row-actions"><a href="{{ url_for('artifacts.download', project_id=project.id, artifact_id=artifact.id) }}">Download</a></div>
+
+  {% if inline_image %}<img class="artifact-full" src="{{ url_for('artifacts.preview', project_id=project.id, artifact_id=artifact.id) }}" alt="{{ artifact.name }}">{% endif %}
+  {% if text is not none %}<pre class="run-log">{{ text }}</pre>{% endif %}
+
+  <h2>Tags</h2>
+  <div>{% for t in artifact.tags %}
+    <form class="inline-filter" method="post" action="{{ url_for('artifacts.edit_tags', project_id=project.id, artifact_id=artifact.id) }}" data-ajax-form>
+      #{{ t }} <input type="hidden" name="remove" value="{{ t }}"><button type="submit" class="link-danger" aria-label="Remove tag {{ t }}">Remove</button>
+    </form>
+  {% else %}<span class="form-hint">None.</span>{% endfor %}</div>
+  <form class="inline-filter" method="post" action="{{ url_for('artifacts.edit_tags', project_id=project.id, artifact_id=artifact.id) }}" data-ajax-form>
+    <input name="tags" placeholder="add tags" aria-label="Add tags"><button type="submit">Add</button>
+  </form>
+{% endblock %}

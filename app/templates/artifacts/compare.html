@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% from "_project_tabs.html" import project_tabs %}
+{% block title %}Compare artifacts - AgentFlow{% endblock %}
+{% block content %}
+  {{ project_tabs(project, none, 'artifacts') }}
+  <h1>Compare</h1>
+  <p class="wrap-cell"><a href="{{ url_for('artifacts.detail', project_id=project.id, artifact_id=a.id) }}">#{{ a.id }} {{ a.name }}</a> vs
+    <a href="{{ url_for('artifacts.detail', project_id=project.id, artifact_id=b.id) }}">#{{ b.id }} {{ b.name }}</a></p>
+  {% set r = comparison.result %}
+  {% if comparison.comparison_type == 'text_diff' %}
+    <p>{% if r.identical %}Identical.{% else %}{{ r.added }} line(s) added, {{ r.removed }} removed.{% endif %}
+      {% if r.truncated or r.diff_truncated %}<span class="form-hint">Output truncated.</span>{% endif %}</p>
+    {% if r.diff %}<pre class="run-log diff-view">{% for line in r.diff %}<span class="diff-{{ 'add' if line.startswith('+') and not line.startswith('+++') else ('del' if line.startswith('-') and not line.startswith('---') else 'ctx') }}">{{ line }}</span>
+{% endfor %}</pre>{% endif %}
+  {% else %}
+    <p>{% if r.identical %}The images are byte-for-byte identical.{% else %}The images differ ({{ r.differing_bytes }} differing bytes).{% endif %}</p>
+    <dl class="run-meta">
+      <dt>Dimensions A</dt><dd>{{ r.size_a|join(' × ') if r.size_a else 'unknown' }}</dd>
+      <dt>Dimensions B</dt><dd>{{ r.size_b|join(' × ') if r.size_b else 'unknown' }}</dd>
+      <dt>Same dimensions</dt><dd>{{ 'yes' if r.same_dimensions else 'no' }}</dd>
+    </dl>
+    <p class="form-hint">{{ r.note }}</p>
+    <div class="compare-images">
+      <img src="{{ url_for('artifacts.preview', project_id=project.id, artifact_id=a.id) }}" alt="A: {{ a.name }}">
+      <img src="{{ url_for('artifacts.preview', project_id=project.id, artifact_id=b.id) }}" alt="B: {{ b.name }}">
+    </div>
+  {% endif %}
+{% endblock %}

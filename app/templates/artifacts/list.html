@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% from "_project_tabs.html" import project_tabs %}
+{% block title %}{{ project.name }} - Artifacts - AgentFlow{% endblock %}
+{% block content %}
+  {{ project_tabs(project, none, 'artifacts') }}
+  <h1>{{ project.name }} - Artifact library</h1>
+
+  <form class="stacked artifact-filters" method="get">
+    <label>Search <input type="search" name="q" value="{{ args.get('q', '') }}" placeholder="name, step, tag"></label>
+    <fieldset>
+      <legend>Type</legend>
+      {% for k in kinds %}<label class="backlog-select"><input type="checkbox" name="kind" value="{{ k }}"{% if filters.kinds and k in filters.kinds %} checked{% endif %}> {{ k|capitalize }}</label>{% endfor %}
+    </fieldset>
+    <div class="run-form-row">
+      <label>From <input type="date" name="since" value="{{ args.get('since', '') }}"></label>
+      <label>To <input type="date" name="until" value="{{ args.get('until', '') }}"></label>
+      <label>Step
+        <select name="step"><option value="">Any</option>{% for s in step_names %}<option value="{{ s }}"{% if s == filters.step_name %} selected{% endif %}>{{ s }}</option>{% endfor %}</select>
+      </label>
+      <label>Tag <input name="tag" value="{{ args.get('tag', '') }}"></label>
+    </div>
+    <div class="row-actions">
+      <button type="submit" class="btn-primary">Filter</button>
+      <a href="{{ url_for('artifacts.library', project_id=project.id) }}">Reset</a>
+      <a href="{{ url_for('artifacts.export_csv', project_id=project.id, **query) }}">Export CSV</a>
+    </div>
+  </form>
+
+  <p class="form-hint">{{ total }} artifact{{ '' if total == 1 else 's' }}</p>
+  <form method="post" action="{{ url_for('artifacts.compare', project_id=project.id) }}" data-ajax-form>
+    <ul class="backlog-cards">
+      {% for a in artifacts %}
+        <li class="backlog-card">
+          <h3><a href="{{ url_for('artifacts.detail', project_id=project.id, artifact_id=a.id) }}">{{ a.name }}</a></h3>
+          {% if preview_ok(a) %}<a href="{{ url_for('artifacts.detail', project_id=project.id, artifact_id=a.id) }}"><img class="artifact-thumb" src="{{ url_for('artifacts.preview', project_id=project.id, artifact_id=a.id) }}" alt="{{ a.name }}" loading="lazy"></a>{% endif %}
+          <div><span class="run-status">{{ a.kind }}</span> <span class="form-hint">{{ a.step_name }}{% if a.iteration_number %} &middot; iteration {{ a.iteration_number }}{% endif %} &middot; {{ a.size }} bytes</span></div>
+          {% if a.tags %}<div class="form-hint">{% for t in a.tags %}#{{ t }} {% endfor %}</div>{% endif %}
+          <div class="row-actions">
+            <label class="backlog-select"><input type="radio" name="a" value="{{ a.id }}"> A</label>
+            <label class="backlog-select"><input type="radio" name="b" value="{{ a.id }}"> B</label>
+          </div>
+        </li>
+      {% else %}
+        <li class="form-hint">No artifacts match.</li>
+      {% endfor %}
+    </ul>
+    {% if artifacts %}<button type="submit">Compare A with B</button>{% endif %}
+  </form>
+
+  {% if pages > 1 %}
+    <nav class="pager" aria-label="Pages">
+      {% if page > 1 %}<a href="{{ url_for('artifacts.library', project_id=project.id, page=page - 1, **query) }}">Newer</a>{% endif %}
+      <span>Page {{ page }} of {{ pages }}</span>
+      {% if page < pages %}<a href="{{ url_for('artifacts.library', project_id=project.id, page=page + 1, **query) }}">Older</a>{% endif %}
+    </nav>
+  {% endif %}
+{% endblock %}

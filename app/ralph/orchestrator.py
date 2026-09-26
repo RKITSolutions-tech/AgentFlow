@@ -16,6 +16,7 @@ import time
 from typing import Callable
 
 from app.agents.base import AgentContext
+from app.artifacts import collector
 from app.pipelines import executions
 from app.pipelines.engine import PipelineEngine
 from app.projects import models as project_models
@@ -178,6 +179,7 @@ class RalphOrchestrator:
         # 2. collect changes
         files, change_sig = self._snapshot(context_id)
         models.update_iteration(db, iteration_id, changed_files=files, change_signature=change_sig)
+        self._store_diff(run, number, context_id, files)
 
         # 3. verify through the pipeline engine
         models.update_iteration(db, iteration_id, status="VERIFYING")
@@ -297,6 +299,23 @@ class RalphOrchestrator:
             except OSError:
                 pass
         return files, digest.hexdigest()
+
+    def _store_diff(self, run, number: int, context_id: int, files: list[str]) -> None:
+        """Keep the iteration's Git diff as an artifact (§17). Untracked files
+        are listed in a header since `git diff` does not show them."""
+        try:
+            code, diff = self._git(context_id, "diff")
+            if code != 0 or (not diff.strip() and not files):
+                return
+            header = "# Changed files:\n" + "\n".join(f"#   {f}" for f in files) + "\n\n" if files else ""
+            collector.store_bytes(
+                self._db, self._engine._root, run.project_id, f"iteration_{number}.diff",
+                (header + diff).encode(), os.path.join("ralph", str(run.id), f"iteration_{number}"),
+                self._patterns, kind="diff", ralph_run_id=run.id, iteration_number=number,
+                step_name=f"iteration {number}", tags=["ralph", "diff"],
+            )
+        except Exception:  # evidence capture must not break the run
+            pass
 
     def _provider_workdir(self, context_id: int) -> str:
         from app.execution import models as exec_models

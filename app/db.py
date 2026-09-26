@@ -519,6 +519,41 @@ CREATE TABLE IF NOT EXISTS ralph_steering (
     created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS artifact_library (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL CHECK(kind IN ('screenshot', 'trace', 'log', 'diff', 'report', 'video', 'file')),
+    name TEXT NOT NULL,
+    path TEXT NOT NULL,
+    mime_type TEXT NOT NULL DEFAULT 'application/octet-stream',
+    size INTEGER NOT NULL DEFAULT 0,
+    execution_id INTEGER REFERENCES pipeline_executions(id) ON DELETE SET NULL,
+    step_execution_id INTEGER REFERENCES step_executions(id) ON DELETE SET NULL,
+    step_name TEXT NOT NULL DEFAULT '',
+    ralph_run_id INTEGER REFERENCES ralph_runs(id) ON DELETE SET NULL,
+    iteration_number INTEGER,
+    redacted INTEGER NOT NULL DEFAULT 0,
+    metadata TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_artifact_library_project ON artifact_library(project_id, kind, id);
+CREATE INDEX IF NOT EXISTS idx_artifact_library_step ON artifact_library(step_execution_id);
+
+CREATE TABLE IF NOT EXISTS artifact_tags (
+    artifact_id INTEGER NOT NULL REFERENCES artifact_library(id) ON DELETE CASCADE,
+    tag TEXT NOT NULL,
+    PRIMARY KEY (artifact_id, tag)
+);
+
+CREATE TABLE IF NOT EXISTS artifact_comparisons (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    artifact_a_id INTEGER NOT NULL REFERENCES artifact_library(id) ON DELETE CASCADE,
+    artifact_b_id INTEGER NOT NULL REFERENCES artifact_library(id) ON DELETE CASCADE,
+    comparison_type TEXT NOT NULL,
+    result TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS sprint_approvals (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     sprint_id INTEGER NOT NULL REFERENCES sprints(id) ON DELETE CASCADE,

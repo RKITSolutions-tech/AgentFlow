@@ -12,7 +12,6 @@ import json
 import os
 import re
 import shlex
-import shutil
 import sqlite3
 import time
 import urllib.error
@@ -20,6 +19,7 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Callable
 
+from app.artifacts import collector
 from app.pipelines import composer, executions, persistence
 from app.pipelines.executions import DONE_STEP, Execution
 from app.projects import models as project_models
@@ -302,6 +302,7 @@ class PipelineEngine:
             redacted=int(was_redacted or err_redacted or log_redacted or REDACTION_MARK in log),
             result_summary=summary, error_summary=error,
         )
+        self._register_artifacts(ex, element, step_id, reference, was_redacted or log_redacted, result)
         if result.status == "WAITING":
             executions.update_step(db, step_id, status="WAITING")
             return "WAITING", step_id
@@ -311,6 +312,28 @@ class PipelineEngine:
             element["name"] if result.status == "PASSED" else (error or result.status), step_id,
         )
         return result.status, step_id
+
+    def _register_artifacts(
+        self, ex: Execution, element: dict, step_id: int, log_reference: str, redacted: bool, result: StepResult
+    ) -> None:
+        """Index the step's log and any files named by `config.collect` in the
+        Artifact Library. A collection problem never fails the step."""
+        try:
+            if log_reference:
+                attempt = executions.get_step(self._db, step_id).attempt
+                collector.register_existing(
+                    self._db, self._root, ex.project_id, log_reference,
+                    f"{element['name']}_attempt{attempt}.log", ex.id, step_id, element["name"],
+                    redacted=redacted, kind="log",
+                )
+            patterns = (element.get("config") or {}).get("collect") or []
+            if patterns and result.status != "WAITING":
+                collector.collect_files(
+                    self._db, self._root, ex.project_id, self._workdir(ex), patterns,
+                    ex.id, step_id, element["name"], self._patterns,
+                )
+        except Exception as exc:
+            executions.add_event(self._db, ex.id, "ArtifactCollectionFailed", str(exc)[:300], step_id)
 
     def _write_log(self, execution_id: int, step_id: int, name: str, log: str) -> str:
         relative = os.path.join("pipelines", str(execution_id), f"step_{step_id}_{_safe_name(name)}.log")
@@ -642,24 +665,17 @@ class PipelineEngine:
         )
 
     def _h_capture(self, ex, element, step_id, context_id) -> StepResult:
-        """Copy the configured files into this step's artifact directory."""
-        patterns = (element.get("config") or {}).get("paths") or []
-        base = self._workdir(ex)
-        copied = []
-        for pattern in patterns:
-            try:
-                source = _resolve_within(base, self._resolve(ex, pattern))
-            except ArtifactPathError:
-                continue
-            if os.path.isfile(source):
-                relative = os.path.join("pipelines", str(ex.id), f"step_{step_id}", _safe_name(source))
-                target = _resolve_within(self._root, relative)
-                os.makedirs(os.path.dirname(target), exist_ok=True)
-                shutil.copyfile(source, target)
-                copied.append(relative)
+        """Copy files matching `config.paths` (globs in the repository) into the
+        Artifact Library."""
+        patterns = [self._resolve(ex, p) for p in (element.get("config") or {}).get("paths") or []]
+        ids = collector.collect_files(
+            self._db, self._root, ex.project_id, self._workdir(ex), patterns, ex.id, step_id,
+            element["name"], self._patterns,
+        )
+        ok = bool(ids) or not patterns
         return StepResult(
-            "PASSED" if copied or not patterns else "FAILED", summary="\n".join(copied),
-            error="" if copied or not patterns else "No files matched", log="\n".join(copied),
+            "PASSED" if ok else "FAILED", summary=f"Captured {len(ids)} file(s)",
+            error="" if ok else "No files matched " + ", ".join(patterns),
         )
 
     def _h_manual(self, ex, element, step_id, context_id) -> StepResult:
