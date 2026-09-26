@@ -459,6 +459,66 @@ CREATE TABLE IF NOT EXISTS pipeline_events (
 );
 CREATE INDEX IF NOT EXISTS idx_pipeline_events_execution ON pipeline_events(execution_id, id);
 
+CREATE TABLE IF NOT EXISTS ralph_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    repository_id INTEGER NOT NULL REFERENCES repositories(id) ON DELETE CASCADE,
+    work_item_id INTEGER REFERENCES planned_work_items(id) ON DELETE SET NULL,
+    sprint_id INTEGER REFERENCES sprints(id) ON DELETE SET NULL,
+    title TEXT NOT NULL,
+    task_text TEXT NOT NULL DEFAULT '',
+    acceptance TEXT NOT NULL DEFAULT '[]',
+    status TEXT NOT NULL DEFAULT 'CREATED' CHECK(status IN ('CREATED', 'RUNNING', 'VERIFYING', 'WAITING_FOR_HUMAN', 'PAUSED', 'BLOCKED', 'COMPLETED', 'FAILED', 'CANCELLED', 'TIMED_OUT')),
+    reason TEXT NOT NULL DEFAULT '',
+    verification_pipeline TEXT NOT NULL,
+    max_iterations INTEGER NOT NULL DEFAULT 8,
+    max_runtime_seconds REAL,
+    identical_failure_limit INTEGER NOT NULL DEFAULT 2,
+    no_change_limit INTEGER NOT NULL DEFAULT 2,
+    auto_commit INTEGER NOT NULL DEFAULT 1,
+    agent_session_id INTEGER,
+    current_iteration INTEGER NOT NULL DEFAULT 0,
+    commit_sha TEXT NOT NULL DEFAULT '',
+    pause_requested INTEGER NOT NULL DEFAULT 0,
+    cancel_requested INTEGER NOT NULL DEFAULT 0,
+    needs_attention INTEGER NOT NULL DEFAULT 0,
+    script TEXT,
+    elapsed_seconds REAL NOT NULL DEFAULT 0,
+    started_at TEXT,
+    completed_at TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_ralph_runs_project ON ralph_runs(project_id, status);
+
+CREATE TABLE IF NOT EXISTS ralph_iterations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER NOT NULL REFERENCES ralph_runs(id) ON DELETE CASCADE,
+    number INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'CREATED' CHECK(status IN ('CREATED', 'BUILDING_CONTEXT', 'RUNNING_AGENT', 'COLLECTING_CHANGES', 'VERIFYING', 'EVALUATING', 'PASSED', 'FAILED', 'NO_PROGRESS', 'BLOCKED', 'CANCELLED')),
+    prompt TEXT NOT NULL DEFAULT '',
+    reply TEXT NOT NULL DEFAULT '',
+    verification_execution_id INTEGER REFERENCES pipeline_executions(id) ON DELETE SET NULL,
+    failure_signature TEXT NOT NULL DEFAULT '',
+    change_signature TEXT NOT NULL DEFAULT '',
+    changed_files TEXT NOT NULL DEFAULT '[]',
+    analysis TEXT NOT NULL DEFAULT '',
+    next_action TEXT NOT NULL DEFAULT '',
+    commit_sha TEXT NOT NULL DEFAULT '',
+    redacted INTEGER NOT NULL DEFAULT 0,
+    started_at TEXT,
+    completed_at TEXT,
+    UNIQUE(run_id, number)
+);
+
+CREATE TABLE IF NOT EXISTS ralph_steering (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER NOT NULL REFERENCES ralph_runs(id) ON DELETE CASCADE,
+    iteration_number INTEGER NOT NULL DEFAULT 0,
+    message TEXT NOT NULL,
+    consumed_iteration INTEGER,
+    created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS sprint_approvals (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     sprint_id INTEGER NOT NULL REFERENCES sprints(id) ON DELETE CASCADE,

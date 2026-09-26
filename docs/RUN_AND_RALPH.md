@@ -397,3 +397,61 @@ acceptance evolution
 external rigging
 enhanced no-progress logic
 ```
+
+## 22. Implementation Decisions (Phase 2, autonomous assumptions)
+
+Made without the owner in the loop while building task 23; recommendations to
+confirm, not settled decisions.
+
+- **Separate from Phase 1 Runs.** Command-step Runs (`app/runs/`) are unchanged.
+  A Ralph run is its own record (`ralph_runs`, `ralph_iterations`,
+  `ralph_steering` in `app/ralph/`), with its own smaller status set
+  (`CREATED`, `RUNNING`, `VERIFYING`, `WAITING_FOR_HUMAN`, `PAUSED`, `BLOCKED`,
+  `COMPLETED`, `FAILED`, `CANCELLED`, `TIMED_OUT`). The task text's
+  `blocked_no_progress` is `BLOCKED` with `needs_attention` set and the reason
+  naming the signal; the iteration is `NO_PROGRESS`.
+- **No Task entity yet.** A Ralph run takes a task title/text/acceptance list
+  and optionally links a `planned_work_items` row and a Sprint. Nothing yet
+  turns approved planned tasks into Ralph runs; that belongs with Sprint
+  execution (§19).
+- **Loop per iteration:** build prompt → agent work → collect changes →
+  verify → evaluate. The first iteration starts an agent session; later ones
+  **resume the same session** with the feedback prompt, so the agent keeps its
+  own context. The session id is stored on the run.
+- **Verification is mandatory and is a pipeline.** A run cannot be created
+  without a `verification_pipeline`; completion is "that pipeline's execution
+  completed", never the agent's claim (§14). Each iteration links its
+  `pipeline_executions` row, so evidence, prompts and outputs are reachable from
+  it. If verification pauses for a person the run becomes `WAITING_FOR_HUMAN`.
+  Acceptance-criteria evaluation beyond "the pipeline passed" is task 26.
+- **Failure evidence** in the retry prompt is built from the failed step
+  executions (type, name, exit code, last 1500 chars of output), the files
+  changed so far, and a short history of previous attempts.
+- **No-progress policy is Ralph's, across iterations (§10):**
+  `identical_failure_limit` (default 2) compares a failure signature (failed
+  step names + output with numbers, hashes and temp paths normalised);
+  `no_change_limit` (default 2) compares a content-aware working-tree signature
+  (`git status --porcelain` plus each changed file's bytes) across the last
+  `limit + 1` iterations. Either blocks the run for manual review; `unblock`
+  (optionally with a steering message) resets the block. Pipeline `LOOP`
+  keeps its own within-step limits.
+- **Limits:** `max_iterations` (default 8, then `FAILED`) and
+  `max_runtime_seconds` (then `TIMED_OUT`; time is accumulated across pauses).
+  Only run-level configuration exists; System/Project/Sprint/Task cascades
+  (§8) are not built.
+- **Steering** is stored per run with the iteration it was written during and
+  injected into the next iteration's prompt exactly once
+  (`consumed_iteration`).
+- **Pause/cancel are database flags** checked at iteration boundaries (a safe
+  boundary, §12) rather than signals, so they work from any request and a
+  resumed run rebuilds purely from the database. A cancel during an iteration
+  ends the run after that iteration's verification finishes. A run whose
+  worker vanished (restart) is marked `BLOCKED` by `RalphManager.reconcile()`.
+- **Auto commit** commits locally after verification passes, with the message
+  `[AUTO] Phase 2 pipeline: <sprint> task <id> (iteration <n>)`, stores the
+  SHA on the iteration and run, and blocks the run if the commit fails (git
+  state must be valid, §14). **It does not push**: pushing is outward-facing,
+  so it is left to a person or a later opt-in setting. Commit point is task
+  completion only; per-iteration checkpoint commits (§16) are not done.
+- Prompts and replies are redacted before storage and flagged
+  (`redacted`); the *unredacted* prompt is still what the agent receives.

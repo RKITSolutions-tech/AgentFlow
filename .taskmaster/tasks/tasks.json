@@ -752,7 +752,7 @@
         "dependencies": [
           "22"
         ],
-        "status": "pending",
+        "status": "done",
         "subtasks": [
           {
             "id": 1,
@@ -891,7 +891,8 @@
         ],
         "complexity": 7,
         "recommendedSubtasks": 6,
-        "expansionPrompt": "Decompose Ralph orchestrator implementation into focused subtasks: (1) Create IterationHistory model and RalphOrchestrator class with iteration loop logic (execute→collect→analyze→decide); (2) Implement failure detection by parsing task output, test results, agent session feedback, and tracking consecutive failures per step; (3) Implement steering feedback mechanism: compose failure context prompt, resume agent session with feedback, store prompts/responses in history; (4) Implement no-progress detection by comparing consecutive iteration outputs (diff-based) and triggering manual review after 2+ identical iterations; (5) Implement automatic git commit on success: invoke git commands through ExecutionProvider, compose commit message with sprint/task/iteration context, push to configured branch, store commit SHA; (6) Write comprehensive unit tests for iteration loop, failure detection parsing, steering feedback composition, no-progress detection, commit creation; include integration tests with FakeAgentAdapter, injected failures, and pause/resume checkpoint validation."
+        "expansionPrompt": "Decompose Ralph orchestrator implementation into focused subtasks: (1) Create IterationHistory model and RalphOrchestrator class with iteration loop logic (execute→collect→analyze→decide); (2) Implement failure detection by parsing task output, test results, agent session feedback, and tracking consecutive failures per step; (3) Implement steering feedback mechanism: compose failure context prompt, resume agent session with feedback, store prompts/responses in history; (4) Implement no-progress detection by comparing consecutive iteration outputs (diff-based) and triggering manual review after 2+ identical iterations; (5) Implement automatic git commit on success: invoke git commands through ExecutionProvider, compose commit message with sprint/task/iteration context, push to configured branch, store commit SHA; (6) Write comprehensive unit tests for iteration loop, failure detection parsing, steering feedback composition, no-progress detection, commit creation; include integration tests with FakeAgentAdapter, injected failures, and pause/resume checkpoint validation.",
+        "updatedAt": "2026-09-26T11:20:43.807Z"
       },
       {
         "id": "24",
@@ -947,9 +948,9 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-09-26T11:15:50.108Z",
+      "lastModified": "2026-09-26T11:20:43.807Z",
       "taskCount": 26,
-      "completedCount": 22,
+      "completedCount": 23,
       "tags": [
         "master"
       ]

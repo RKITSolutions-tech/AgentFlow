@@ -51,6 +51,11 @@ def create_app(config: Config | None = None) -> Flask:
 
     app.extensions["pipeline_manager"] = PipelineManager(app.config)
 
+    from app.ralph.manager import RalphManager
+
+    app.extensions["ralph_manager"] = RalphManager(app.extensions["pipeline_manager"])
+    app.extensions["ralph_manager"].reconcile()
+
     from app.shell import init_shell
 
     init_shell(app)
