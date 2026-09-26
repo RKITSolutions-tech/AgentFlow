@@ -260,6 +260,46 @@ CREATE TABLE IF NOT EXISTS run_artifacts (
     redacted INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS backlog_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    title TEXT NOT NULL DEFAULT '',
+    text TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'INBOX' CHECK(status IN ('INBOX', 'TRIAGED', 'SELECTED', 'PLANNING', 'PLANNED', 'READY', 'RELEASED', 'ARCHIVED', 'REJECTED')),
+    priority TEXT CHECK(priority IS NULL OR priority IN ('LOW', 'MEDIUM', 'HIGH')),
+    sprint_id INTEGER,
+    created_by TEXT NOT NULL DEFAULT '',
+    source_type TEXT NOT NULL DEFAULT '',
+    source_reference TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_backlog_items_project_status ON backlog_items(project_id, status);
+CREATE INDEX IF NOT EXISTS idx_backlog_items_priority ON backlog_items(priority);
+CREATE INDEX IF NOT EXISTS idx_backlog_items_sprint ON backlog_items(sprint_id);
+
+CREATE TABLE IF NOT EXISTS backlog_attachments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    backlog_item_id INTEGER NOT NULL REFERENCES backlog_items(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL CHECK(kind IN ('IMAGE', 'FILE', 'LINK')),
+    name TEXT NOT NULL,
+    path TEXT NOT NULL,
+    size INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_backlog_attachments_item ON backlog_attachments(backlog_item_id);
+
+CREATE TABLE IF NOT EXISTS backlog_triage_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    backlog_item_id INTEGER NOT NULL REFERENCES backlog_items(id) ON DELETE CASCADE,
+    old_status TEXT,
+    new_status TEXT NOT NULL,
+    notes TEXT NOT NULL DEFAULT '',
+    changed_by TEXT NOT NULL DEFAULT '',
+    changed_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_backlog_history_item ON backlog_triage_history(backlog_item_id);
 """
 
 # Starter catalog, seeded once (see `_seed_model_catalog`) so the model

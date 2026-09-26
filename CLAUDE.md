@@ -46,6 +46,13 @@ Key modules:
   `security.py` redacts secrets before anything is persisted (built-in rules
   plus `AGENTFLOW_REDACT_PATTERNS`, a JSON list of regexes); the unredacted
   command is held in memory only, so a redacted step cannot be restarted.
+- `app/backlog/` — Phase 2 Backlog (docs/SPRINT_PLANNING_AND_BACKLOG.md §6-7):
+  `models.py` (dataclasses, status/priority constants, `TRANSITIONS`),
+  `persistence.py` (sqlite3 CRUD; `transition()` enforces the map and writes
+  `backlog_triage_history`), `attachments.py` (uploads stored under
+  `<artifact root>/backlog/<project>/<item>/`, filenames sanitised and paths
+  re-checked with the same helpers as Run artifacts). `sprint_id` has no FK
+  until the Sprints table exists.
 - `app/projects/` — Project and repository records; `app/security.py`
   validates repository paths against `ALLOWED_PROJECT_ROOTS`.
 
