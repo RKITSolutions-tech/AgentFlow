@@ -90,6 +90,8 @@ def create_app(config: Config | None = None) -> Flask:
         return project_lock.current(get_db(), project_id)
 
     app.jinja_env.globals["project_lock"] = _project_lock
+    app.jinja_env.globals["project_locks"] = lambda project_id: project_lock.active_locks(get_db(), project_id)
+    app.jinja_env.globals["project_lock_queue"] = lambda project_id: project_lock.waiting(get_db(), project_id)
     app.jinja_env.globals["lock_is_stale"] = project_lock.is_stale
 
     from app.shell import init_shell

@@ -186,7 +186,7 @@ def test_repository_tabs_omitted_when_project_has_no_repository(client):
     project_id = _create_project(client, "Bare")
     tabs = _soup(client.get(f"/projects/{project_id}")).select_one("nav.project-tabs")
     labels = [a.get_text(strip=True) for a in tabs.select("a.tab")]
-    assert labels == ["Overview", "Sessions", "Backlog", "Sprints", "Pipelines", "Ralph", "Artifacts", "Acceptance"]
+    assert labels == ["Overview", "Sessions", "Backlog", "Sprints", "Pipelines", "Ralph", "Artifacts", "Acceptance", "Prompts"]
 
 
 def test_repository_tabs_use_primary_repository_on_overview(client, app):

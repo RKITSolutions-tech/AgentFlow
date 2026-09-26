@@ -1,14 +1,20 @@
-{# Who holds the project's execution lock, if anyone (docs/RUN_AND_RALPH.md §19). #}
-{% macro lock_status(project_id, detail=False) %}
-  {% set held = project_lock(project_id) %}
-  {% if held %}
+{# Who holds the project's execution locks and who is queued (docs/RUN_AND_RALPH.md §19, §22).
+   `advisory` is for pages that do not take the lock themselves (chat, terminal): a warning, not a state. #}
+{% macro lock_status(project_id, detail=False, advisory=False) %}
+  {% set held_locks = project_locks(project_id) %}
+  {% for held in held_locks %}
     {% set stale = lock_is_stale(held) %}
     <p class="lock-status lock-status-{{ 'stale' if stale else 'held' }}" role="status">
       <span class="run-status run-status-{{ 'failed' if stale else 'running' }}">{{ 'Lock stale' if stale else 'Locked' }}</span>
-      {{ held.owner }}
+      {{ held.owner }}{% if held.repository_id is not none %} <span class="form-hint">({{ held.scope }})</span>{% endif %}
+      {% if advisory %}<span class="form-hint">is executing here; changes you make may collide with it.</span>{% endif %}
       {% if detail %}<span class="form-hint">acquired {{ held.acquired_at[:19] }} &middot; heartbeat {{ held.heartbeat_at[:19] }}</span>{% endif %}
     </p>
-  {% elif detail %}
+  {% endfor %}
+  {% if not held_locks and detail %}
     <p class="lock-status form-hint">Not locked: nothing is executing in this project.</p>
   {% endif %}
+  {% for w in project_lock_queue(project_id) %}
+    <p class="lock-status form-hint" role="status" data-lock-waiting>Queued #{{ w.position }}: {{ w.owner }} is waiting for the project.</p>
+  {% endfor %}
 {% endmacro %}

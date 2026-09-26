@@ -151,10 +151,10 @@ def create_run(project_id: int):
         if step["command_redacted"]
     }
     try:
-        _manager().start(run_id, live_commands)
+        queued = _manager().start(run_id, live_commands, wait=request.form.get("wait_for_project") == "on")
     except ValueError as exc:  # LockConflict: the project is busy
         return _reply(project_id, run_id, str(exc), False, 409)
-    return _reply(project_id, run_id, "Run started", True)
+    return _reply(project_id, run_id, "Queued: it starts when the project is free" if queued else "Run started", True)
 
 
 @bp.get("/<int:run_id>")

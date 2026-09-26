@@ -1103,19 +1103,20 @@
         "description": "The project lock is whole-project only and does not cover chat sessions or terminals.",
         "details": "Consider repository or branch scoped locks so independent repositories in one project can run concurrently, and decide whether interactive agent sessions and terminals should take the lock. Add an optional wait-instead-of-fail mode with a queue. Update RUN_AND_RALPH §22 and add tests for conflict, wait and stale takeover.",
         "testStrategy": "",
-        "status": "pending",
+        "status": "done",
         "dependencies": [
           "31"
         ],
         "priority": "low",
-        "subtasks": []
+        "subtasks": [],
+        "updatedAt": "2026-09-26T17:42:00.332Z"
       }
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-09-26T17:02:49.151Z",
+      "lastModified": "2026-09-26T17:42:00.333Z",
       "taskCount": 36,
-      "completedCount": 35,
+      "completedCount": 36,
       "tags": [
         "master"
       ]

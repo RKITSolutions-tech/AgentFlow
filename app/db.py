@@ -370,13 +370,24 @@ CREATE TABLE IF NOT EXISTS project_locks (
     project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
     owner_type TEXT NOT NULL CHECK(owner_type IN ('ralph_run', 'pipeline_run', 'manual_run')),
     owner_id INTEGER NOT NULL,
+    repository_id INTEGER,  -- NULL = the whole project; else only that repository
     acquired_at TEXT NOT NULL,
     heartbeat_at TEXT NOT NULL,
     released_at TEXT,
     status TEXT NOT NULL DEFAULT 'ACTIVE' CHECK(status IN ('ACTIVE', 'STALE', 'RELEASED'))
 );
--- At most one ACTIVE lock per project: the database arbitrates races.
-CREATE UNIQUE INDEX IF NOT EXISTS idx_project_locks_active ON project_locks(project_id) WHERE status = 'ACTIVE';
+-- Runs that chose to wait for a busy project, first come first served (RUN_AND_RALPH §22).
+CREATE TABLE IF NOT EXISTS project_lock_queue (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    repository_id INTEGER,
+    owner_type TEXT NOT NULL CHECK(owner_type IN ('ralph_run', 'pipeline_run', 'manual_run')),
+    owner_id INTEGER NOT NULL,
+    enqueued_at TEXT NOT NULL,
+    polled_at TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'WAITING' CHECK(status IN ('WAITING', 'GRANTED', 'CANCELLED', 'EXPIRED'))
+);
+CREATE INDEX IF NOT EXISTS idx_project_lock_queue_waiting ON project_lock_queue(project_id, status);
 
 -- Prompt library (docs/PHASE2_PLANNING.md §2, PHASED_DELIVERY_PLAN P2.9). Global to
 -- the installation, not per project.
@@ -719,6 +730,8 @@ def _seed_model_catalog(db: sqlite3.Connection) -> None:
 _ADDED_COLUMNS = (
     ("projects", "starred", "INTEGER NOT NULL DEFAULT 0"),
     ("projects", "context_files", "TEXT NOT NULL DEFAULT ''"),
+    ("projects", "lock_scope", "TEXT NOT NULL DEFAULT 'project'"),  # 'project' | 'repository'
+    ("project_locks", "repository_id", "INTEGER"),
     ("ralph_runs", "awaiting_acceptance", "INTEGER NOT NULL DEFAULT 0"),
     ("step_executions", "execution_prompt_id", "INTEGER"),
     ("ralph_iterations", "execution_prompt_id", "INTEGER"),
@@ -734,6 +747,15 @@ def _migrate(db: sqlite3.Connection) -> None:
         existing = {row["name"] for row in db.execute(f"PRAGMA table_info({table})")}
         if existing and column not in existing:  # no columns = table not created yet
             db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+    # At most one ACTIVE lock per scope (the whole project, or one repository): the
+    # database arbitrates races between equal scopes; `lock.acquire` handles
+    # project-vs-repository overlap inside a write transaction.
+    if db.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'project_locks'").fetchone():
+        db.execute("DROP INDEX IF EXISTS idx_project_locks_active")
+        db.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_project_locks_scope "
+            "ON project_locks(project_id, IFNULL(repository_id, 0)) WHERE status = 'ACTIVE'"
+        )
     db.commit()
 
 

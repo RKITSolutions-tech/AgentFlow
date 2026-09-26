@@ -2,8 +2,10 @@
 {% from "_project_tabs.html" import project_tabs %}
 {% block title %}{{ project.name }} - Chat - AgentFlow{% endblock %}
 {% block content_class %} content-fill{% endblock %}
+{% from "projects/_lock.html" import lock_status %}
 {% block content %}
 {{ project_tabs(project, none, 'sessions') }}
+{{ lock_status(project.id, advisory=True) }}
 <div class="chat-page">
   <div>
     <div class="chat-header-row">

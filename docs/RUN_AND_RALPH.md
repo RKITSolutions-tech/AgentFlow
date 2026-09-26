@@ -476,11 +476,10 @@ rest of the app; the task text's SQLAlchemy model is not used).
   every **30 s** on its own connection and releases the lock in its `finally`, whatever
   the outcome (complete, cancel, error). Pausing or blocking a Ralph run ends its
   worker, so it releases the lock; the run resumes by re-acquiring.
-- **Conflict strategy: fail, do not wait.** There is no queueing of runs behind a lock.
+- **Conflict strategy: fail by default; waiting is opt-in (task 36, below).**
   A never-started manual Run is marked `FAILED` and a `PENDING` pipeline execution
   `CANCELLED`, each with the holder in the reason; a Ralph run stays `CREATED` so it can
-  be resumed once the project is free. (Waiting can be added later without changing the
-  lock table.)
+  be resumed once the project is free.
 - **Same owner may re-acquire** (it just refreshes the heartbeat), so a request from the
   owner's own run, such as steering, never fails against its own lock.
 - **Stale threshold: 360 s** (12 missed heartbeats). A stale lock is taken over by the
@@ -493,5 +492,50 @@ rest of the app; the task text's SQLAlchemy model is not used).
   "Lock stale" past the threshold. The sprint queue's `project_busy` treats a held lock
   as busy, and also a *paused or waiting* Ralph run, which has released the lock but
   still owns the working tree.
-- Not done: locking on finer scopes (per repository/branch), and locks around
-  interactive agent chat sessions or terminals.
+
+### Finer-grained locks (task 36)
+
+Assumptions made without the owner in the loop.
+
+- **Scope is a project setting, default unchanged.** `projects.lock_scope` is `project`
+  (whole-project lock, as above) or `repository` (Edit project > "Execution lock").
+  In `repository` mode a Run, pipeline execution or Ralph run locks only the repository it
+  was started on (`project_locks.repository_id`), so independent repositories in one
+  project execute together. It is opt-in because one Project's runs can share things the
+  lock cannot see (a database, a port, a sprint's working assumptions). An execution with
+  no repository still takes the whole project. Branch-level locks were considered and not
+  built: two runs on branches of one repository share a working tree, so a repository is the
+  smallest safe unit until worktrees are used per run.
+- **Overlap rule.** Two locks conflict when either is whole-project or both name the same
+  repository. `lock.acquire` reads the rivals and inserts inside `BEGIN IMMEDIATE`, since the
+  unique index (now `project_id, IFNULL(repository_id, 0)` on ACTIVE rows) only covers
+  equal scopes; it stays as the backstop. Stale takeover, the finished-owner shortcut,
+  same-owner refresh, the sweeper and startup release all work per lock. The sprint
+  queue's `project_busy` takes a repository so a busy repository A does not stop a task for B;
+  the project overview and badges list every held lock with its scope.
+- **Interactive chat sessions and terminals do not take the lock.** They are a person
+  working, and blocking (or being blocked by) a run would make them unusable while Ralph
+  is looping; they are also not owned by a single process the lock could heartbeat. Instead
+  the chat and terminal pages show a "Locked ... is executing here; changes you make may
+  collide" warning through the same badge (`lock_status(..., advisory=True)`). Revisit if
+  terminals should be read-only while a run holds the repository.
+- **Wait instead of fail is per start, opt-in** ("Wait if the project is busy" on the Run,
+  Pipeline and Ralph forms; `wait_for_project=on`; `manager.start(id, wait=True)` returns
+  True when queued). The default is still to fail with the holder named. A waiting run joins
+  `project_lock_queue` synchronously (so the order is the order of requests), its worker
+  thread polls every second (`Ticket.wait`) and takes the lock when no overlapping lock is
+  held and no overlapping waiter is ahead. Overlapping-only means a waiter for repository B
+  does not queue behind one for A, while a whole-project waiter waits for both. A fail-fast
+  request is also refused while overlapping waiters exist, so nobody jumps the queue.
+- **Waiting runs stay in their pre-start state** (Run `CREATED`, execution `PENDING`, Ralph
+  `CREATED`) and the badge shows "Queued #n: <owner> is waiting". Stopping/cancelling one
+  ends it (`CANCELLED`, "Stopped while waiting for the project") and removes it from the queue.
+  After `WAIT_SECONDS` (1 hour) it gives up: a Run fails and an execution is cancelled with the
+  reason, and a Ralph run stays `CREATED`, flagged needing attention, so it can be resumed.
+- **Dead waiters.** A waiter that has not polled for 60 s (its thread died) is expired, and
+  every WAITING entry is expired at app start with the orphan locks, so a crashed process
+  cannot wedge the queue. Sprint automatic mode is unchanged (it still starts a task only
+  when the project is free rather than queueing).
+- Tests: `tests/projects/test_lock_scopes.py` (overlap, stale takeover per scope, races via
+  the index, queue order and fairness, wait/timeout/cancel for Runs, pipelines and Ralph,
+  advisory pages, settings form).

@@ -90,10 +90,11 @@ def start_run(project_id: int):
     except ValueError as exc:
         return _reply(str(exc), False, back)
     try:
-        _manager().start(run_id)
+        queued = _manager().start(run_id, wait=request.form.get("wait_for_project") == "on")
     except ValueError as exc:  # LockConflict: the run stays CREATED and can be resumed
         return _reply(str(exc), False, _detail(project_id, run_id), 409, run_id=run_id, redirect=_detail(project_id, run_id))
-    return _reply("Ralph started", True, _detail(project_id, run_id), run_id=run_id, redirect=_detail(project_id, run_id))
+    return _reply("Queued: Ralph starts when the project is free" if queued else "Ralph started", True,
+                  _detail(project_id, run_id), run_id=run_id, queued=queued, redirect=_detail(project_id, run_id))
 
 
 @bp.get("/<int:run_id>")

@@ -81,9 +81,10 @@ Key modules:
 - `app/sprints/queue.py` — Sprint execution queue (docs/SPRINT_PLANNING_AND_BACKLOG.md §49):
   `planned_work_items.task_state` follows the canonical Task states; release, eligibility,
   `promote_next` (creates the Ralph run) and `sync_from_run` (called by the orchestrator).
-- `app/projects/lock.py` — per-project execution lock (`project_locks`, docs/RUN_AND_RALPH.md
-  §22): managers acquire in `start()` and a `Heartbeat` thread holds it; stale locks are taken
-  over or swept; startup releases all orphans.
+- `app/projects/lock.py` — execution locks (`project_locks`, docs/RUN_AND_RALPH.md §22): whole
+  project or, per `projects.lock_scope`, one repository; managers acquire in `start()` (or queue
+  with `wait=True`, `project_lock_queue`) and a `Heartbeat` thread holds it; stale locks are taken
+  over or swept; startup releases all orphans and queued waiters. Chat/terminals only warn.
 - `app/pipelines/replay.py` — historical replay: `Replayer` folds `pipeline_events` over the
   stored steps (no re-execution); `ReplayController` is the playhead; routes under
   `.../executions/<id>/replay/`.

@@ -9,6 +9,13 @@
     <label>Description
       <textarea name="description" rows="4">{{ project.description }}</textarea>
     </label>
+    <label>Execution lock
+      <select name="lock_scope">
+        <option value="project"{% if project.lock_scope == 'project' %} selected{% endif %}>Whole project: one run at a time</option>
+        <option value="repository"{% if project.lock_scope == 'repository' %} selected{% endif %}>Per repository: runs on different repositories may overlap</option>
+      </select>
+    </label>
+    <p class="form-hint">Only one run may change a repository at a time either way. Chat sessions and terminals never take the lock; they show a warning while a run holds it.</p>
     <button type="submit">Save</button>
   </form>
 {% endblock %}

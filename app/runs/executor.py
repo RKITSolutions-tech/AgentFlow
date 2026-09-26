@@ -36,6 +36,7 @@ class _Active:
     # seq -> unredacted command, held in memory only (never persisted).
     live_commands: dict[int, str] | None = None
     heartbeat: object | None = None
+    ticket: object | None = None  # a place in the lock queue, when started with wait=True
 
 
 def pid_alive(pid: int | None) -> bool:
@@ -89,26 +90,33 @@ class RunManager:
 
     # -- control ---------------------------------------------------------
 
-    def start(self, run_id: int, live_commands: dict[int, str] | None = None) -> None:
+    def start(self, run_id: int, live_commands: dict[int, str] | None = None, wait: bool = False) -> bool:
+        """Run in the background. A busy project fails the Run (LockConflict), or with
+        `wait` queues it: the worker starts when the project is free."""
         with self._lock:
             if run_id in self._active:
                 raise ValueError(f"Run {run_id} is already executing")
-            heartbeat = self._take_lock(run_id)
-            self._active[run_id] = _Active(live_commands=live_commands, heartbeat=heartbeat)
+            heartbeat, ticket = self._take_lock(run_id, wait)
+            self._active[run_id] = _Active(live_commands=live_commands, heartbeat=heartbeat, ticket=ticket)
             thread = threading.Thread(
                 target=self._execute, args=(run_id,), daemon=True, name=f"run-{run_id}"
             )
             self._threads[run_id] = thread
         thread.start()
+        return ticket is not None
 
-    def _take_lock(self, run_id: int) -> lock.Heartbeat:
-        """Own the project while the Run executes. A Run that cannot get it is
-        failed (it never started), and LockConflict reaches the caller."""
+    def _take_lock(self, run_id: int, wait: bool = False):
+        """Own the project (or its repository) while the Run executes. A Run that
+        cannot get it is failed (it never started) and LockConflict reaches the
+        caller, unless `wait` queues it. Returns (heartbeat, ticket)."""
         db = self._connect()
         try:
             run = models.get_run(db, run_id)
             try:
-                return lock.acquire_for_worker(db, self._database_path, run.project_id, "manual_run", run_id)
+                return lock.begin(
+                    db, self._database_path, run.project_id, "manual_run", run_id,
+                    repository_id=lock.scope_for(db, run.project_id, run.repository_id), wait=wait,
+                )
             except lock.LockConflict as exc:
                 if run.status == "CREATED":
                     models.set_run_status(db, run_id, "FAILED", str(exc))
@@ -184,6 +192,16 @@ class RunManager:
         state = self._active[run_id]
         context_id = None
         try:
+            if state.ticket is not None:
+                try:
+                    state.heartbeat = state.ticket.wait(should_stop=lambda: state.stop_requested)
+                except lock.LockConflict as exc:
+                    if state.stop_requested:
+                        models.set_run_status(db, run_id, "CANCELLED", "Stopped while waiting for the project")
+                        models.add_event(db, run_id, "RunCancelled", data="Stopped while waiting for the project")
+                    else:
+                        self._fail_run(db, run_id, str(exc))
+                    return
             run = models.get_run(db, run_id)
             repo = project_models.get_repository(db, run.project_id, run.repository_id)
             if repo is None:

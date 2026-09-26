@@ -24,6 +24,7 @@
     <label>Variables, one <code>key=value</code> per line (used as <code>${vars.key}</code>)
       <textarea name="variables" rows="2"></textarea>
     </label>
+    <label class="backlog-select"><input type="checkbox" name="wait_for_project"> Wait if the project is busy (queue instead of failing)</label>
     <button type="submit" class="btn-primary"{% if not project.repositories %} disabled{% endif %}>Start pipeline</button>
     {% if not project.repositories %}<p class="form-hint">Add a repository to this project first.</p>{% endif %}
   </form>

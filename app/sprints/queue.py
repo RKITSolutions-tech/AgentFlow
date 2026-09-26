@@ -82,18 +82,22 @@ def release_sprint(db: sqlite3.Connection, sprint_id: int) -> int:
     return len(ready)
 
 
-def project_busy(db: sqlite3.Connection, project_id: int) -> str | None:
+def project_busy(db: sqlite3.Connection, project_id: int, repository_id: int | None = None) -> str | None:
     """Why the Project cannot take another run right now (None = free).
 
     The execution lock covers work that is running; paused or waiting Ralph
-    runs release it but still own the working tree, so they count as busy too."""
-    held = lock.current(db, project_id)
+    runs release it but still own the working tree, so they count as busy too.
+    With a `repository_id` on a project that locks per repository, only that
+    repository's lock and runs count."""
+    scope = lock.scope_for(db, project_id, repository_id)
+    held = lock.current(db, project_id, scope)
     if held is not None:
         return f"locked by {held.owner}"
     row = db.execute(
         "SELECT id, status FROM ralph_runs WHERE project_id = ? AND status IN "
-        "('CREATED','RUNNING','VERIFYING','PAUSED','WAITING_FOR_HUMAN') LIMIT 1",
-        (project_id,),
+        "('CREATED','RUNNING','VERIFYING','PAUSED','WAITING_FOR_HUMAN')"
+        + (" AND repository_id = ?" if scope is not None else "") + " LIMIT 1",
+        (project_id, scope) if scope is not None else (project_id,),
     ).fetchone()
     if row:
         return f"Ralph run #{row['id']} is {row['status'].lower().replace('_', ' ')}"
@@ -138,9 +142,6 @@ def promote_next(db: sqlite3.Connection, sprint_id: int, repository_id: int | No
     work = eligible_task(db, sprint_id)
     if work is None:
         raise QueueError("No eligible task: nothing is released, or the rest are waiting on dependencies")
-    busy = project_busy(db, sprint.project_id)
-    if busy:
-        raise QueueError(f"Project is busy: {busy}")
     if repository_id is None:
         project = project_models.get_project(db, sprint.project_id)
         repo = next((r for r in project.repositories if r.is_primary), None) or (
@@ -149,6 +150,9 @@ def promote_next(db: sqlite3.Connection, sprint_id: int, repository_id: int | No
         if repo is None:
             raise QueueError("The project has no repository to run in")
         repository_id = repo.id
+    busy = project_busy(db, sprint.project_id, repository_id)
+    if busy:
+        raise QueueError(f"Project is busy: {busy}")
     pipeline = pipeline or default_pipeline(db, sprint.project_id, work)
     if not pipeline:
         raise QueueError("Choose a verification pipeline: the project has none enabled")

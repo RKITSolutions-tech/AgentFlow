@@ -116,11 +116,12 @@ def start_execution(project_id: int):
     except (LookupError, ValueError) as exc:
         return _reply(str(exc), False, back)
     try:
-        _manager().start(execution_id)
+        queued = _manager().start(execution_id, wait=request.form.get("wait_for_project") == "on")
     except ValueError as exc:  # LockConflict: the project is busy
         return _reply(str(exc), False, back, 409)
     target = url_for("pipelines.view_execution", project_id=project_id, execution_id=execution_id)
-    return _reply("Pipeline started", True, target, execution_id=execution_id, redirect=target)
+    return _reply("Queued: it starts when the project is free" if queued else "Pipeline started", True, target,
+                  execution_id=execution_id, queued=queued, redirect=target)
 
 
 @bp.get("/executions/<int:execution_id>")

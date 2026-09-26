@@ -87,7 +87,11 @@ def edit_project(project_id: int):
             flash("Project name is required.", "error")
             return render_template("projects/edit.html", project=project), 400
 
-        models.update_project(db, project_id, name, description)
+        try:
+            models.update_project(db, project_id, name, description, request.form.get("lock_scope") or None)
+        except ValueError as exc:
+            flash(str(exc), "error")
+            return render_template("projects/edit.html", project=project), 400
         return redirect(url_for("projects.view_project", project_id=project_id))
 
     return render_template("projects/edit.html", project=project)

@@ -58,27 +58,33 @@ class PipelineManager:
             db, self.provider, self._root, self._agent_factory, extra_patterns=self._patterns
         )
 
-    def start(self, execution_id: int) -> None:
-        """Run or resume an execution in the background."""
+    def start(self, execution_id: int, wait: bool = False) -> bool:
+        """Run or resume an execution in the background. A busy project raises
+        LockConflict, or with `wait` queues the execution behind it (returns True)."""
         with self._lock:
             if execution_id in self._threads:
                 raise ValueError(f"Execution {execution_id} is already running")
-        heartbeat = self._take_lock(execution_id)
+        heartbeat, ticket = self._take_lock(execution_id, wait)
         with self._lock:
             thread = threading.Thread(
-                target=self._work, args=(execution_id, heartbeat), daemon=True, name=f"pipeline-{execution_id}"
+                target=self._work, args=(execution_id, heartbeat, ticket), daemon=True, name=f"pipeline-{execution_id}"
             )
             self._threads[execution_id] = thread
         thread.start()
+        return ticket is not None
 
-    def _take_lock(self, execution_id: int) -> lock.Heartbeat:
-        """Own the project while this execution runs; a rival's lock stops a
-        never-started execution (a resumed one stays paused)."""
+    def _take_lock(self, execution_id: int, wait: bool = False):
+        """Own the project (or the execution's repository) while it runs; a rival's
+        lock stops a never-started execution (a resumed one stays paused) unless
+        `wait` queues it. Returns (heartbeat, ticket)."""
         db = self._connect()
         try:
             ex = executions.get_execution(db, execution_id)
             try:
-                return lock.acquire_for_worker(db, self._database_path, ex.project_id, "pipeline_run", execution_id)
+                return lock.begin(
+                    db, self._database_path, ex.project_id, "pipeline_run", execution_id,
+                    repository_id=lock.scope_for(db, ex.project_id, ex.repository_id), wait=wait,
+                )
             except lock.LockConflict:
                 if ex.status == "PENDING":
                     executions.update_execution(db, execution_id, status="CANCELLED")
@@ -86,9 +92,17 @@ class PipelineManager:
         finally:
             db.close()
 
-    def _work(self, execution_id: int, heartbeat: lock.Heartbeat | None = None) -> None:
+    def _work(self, execution_id: int, heartbeat: lock.Heartbeat | None = None, ticket: lock.Ticket | None = None) -> None:
         db = self._connect()
         try:
+            if ticket is not None:
+                try:
+                    heartbeat = ticket.wait(should_stop=lambda: executions.get_execution(db, execution_id).cancel_requested)
+                except lock.LockConflict as exc:
+                    ex = executions.get_execution(db, execution_id)
+                    if ex.status == "PENDING":  # never started: it does not run, and says why
+                        executions.update_execution(db, execution_id, status="CANCELLED", reason=str(exc))
+                    return
             engine = self._engine(db)
             with self._lock:
                 self._engines[execution_id] = engine

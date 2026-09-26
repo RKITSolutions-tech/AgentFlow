@@ -2,8 +2,10 @@
 {% from "workspace/_nav.html" import workspace_nav %}
 {% block title %}{{ repo.name }} - Terminal{% endblock %}
 {% block content_class %} content-fill{% endblock %}
+{% from "projects/_lock.html" import lock_status %}
 {% block content %}
   {{ workspace_nav(project, repo, 'terminal') }}
+  {{ lock_status(project.id, advisory=True) }}
   <h1>{{ repo.name }} - Terminal</h1>
 
 

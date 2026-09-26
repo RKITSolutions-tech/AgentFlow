@@ -31,6 +31,7 @@ class Project:
     repositories: list[Repository]
     starred: bool = False
     context_files: str = ""  # newline-separated globs; blank = discover CLAUDE.md / AGENTS.md
+    lock_scope: str = "project"  # "repository": runs on different repositories may execute together
 
     @property
     def archived(self) -> bool:
@@ -56,13 +57,18 @@ def create_project(db: sqlite3.Connection, name: str, description: str = "") -> 
     return cur.lastrowid
 
 
+LOCK_SCOPES = ("project", "repository")
+
+
 def update_project(
-    db: sqlite3.Connection, project_id: int, name: str, description: str
+    db: sqlite3.Connection, project_id: int, name: str, description: str, lock_scope: str | None = None
 ) -> None:
+    if lock_scope is not None and lock_scope not in LOCK_SCOPES:
+        raise ValueError(f"Lock scope must be one of {', '.join(LOCK_SCOPES)}")
     db.execute(
-        "UPDATE projects SET name = ?, description = ?, updated_at = datetime('now') "
-        "WHERE id = ?",
-        (name, description, project_id),
+        "UPDATE projects SET name = ?, description = ?, lock_scope = COALESCE(?, lock_scope), "
+        "updated_at = datetime('now') WHERE id = ?",
+        (name, description, lock_scope, project_id),
     )
     db.commit()
 
@@ -227,4 +233,5 @@ def _hydrate_project(db: sqlite3.Connection, row: sqlite3.Row) -> Project:
         repositories=repositories,
         starred=bool(row["starred"]),
         context_files=row["context_files"],
+        lock_scope=row["lock_scope"],
     )

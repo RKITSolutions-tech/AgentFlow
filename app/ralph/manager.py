@@ -27,8 +27,9 @@ class RalphManager:
         engine = PipelineEngine(db, p.provider, p._root, p._agent_factory, extra_patterns=p._patterns)
         return RalphOrchestrator(db, p.provider, engine, p._agent_factory, p._patterns)
 
-    def start(self, run_id: int) -> None:
-        """Run or resume a run in the background."""
+    def start(self, run_id: int, wait: bool = False) -> bool:
+        """Run or resume a run in the background. A busy project raises LockConflict
+        (a ValueError), or with `wait` queues the run behind it."""
         with self._lock:
             if run_id in self._threads:
                 raise ValueError(f"Ralph run {run_id} is already executing")
@@ -36,17 +37,27 @@ class RalphManager:
         try:
             run = models.get_run(db, run_id)
             # Raises LockConflict (a ValueError) if another run owns the project.
-            heartbeat = lock.acquire_for_worker(db, self._pipelines._database_path, run.project_id, "ralph_run", run_id)
+            heartbeat, ticket = lock.begin(
+                db, self._pipelines._database_path, run.project_id, "ralph_run", run_id,
+                repository_id=lock.scope_for(db, run.project_id, run.repository_id), wait=wait,
+            )
         finally:
             db.close()
         with self._lock:
-            thread = threading.Thread(target=self._work, args=(run_id, heartbeat), daemon=True, name=f"ralph-{run_id}")
+            thread = threading.Thread(target=self._work, args=(run_id, heartbeat, ticket), daemon=True, name=f"ralph-{run_id}")
             self._threads[run_id] = thread
         thread.start()
+        return ticket is not None
 
-    def _work(self, run_id: int, heartbeat: lock.Heartbeat | None = None) -> None:
+    def _work(self, run_id: int, heartbeat: lock.Heartbeat | None = None, ticket: lock.Ticket | None = None) -> None:
         db = self._connect()
         try:
+            if ticket is not None:
+                try:
+                    heartbeat = ticket.wait(should_stop=lambda: bool(models.get_run(db, run_id).cancel_requested))
+                except lock.LockConflict as exc:
+                    self._gave_up_waiting(db, run_id, str(exc))
+                    return
             self.orchestrator(db).run(run_id)
         finally:
             if heartbeat is not None:
@@ -55,6 +66,16 @@ class RalphManager:
                 self._threads.pop(run_id, None)
             db.close()
         self._advance_sprint(run_id)
+
+    def _gave_up_waiting(self, db: sqlite3.Connection, run_id: int, reason: str) -> None:
+        """A queued run never got the project: cancelled if a person stopped it,
+        otherwise left CREATED (resumable) with the reason and needing attention."""
+        run = models.get_run(db, run_id)
+        if run.cancel_requested:
+            models.update_run(db, run_id, status="CANCELLED", reason="Stopped while waiting for the project", completed_at=_now())
+        else:
+            models.update_run(db, run_id, reason=reason, needs_attention=1)
+        queue.sync_from_run(db, run_id)
 
     def _advance_sprint(self, run_id: int) -> None:
         """Automatic sprint mode: hand the project to the next eligible task."""
