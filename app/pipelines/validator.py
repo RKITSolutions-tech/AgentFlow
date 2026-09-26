@@ -57,6 +57,16 @@ def validate(definition: dict, resolver: Callable[[str], dict | None] | None = N
             errors.append(f"Element {el['name']!r}: compensation step {step!r} does not exist")
         errors += _check_references(el, resolver)
 
+    phase_of = {
+        e["name"]: schema.PHASES.index(e.get("phase", "MAIN"))
+        for e in elements
+        if isinstance(e, dict) and e.get("phase", "MAIN") in schema.PHASES and isinstance(e.get("name"), str)
+    }
+    for name_, deps_ in graph.items():
+        for dep in deps_:
+            if phase_of.get(dep, 0) > phase_of.get(name_, 0):
+                errors.append(f"Element {name_!r} depends on {dep!r}, which runs in a later phase")
+
     cycle = _find_cycle(graph)
     if cycle:
         errors.append("Dependency cycle: " + " -> ".join(cycle))

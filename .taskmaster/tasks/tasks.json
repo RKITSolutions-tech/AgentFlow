@@ -735,11 +735,12 @@
         "dependencies": [
           "21"
         ],
-        "status": "pending",
+        "status": "done",
         "subtasks": [],
         "complexity": 8,
         "recommendedSubtasks": 6,
-        "expansionPrompt": "Break down pipeline execution engine into focused implementation tasks: (1) Design and implement PipelineExecutor class with state management (current_step_id, step_results), dependency resolution using topological sort, and step sequencing logic (sequential/parallel with constraints); (2) Implement rigging support: execute setup steps before first step, teardown on completion/error, with proper error handling; (3) Create StepExecutor subclasses (TaskStepExecutor, CommandStepExecutor, ApprovalStepExecutor, SubPipelineExecutor) with appropriate execution logic and output capture; (4) Implement approval gate pausing/resuming: persist execution state, allow operator approval via UI, resume from checkpoint; (5) Implement compensation strategies: retry with exponential backoff, skip failures, abort on critical errors, timeout detection with no-progress monitoring; (6) Write comprehensive unit tests for step sequencing, rigging, approval gates, compensation retry logic, timeout handling, and integration tests with FakeAgentAdapter and state restoration testing."
+        "expansionPrompt": "Break down pipeline execution engine into focused implementation tasks: (1) Design and implement PipelineExecutor class with state management (current_step_id, step_results), dependency resolution using topological sort, and step sequencing logic (sequential/parallel with constraints); (2) Implement rigging support: execute setup steps before first step, teardown on completion/error, with proper error handling; (3) Create StepExecutor subclasses (TaskStepExecutor, CommandStepExecutor, ApprovalStepExecutor, SubPipelineExecutor) with appropriate execution logic and output capture; (4) Implement approval gate pausing/resuming: persist execution state, allow operator approval via UI, resume from checkpoint; (5) Implement compensation strategies: retry with exponential backoff, skip failures, abort on critical errors, timeout detection with no-progress monitoring; (6) Write comprehensive unit tests for step sequencing, rigging, approval gates, compensation retry logic, timeout handling, and integration tests with FakeAgentAdapter and state restoration testing.",
+        "updatedAt": "2026-09-26T11:15:50.108Z"
       },
       {
         "id": "23",
@@ -946,9 +947,9 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-09-26T11:09:38.171Z",
+      "lastModified": "2026-09-26T11:15:50.108Z",
       "taskCount": 26,
-      "completedCount": 21,
+      "completedCount": 22,
       "tags": [
         "master"
       ]

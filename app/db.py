@@ -401,6 +401,64 @@ CREATE TABLE IF NOT EXISTS pipeline_elements (
     UNIQUE(version_id, name)
 );
 
+CREATE TABLE IF NOT EXISTS pipeline_executions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pipeline_id INTEGER NOT NULL REFERENCES pipelines(id) ON DELETE CASCADE,
+    pipeline_version INTEGER NOT NULL,
+    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    repository_id INTEGER REFERENCES repositories(id) ON DELETE SET NULL,
+    sprint_id INTEGER REFERENCES sprints(id) ON DELETE SET NULL,
+    parent_execution_id INTEGER REFERENCES pipeline_executions(id) ON DELETE SET NULL,
+    run_id INTEGER,
+    status TEXT NOT NULL DEFAULT 'PENDING' CHECK(status IN ('PENDING', 'RUNNING', 'PAUSED', 'COMPLETED', 'FAILED', 'CANCELLED')),
+    reason TEXT NOT NULL DEFAULT '',
+    resolved_configuration TEXT NOT NULL DEFAULT '{}',
+    variables TEXT NOT NULL DEFAULT '{}',
+    cursor INTEGER NOT NULL DEFAULT 0,
+    waiting_step_id INTEGER,
+    loops TEXT NOT NULL DEFAULT '{}',
+    resources TEXT NOT NULL DEFAULT '[]',
+    context_id INTEGER,
+    warnings INTEGER NOT NULL DEFAULT 0,
+    needs_attention INTEGER NOT NULL DEFAULT 0,
+    cancel_requested INTEGER NOT NULL DEFAULT 0,
+    started_at TEXT,
+    completed_at TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_pipeline_exec_project ON pipeline_executions(project_id, status);
+
+CREATE TABLE IF NOT EXISTS step_executions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    execution_id INTEGER NOT NULL REFERENCES pipeline_executions(id) ON DELETE CASCADE,
+    element_name TEXT NOT NULL,
+    element_type TEXT NOT NULL,
+    phase TEXT NOT NULL DEFAULT 'MAIN',
+    attempt INTEGER NOT NULL DEFAULT 1,
+    status TEXT NOT NULL DEFAULT 'PENDING' CHECK(status IN ('PENDING', 'RUNNING', 'WAITING', 'PASSED', 'FAILED', 'SKIPPED', 'DISABLED', 'CANCELLED', 'TIMED_OUT')),
+    input_reference TEXT NOT NULL DEFAULT '',
+    result_summary TEXT NOT NULL DEFAULT '',
+    error_summary TEXT NOT NULL DEFAULT '',
+    raw_data_reference TEXT NOT NULL DEFAULT '',
+    exit_code INTEGER,
+    process_id INTEGER,
+    session_id INTEGER,
+    redacted INTEGER NOT NULL DEFAULT 0,
+    started_at TEXT,
+    completed_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_step_exec_execution ON step_executions(execution_id, id);
+
+CREATE TABLE IF NOT EXISTS pipeline_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    execution_id INTEGER NOT NULL REFERENCES pipeline_executions(id) ON DELETE CASCADE,
+    step_execution_id INTEGER REFERENCES step_executions(id) ON DELETE CASCADE,
+    event_type TEXT NOT NULL,
+    data TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_pipeline_events_execution ON pipeline_events(execution_id, id);
+
 CREATE TABLE IF NOT EXISTS sprint_approvals (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     sprint_id INTEGER NOT NULL REFERENCES sprints(id) ON DELETE CASCADE,

@@ -47,6 +47,10 @@ def create_app(config: Config | None = None) -> Flask:
 
         seed_builtins(get_db())
 
+    from app.pipelines.manager import PipelineManager
+
+    app.extensions["pipeline_manager"] = PipelineManager(app.config)
+
     from app.shell import init_shell
 
     init_shell(app)

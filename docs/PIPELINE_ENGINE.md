@@ -522,3 +522,51 @@ recommendations to confirm.
   dependencies waits for the parent's dependencies, and dependants of the
   parent wait for all its children. Recursion and nesting deeper than 5 are
   rejected. Cross-pipeline (sub-pipeline) validation only checks existence.
+
+### Execution engine (task 22)
+
+- `PipelineEngine` (`app/pipelines/engine.py`) is synchronous and re-entrant;
+  `PipelineManager` runs one worker thread per execution
+  (`app.extensions["pipeline_manager"]`). All state is in SQLite:
+  `pipeline_executions` (frozen composed elements in `resolved_configuration`,
+  a `cursor`, loop counters, registered `resources`, the `waiting_step_id`),
+  `step_executions` (one row **per attempt**, so retries and loops keep their
+  evidence) and `pipeline_events` (the §18 names). Nothing is held in memory
+  that a restart would lose, apart from the running process itself.
+- Order: SETUP then MAIN elements (topologically ordered, sequence order
+  wins), then TEARDOWN with finally-semantics: it always runs, and its
+  failures only add warnings. Started processes register as `resources` and are
+  stopped at the end even if no PROCESS_STOP ran.
+- A step whose dependency did not pass (for example a `CONTINUE`d failure) is
+  `SKIPPED`, not run. Sibling steps with `depends_on: []` still run, and the
+  execution completes with a warning count (§14 "completes with warnings").
+- Retry (`attempts`/`delay_seconds`/`backoff`) happens before the compensation
+  action. `LOOP` counts loop-backs per failing step against `max_loops` and
+  adds **no-progress detection**: two consecutive failures with identical
+  output stop the loop. Ralph's cross-iteration no-progress detection (task 23)
+  is separate, as §14 requires.
+- Manual steps (`MANUAL_APPROVAL/INPUT/REVIEW`) pause the execution
+  (`PAUSED`, step `WAITING`) with no thread held; `resolve_manual` +
+  `run` resumes. REJECTED fails the step, so a review's `LOOP` policy gives
+  the "request changes" path of §16. A MANUAL_INPUT's value is the step output,
+  usable as `${steps.<name>.output}`. Cancelling a paused execution runs its
+  teardown and marks the waiting step `CANCELLED`.
+- Supported element types: all command-like types run through the
+  ExecutionProvider (`COMMAND`, `TEST`, `PLAYWRIGHT`, `GIT`, `SCREENSHOT`,
+  `ACCEPTANCE`, `DOCKER_COMMAND`, `DOCKER_COMPOSE`, `SSH_COMMAND`,
+  `FILE_OPERATION` - each needs `config.command`), plus `AGENT`,
+  `PROCESS_START/STOP`, `HEALTHCHECK` (URL or command), `HTTP_REQUEST`, `WAIT`,
+  `FILE_CHECK` and `ARTIFACT_CAPTURE`. SSH and Docker are plain commands for
+  now; dedicated Resources (§13) and a DockerExecutionProvider are later work.
+- Variables: `${project.path}`, `${project.id}`, `${execution.id}`, `${run.id}`,
+  `${sprint.id}`, `${vars.KEY}` and `${steps.NAME.exit_code|process_id|output}`.
+  An unknown variable fails the step rather than running with a hole in it.
+- AGENT steps start an `AgentAdapter` session; the **effective prompt is stored
+  as the step's `input_reference`** and the reply as its result. Until the
+  prompt library exists (P2.9) `prompt_template` names come from a small
+  built-in table (`implement-task`, `verify-acceptance`).
+- Outputs are redacted before storage; full logs are files under
+  `<artifact root>/pipelines/<execution>/`, referenced by `raw_data_reference`.
+- `STOP_AND_MESSAGE` sets `needs_attention` and records an
+  `InterventionRequested` event. The existing notification table is
+  session-scoped, so wiring these into notifications waits for the UI (task 24).
