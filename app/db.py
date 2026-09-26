@@ -362,6 +362,45 @@ CREATE TABLE IF NOT EXISTS sprint_readiness_checks (
     checked_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS pipelines (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER REFERENCES projects(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    type TEXT NOT NULL DEFAULT 'CUSTOM',
+    enabled INTEGER NOT NULL DEFAULT 1,
+    current_version INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_pipelines_project_name ON pipelines(project_id, name);
+
+CREATE TABLE IF NOT EXISTS pipeline_versions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pipeline_id INTEGER NOT NULL REFERENCES pipelines(id) ON DELETE CASCADE,
+    version INTEGER NOT NULL,
+    note TEXT NOT NULL DEFAULT '',
+    created_by TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    UNIQUE(pipeline_id, version)
+);
+
+CREATE TABLE IF NOT EXISTS pipeline_elements (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    version_id INTEGER NOT NULL REFERENCES pipeline_versions(id) ON DELETE CASCADE,
+    sequence INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    element_type TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    enabled TEXT NOT NULL DEFAULT 'ENABLED' CHECK(enabled IN ('ENABLED', 'DISABLED', 'SKIPPED')),
+    phase TEXT NOT NULL DEFAULT 'MAIN' CHECK(phase IN ('SETUP', 'MAIN', 'TEARDOWN')),
+    configuration TEXT NOT NULL DEFAULT '{}',
+    compensation_policy TEXT NOT NULL DEFAULT '{}',
+    depends_on TEXT,
+    created_at TEXT NOT NULL,
+    UNIQUE(version_id, name)
+);
+
 CREATE TABLE IF NOT EXISTS sprint_approvals (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     sprint_id INTEGER NOT NULL REFERENCES sprints(id) ON DELETE CASCADE,

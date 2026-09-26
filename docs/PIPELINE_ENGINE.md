@@ -478,3 +478,47 @@ Phase 2 expands the Pipeline Engine into a core orchestration environment:
 - historical replay
 - richer artifacts
 - future visual authoring foundations
+
+## 22. Implementation Decisions (Phase 2, autonomous assumptions)
+
+Made without the owner in the loop while building tasks 21-22; treat as
+recommendations to confirm.
+
+### Definition format and storage (task 21)
+
+- Definitions are JSON-shaped dicts (`app/pipelines/schema.py` documents the
+  shape), not YAML: PyYAML is not a dependency and §3 makes SQLite the source of
+  truth. YAML import/export can be added later without a schema change.
+- Storage follows §3/§5/§17: `pipelines` (identity; `project_id` NULL = shared
+  built-in), `pipeline_versions` (append-only; an edit is a new version, history
+  is never rewritten) and `pipeline_elements` (one row per element per version,
+  with `configuration`, `compensation_policy` and `depends_on` as JSON).
+- A project pipeline shadows a shared built-in of the same name. Built-ins live
+  in `app/pipelines/definitions/*.json` and are installed idempotently at app
+  start (`seed_builtins`): `standard-git-preparation`, `standard-cleanup`
+  (reusable sub-pipelines) and the profiles `web-feature`, `backend-only`,
+  `documentation-only`. Existing built-ins are never overwritten.
+- Element `phase` (`SETUP`, `MAIN`, `TEARDOWN`) models rigging: SETUP runs
+  first, TEARDOWN always runs last ("finally", §15). This replaces the
+  `rigging.setup/teardown` blocks in the task text.
+- `depends_on` is optional. When omitted, an element implicitly follows the
+  previous element **of the same phase**, so a plain list reads as linear (§2).
+  Explicit `depends_on` (a list of element names, possibly empty) is stored as
+  given, and the model does not preclude future parallelism.
+- Approval elements use the design's `MANUAL_APPROVAL/INPUT/REVIEW` types, and
+  there is no `required_approvers` list: AgentFlow has no user model yet.
+- Compensation actions are the §14 set (`STOP`, `STOP_AND_MESSAGE`, `CONTINUE`,
+  `RUN_STEP`, `LOOP`, `START_PIPELINE`), not the task's retry/skip/abort. Retry
+  is the orthogonal `attempts`/`delay_seconds`/`backoff` (`fixed|exponential`)
+  policy of §15 and applies before the action. `LOOP` requires a target `step`
+  and `max_loops` (1-20).
+- A `DISABLED` element is skipped in the main sequence but may still be invoked
+  as a `RUN_STEP` compensation, so evidence-capture steps can stay out of the
+  happy path.
+- `SUB_PIPELINE` elements reference another pipeline by name
+  (`config.pipeline`); the reference is never copied into storage. `flatten`
+  (`composer.py`) expands references at run time: child names become
+  `<parent>.<child>`, children take the parent's phase, a child with no
+  dependencies waits for the parent's dependencies, and dependants of the
+  parent wait for all its children. Recursion and nesting deeper than 5 are
+  rejected. Cross-pipeline (sub-pipeline) validation only checks existence.

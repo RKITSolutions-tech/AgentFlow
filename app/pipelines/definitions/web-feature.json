@@ -1,0 +1,21 @@
+{
+  "name": "web-feature",
+  "type": "DEVELOPMENT",
+  "description": "Web feature: start the app, implement, run unit and browser tests, capture evidence.",
+  "elements": [
+    {"name": "prepare", "type": "SUB_PIPELINE", "phase": "SETUP", "config": {"pipeline": "standard-git-preparation"}},
+    {"name": "start_app", "type": "PROCESS_START", "phase": "SETUP", "config": {"command": "flask --app wsgi run"},
+     "compensation": {"action": "STOP_AND_MESSAGE"}},
+    {"name": "health", "type": "HEALTHCHECK", "phase": "SETUP", "config": {"url": "http://127.0.0.1:5000/health"},
+     "compensation": {"action": "LOOP", "step": "health", "max_loops": 5}},
+    {"name": "implement", "type": "AGENT", "config": {"role": "IMPLEMENTATION", "prompt_template": "implement-task"}},
+    {"name": "unit_tests", "type": "TEST", "config": {"command": "pytest -q"},
+     "compensation": {"action": "LOOP", "step": "implement", "max_loops": 3}},
+    {"name": "browser_tests", "type": "PLAYWRIGHT", "config": {"command": "pytest -q tests/e2e"},
+     "compensation": {"action": "RUN_STEP", "step": "capture_evidence"}},
+    {"name": "capture_evidence", "type": "SCREENSHOT", "enabled": "DISABLED", "config": {"path": "artifacts/screens"},
+     "depends_on": ["browser_tests"]},
+    {"name": "commit", "type": "GIT", "config": {"command": "git commit -am"}},
+    {"name": "cleanup", "type": "SUB_PIPELINE", "phase": "TEARDOWN", "config": {"pipeline": "standard-cleanup"}}
+  ]
+}

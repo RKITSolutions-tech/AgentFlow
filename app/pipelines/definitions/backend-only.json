@@ -1,0 +1,12 @@
+{
+  "name": "backend-only",
+  "type": "DEVELOPMENT",
+  "description": "Implement, then verify with the unit tests; no browser.",
+  "elements": [
+    {"name": "prepare", "type": "SUB_PIPELINE", "config": {"pipeline": "standard-git-preparation"}},
+    {"name": "implement", "type": "AGENT", "config": {"role": "IMPLEMENTATION", "prompt_template": "implement-task"}},
+    {"name": "unit_tests", "type": "TEST", "config": {"command": "pytest -q"},
+     "compensation": {"action": "LOOP", "step": "implement", "max_loops": 3}},
+    {"name": "commit", "type": "GIT", "config": {"command": "git commit -am"}}
+  ]
+}

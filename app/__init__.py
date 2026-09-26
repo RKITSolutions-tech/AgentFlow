@@ -40,6 +40,13 @@ def create_app(config: Config | None = None) -> Flask:
     app.register_blueprint(sprints_bp)
     app.extensions["run_manager"].reconcile()
 
+    from app.pipelines.persistence import seed_builtins
+
+    with app.app_context():
+        from app.db import get_db
+
+        seed_builtins(get_db())
+
     from app.shell import init_shell
 
     init_shell(app)

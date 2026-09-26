@@ -1,0 +1,10 @@
+{
+  "name": "standard-git-preparation",
+  "type": "SETUP",
+  "description": "Reusable: confirm a clean checkout before work starts.",
+  "elements": [
+    {"name": "clean_tree", "type": "GIT", "description": "Working tree must be clean",
+     "config": {"command": "git status --porcelain", "expect_empty": true},
+     "compensation": {"action": "STOP_AND_MESSAGE"}}
+  ]
+}

@@ -718,11 +718,12 @@
         "dependencies": [
           "19"
         ],
-        "status": "pending",
+        "status": "done",
         "subtasks": [],
         "complexity": 6,
         "recommendedSubtasks": 5,
-        "expansionPrompt": "Break down pipeline data model and format implementation into: (1) Define YAML/JSON schema in app/pipelines/schema.py with clear structure for steps, dependencies, compensation strategies, and rigging setup/teardown; (2) Create SQLAlchemy models (Pipeline, PipelineRun, PipelineStep, SubPipeline) with proper relationships, status enums, and JSON configuration storage; (3) Implement PipelineValidator to check step references, detect dependency cycles (DAG validation), validate required fields, and enforce schema constraints; (4) Implement PipelineComposer for SubPipeline expansion and composition into executable steps; (5) Write comprehensive unit tests covering schema validation, pipeline parsing (YAML/JSON), DAG cycle detection, SubPipeline composition, and compensation config preservation."
+        "expansionPrompt": "Break down pipeline data model and format implementation into: (1) Define YAML/JSON schema in app/pipelines/schema.py with clear structure for steps, dependencies, compensation strategies, and rigging setup/teardown; (2) Create SQLAlchemy models (Pipeline, PipelineRun, PipelineStep, SubPipeline) with proper relationships, status enums, and JSON configuration storage; (3) Implement PipelineValidator to check step references, detect dependency cycles (DAG validation), validate required fields, and enforce schema constraints; (4) Implement PipelineComposer for SubPipeline expansion and composition into executable steps; (5) Write comprehensive unit tests covering schema validation, pipeline parsing (YAML/JSON), DAG cycle detection, SubPipeline composition, and compensation config preservation.",
+        "updatedAt": "2026-09-26T11:09:38.171Z"
       },
       {
         "id": "22",
@@ -945,9 +946,9 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-09-26T11:08:30.678Z",
+      "lastModified": "2026-09-26T11:09:38.171Z",
       "taskCount": 26,
-      "completedCount": 20,
+      "completedCount": 21,
       "tags": [
         "master"
       ]

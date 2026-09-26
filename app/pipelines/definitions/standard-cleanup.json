@@ -1,0 +1,9 @@
+{
+  "name": "standard-cleanup",
+  "type": "TEARDOWN",
+  "description": "Reusable: stop anything the pipeline started.",
+  "elements": [
+    {"name": "stop_app", "type": "PROCESS_STOP", "config": {"process": "app"},
+     "compensation": {"action": "CONTINUE"}}
+  ]
+}

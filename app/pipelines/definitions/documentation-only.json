@@ -1,0 +1,11 @@
+{
+  "name": "documentation-only",
+  "type": "DEVELOPMENT",
+  "description": "Write documentation and have a person review it.",
+  "elements": [
+    {"name": "write_docs", "type": "AGENT", "config": {"role": "IMPLEMENTATION", "prompt_template": "implement-task"}},
+    {"name": "review", "type": "MANUAL_REVIEW", "config": {"prompt": "Review the documentation changes"},
+     "compensation": {"action": "LOOP", "step": "write_docs", "max_loops": 3}},
+    {"name": "commit", "type": "GIT", "config": {"command": "git commit -am"}}
+  ]
+}
