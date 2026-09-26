@@ -11,6 +11,10 @@
   <p class="form-hint">Profile: {{ sprint.planning_profile|replace('_', ' ')|capitalize }}{% if sprint.target_date %} &middot; target {{ sprint.target_date }}{% endif %}
     {% if sprint.approved_at %} &middot; approved by {{ sprint.approved_by }} on {{ sprint.approved_at[:10] }}{% endif %}</p>
 
+  {% if sprint.status in ('READY', 'EXECUTING', 'VERIFYING', 'COMPLETE') %}
+    <p><a class="btn-primary" href="{{ url_for('sprints.queue_view', project_id=project.id, sprint_id=sprint.id) }}">Execution queue</a></p>
+  {% endif %}
+
   {% set locked = sprint.status not in ('DRAFT', 'PLANNING', 'REVIEW') %}
 
   <h2>Backlog items</h2>
@@ -150,10 +154,6 @@
       <label>Reason <input name="comment" maxlength="500"></label>
       <button type="submit">Revoke approval</button>
     </form>
-  {% endif %}
-
-  {% if sprint.status in ('READY', 'EXECUTING', 'VERIFYING', 'COMPLETE') %}
-    <p><a class="btn-primary" href="{{ url_for('sprints.queue_view', project_id=project.id, sprint_id=sprint.id) }}">Execution queue</a></p>
   {% endif %}
 
   {% if approvals %}

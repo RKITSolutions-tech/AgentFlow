@@ -386,7 +386,9 @@ th { color: var(--text-muted); font-weight: 600; font-size: 0.85rem; }
   font: inherit;
 }
 .link-danger:hover { background: none; }
-@media (pointer: fine) {
+/* Dense rows only where there is room and a precise pointer; a narrow window is
+   still touch-sized (the Phase 2 browser pass caught 15px Delete buttons at 375px). */
+@media (pointer: fine) and (min-width: 861px) {
   .table-compact .link-danger,
   .table-compact .row-actions a { min-height: 0; }
 }
@@ -933,3 +935,16 @@ fieldset { min-width: 0; }
 .fragment-picker { display: grid; gap: var(--space-2, 0.5rem); border: 1px solid var(--border); border-radius: var(--radius); }
 @media (min-width: 861px) { .block-item { grid-template-columns: auto 1fr auto; } .block-item .row-actions { grid-column: auto; } }
 
+/* Touch targets: on narrow or touch screens every control in the page body is
+   at least --tap tall (CLAUDE.md UI rules). Found by the Phase 2 browser pass. */
+@media (max-width: 860px), (pointer: coarse) {
+  main button,
+  main select,
+  main summary,
+  main input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]),
+  main .btn-primary,
+  main button.link-danger,
+  main .row-actions a { min-height: var(--tap); }
+  main .row-actions a, main .btn-primary { display: inline-flex; align-items: center; }
+}
+.queue-waiting { display: block; }

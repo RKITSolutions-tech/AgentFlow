@@ -131,3 +131,32 @@ Implementation decisions made without the owner in the loop; recommendations to 
   `.table-compact`/`.row-actions`, and controls are 44px on touch.
 - Not done: a project-level context-file setting (`CLAUDE.md`/`AGENTS.md` discovery, §2), a
   browsable list of recorded prompts, per-template usage counts, import/export.
+
+
+## 9. Phase 2 real-browser verification (task 31)
+
+Run with Playwright/Chromium against a live server (`tests/test_phase2_ui_verification.py`,
+helpers `assert_no_horizontal_overflow`, `assert_touch_target_size`,
+`assert_viewport_layout_switches`, `watch_console` in `tests/conftest.py`). It visits 18 Phase 2
+pages (backlog, sprints, queue, pipelines + execution, Ralph, artifacts, acceptance, prompt
+library) at 375px and 1280px with console/JS errors captured, then drives the shared
+JavaScript. Firefox/WebKit were not run; the suite uses Chromium only.
+
+| # | Where (viewport) | Element | Defect | Sev. | Fix / guard |
+| --- | --- | --- | --- | --- | --- |
+| 1 | every `data-ajax-form` (any) | `app.js` | Two document-level `submit` handlers matched the same form, so it POSTed twice (double-created records) | high | file-browser handler removed; `test_ajax_form_submits_exactly_once` |
+| 2 | project overview and most pages (375) | buttons, inputs, `.row-actions a` | 17-29px tall, under the 44px touch target | medium | one `max-width: 860px / pointer: coarse` rule; every-page test asserts 44px |
+| 3 | prompt library, any dense table (375) | `.link-danger` Delete | 15px: the "fine pointer" dense-row rule applied to narrow windows too | medium | rule limited to `min-width: 861px` |
+| 4 | Ralph run and any `data-autorefresh` page | steering textarea | Auto-reload every 3s discarded what was being typed | medium | reload deferred while a control has focus/unsaved text; `test_autorefresh_waits_while_the_user_is_typing` |
+| 5 | prompt template form (any) | preview variables | Input sat inside the hidden preview section, so it could not be filled before the first preview | medium | moved out of the hidden block; caught by the library viewport test |
+| 6 | sprint queue (375) | task table | Five columns clipped the Release / Run actions off-screen | medium | three columns; waiting-on note moved under the title |
+| 7 | AJAX buttons/forms (any) | error toast | A 500 / HTML reply flashed "Unexpected token '<'..." | low | shared `agentflowReadJson`; `test_non_json_error_response_shows_a_readable_message` |
+| 8 | `app.js` | markdown placeholders | Four literal NUL bytes made grep/diff treat the file as binary | low | `\u0000` escapes; `test_static_javascript_has_no_control_characters` |
+| 9 | execution replay (375) | replay controls | Panel sat below the tall inspector, out of sight of the graph it drives | low | moved above the graph |
+| 10 | sprint detail (375) | Execution queue link | Buried under the task graph | low | moved to the header |
+| 11 | `pipeline.js`, `agentflowFlash` | initial graph fetch, flash | Unhandled rejection on a failed fetch; flash threw without `main.content` | low | catch + null guard (no browser test: needs a failing network) |
+| 12 | sidebar drawer (375) | focus | Focus was not moved into / back out of the drawer | low | focus first link on open, toggle on close (enhancement, not a regression) |
+
+Known and not fixed: the sidebar's Backlog / Sprints / Runs entries are disabled
+placeholders (they need a project, and the project tabs already reach those pages), and the
+graph and replay have not been run in Firefox or WebKit or on a real touch device.

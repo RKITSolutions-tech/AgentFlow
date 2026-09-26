@@ -548,9 +548,8 @@ confirm.
 - CSV export prefixes cells beginning with `= + - @` with `'` so command output
   cannot become a spreadsheet formula.
 - The mobile/desktop layout tests (`tests/test_backlog_sprint_viewports.py`) skip
-  where Playwright or a browser is missing, which is the case in the
-  environment these tasks were built in; the front-end JavaScript has only had
-  a syntax check, so it needs a real browser pass.
+  where Playwright or a browser is missing. The front-end JavaScript has since had a
+  real-browser pass (Chromium, 375px and 1280px; PHASE2_PLANNING §9).
 
 ### Artifact library (task 25)
 

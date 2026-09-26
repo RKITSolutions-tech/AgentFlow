@@ -104,3 +104,56 @@ def live_server(app):
     yield f"http://127.0.0.1:{thread.port}"
     thread.shutdown()
     thread.join(timeout=5)
+
+
+# -- real-browser assertions shared by the Phase 2 UI verification tests ----------------------
+
+MOBILE = {"width": 375, "height": 667}
+DESKTOP = {"width": 1280, "height": 800}
+MIN_TAP = 44
+_TAP_SELECTOR = (
+    "main button, main select, main input:not([type=hidden]):not([type=checkbox]):not([type=radio]), "
+    "main textarea, main .row-actions a, main .btn-primary, main summary"
+)
+
+
+def assert_no_horizontal_overflow(page, label=""):
+    """The page itself must never scroll sideways (wide content scrolls inside its own box)."""
+    overflow = page.evaluate(
+        "document.documentElement.scrollWidth - document.documentElement.clientWidth"
+    )
+    assert overflow <= 0, f"{label or page.url} scrolls horizontally by {overflow}px"
+
+
+def assert_touch_target_size(page, selector=_TAP_SELECTOR, minimum=MIN_TAP, label=""):
+    """Every visible control matching `selector` is at least `minimum` px tall."""
+    small = page.evaluate(
+        """([selector, minimum]) => [...document.querySelectorAll(selector)]
+            .filter(e => e.offsetParent !== null && getComputedStyle(e).visibility !== 'hidden')
+            .map(e => [e, e.getBoundingClientRect()])
+            .filter(([e, r]) => r.width > 0 && r.height > 0 && r.height < minimum - 0.5)
+            .map(([e, r]) => (e.tagName.toLowerCase() + (e.className ? '.' + String(e.className).split(' ')[0] : '')
+                + ' "' + (e.innerText || e.value || e.name || '').trim().slice(0, 24) + '" ' + Math.round(r.height) + 'px'))""",
+        [selector, minimum],
+    )
+    assert not small, f"{label or page.url}: touch targets under {minimum}px: {small}"
+
+
+def assert_viewport_layout_switches(page, base_url, selector, property_name, mobile_value, desktop_value):
+    """A CSS property flips between the mobile and desktop layouts on resize."""
+    page.set_viewport_size(MOBILE)
+    page.goto(base_url)
+    assert page.evaluate(f"getComputedStyle(document.querySelector('{selector}')).{property_name}") == mobile_value
+    page.set_viewport_size(DESKTOP)
+    assert page.evaluate(f"getComputedStyle(document.querySelector('{selector}')).{property_name}") == desktop_value
+
+
+def watch_console(page):
+    """Collect uncaught exceptions and console errors for a later `assert not errors`."""
+    errors = []
+    page.on("pageerror", lambda e: errors.append(f"pageerror: {e}"))
+    page.on(
+        "console",
+        lambda m: errors.append(f"console.{m.type}: {m.text}") if m.type in ("error",) else None,
+    )
+    return errors

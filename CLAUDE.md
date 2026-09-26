@@ -78,6 +78,18 @@ Key modules:
   search, tags, text/byte comparison.
 - `app/acceptance/` — acceptance criteria, templates, evidence suggestion and
   the Ralph completion gate (docs/SPRINT_PLANNING_AND_BACKLOG.md §49).
+- `app/sprints/queue.py` — Sprint execution queue (docs/SPRINT_PLANNING_AND_BACKLOG.md §49):
+  `planned_work_items.task_state` follows the canonical Task states; release, eligibility,
+  `promote_next` (creates the Ralph run) and `sync_from_run` (called by the orchestrator).
+- `app/projects/lock.py` — per-project execution lock (`project_locks`, docs/RUN_AND_RALPH.md
+  §22): managers acquire in `start()` and a `Heartbeat` thread holds it; stale locks are taken
+  over or swept; startup releases all orphans.
+- `app/pipelines/replay.py` — historical replay: `Replayer` folds `pipeline_events` over the
+  stored steps (no re-execution); `ReplayController` is the playhead; routes under
+  `.../executions/<id>/replay/`.
+- `app/prompts/` — prompt library (fragments, templates with inheritance, Ralph instruction
+  blocks, recorded `execution_prompts`); the pipeline engine and Ralph read it at runtime and
+  `defaults.py` only seeds it.
 - `app/projects/` — Project and repository records; `app/security.py`
   validates repository paths against `ALLOWED_PROJECT_ROOTS`.
 
@@ -130,6 +142,9 @@ Until the UI direction settles, every new or amended user-facing page should:
 - Playwright viewport tests must only skip when the browser cannot launch
   (see `_new_page` in `tests/test_workspace_integration.py`); never wrap
   assertions in `except Exception: pytest.skip(...)`, which hides failures.
+- Browser checks live in `tests/test_phase2_ui_verification.py`; add new pages to its
+  `_pages` map and use the helpers in `tests/conftest.py` (`assert_touch_target_size`,
+  `assert_no_horizontal_overflow`, `watch_console`).
 - In-page actions on a list/table (delete, stop, etc.) should be AJAX, not a
   full-page form post + redirect: mark the trigger with
   `data-ajax-action="<url>"` (plus optional `data-confirm="..."` and

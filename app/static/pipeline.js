@@ -219,6 +219,9 @@
             .catch(function () {});
         }, 2000);
       }
+    })
+    .catch(function () {
+      agentflowFlash("Could not load the pipeline graph.", "error");
     });
 
 

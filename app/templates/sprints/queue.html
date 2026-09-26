@@ -33,15 +33,14 @@
   {% endif %}
 
   <table class="table-compact queue-table">
-    <thead><tr><th>#</th><th>Task</th><th>State</th><th>Waiting on</th><th></th></tr></thead>
+    <thead><tr><th>Task</th><th>State</th><th><span class="visually-hidden">Actions</span></th></tr></thead>
     <tbody>
       {% for row in rows %}
         {% set w = row.work %}
         <tr data-row{% if row.next %} class="queue-next"{% endif %}>
-          <td>{{ w.seq }}</td>
-          <td class="wrap-cell">{{ w.title }}{% if row.next %} <span class="form-hint">(next)</span>{% endif %}</td>
+          <td class="wrap-cell">{{ w.seq }}. {{ w.title }}{% if row.next %} <span class="form-hint">(next)</span>{% endif %}
+            {% if row.waiting_on %}<span class="form-hint queue-waiting">waiting on {% for d in row.waiting_on %}#{{ d }}{% if not loop.last %}, {% endif %}{% endfor %}</span>{% endif %}</td>
           <td><span class="run-status run-status-{{ {'COMPLETE': 'completed', 'IN_PROGRESS': 'running', 'BLOCKED': 'blocked', 'FAILED': 'failed', 'RELEASED': 'paused'}.get(w.task_state, 'created') }}">{{ w.task_state|replace('_', ' ')|capitalize }}</span></td>
-          <td class="wrap-cell">{% for d in row.waiting_on %}#{{ d }} {% endfor %}</td>
           <td class="row-actions">
             {% if w.task_state == 'READY' and sprint.status in ('READY', 'EXECUTING') %}
               <form method="post" action="{{ url_for('sprints.release_one', project_id=project.id, sprint_id=sprint.id, work_id=w.id) }}" data-ajax-form><button type="submit">Release</button></form>
@@ -50,7 +49,7 @@
           </td>
         </tr>
       {% else %}
-        <tr><td colspan="5">No tasks.</td></tr>
+        <tr><td colspan="3">No tasks.</td></tr>
       {% endfor %}
     </tbody>
   </table>
