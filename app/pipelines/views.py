@@ -115,7 +115,10 @@ def start_execution(project_id: int):
         )
     except (LookupError, ValueError) as exc:
         return _reply(str(exc), False, back)
-    _manager().start(execution_id)
+    try:
+        _manager().start(execution_id)
+    except ValueError as exc:  # LockConflict: the project is busy
+        return _reply(str(exc), False, back, 409)
     target = url_for("pipelines.view_execution", project_id=project_id, execution_id=execution_id)
     return _reply("Pipeline started", True, target, execution_id=execution_id, redirect=target)
 

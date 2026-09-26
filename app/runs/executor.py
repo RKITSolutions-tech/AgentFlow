@@ -11,6 +11,7 @@ from dataclasses import dataclass
 
 from app.execution import models as exec_models
 from app.execution.host import HostExecutionProvider
+from app.projects import lock
 from app.projects import models as project_models
 from app.runs import artifacts, models
 from app.runs.security import REDACTION_MARK, redact
@@ -34,6 +35,7 @@ class _Active:
     process_id: int | None = None
     # seq -> unredacted command, held in memory only (never persisted).
     live_commands: dict[int, str] | None = None
+    heartbeat: object | None = None
 
 
 def pid_alive(pid: int | None) -> bool:
@@ -91,12 +93,28 @@ class RunManager:
         with self._lock:
             if run_id in self._active:
                 raise ValueError(f"Run {run_id} is already executing")
-            self._active[run_id] = _Active(live_commands=live_commands)
+            heartbeat = self._take_lock(run_id)
+            self._active[run_id] = _Active(live_commands=live_commands, heartbeat=heartbeat)
             thread = threading.Thread(
                 target=self._execute, args=(run_id,), daemon=True, name=f"run-{run_id}"
             )
             self._threads[run_id] = thread
         thread.start()
+
+    def _take_lock(self, run_id: int) -> lock.Heartbeat:
+        """Own the project while the Run executes. A Run that cannot get it is
+        failed (it never started), and LockConflict reaches the caller."""
+        db = self._connect()
+        try:
+            run = models.get_run(db, run_id)
+            try:
+                return lock.acquire_for_worker(db, self._database_path, run.project_id, "manual_run", run_id)
+            except lock.LockConflict as exc:
+                if run.status == "CREATED":
+                    models.set_run_status(db, run_id, "FAILED", str(exc))
+                raise
+        finally:
+            db.close()
 
     def join(self, run_id: int, timeout: float | None = None) -> bool:
         thread = self._threads.get(run_id)
@@ -205,6 +223,8 @@ class RunManager:
         finally:
             if context_id is not None:
                 self.provider.destroy_context(context_id)
+            if state.heartbeat is not None:
+                state.heartbeat.stop()
             with self._lock:
                 self._active.pop(run_id, None)
             db.close()

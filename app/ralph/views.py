@@ -88,7 +88,10 @@ def start_run(project_id: int):
         )
     except ValueError as exc:
         return _reply(str(exc), False, back)
-    _manager().start(run_id)
+    try:
+        _manager().start(run_id)
+    except ValueError as exc:  # LockConflict: the run stays CREATED and can be resumed
+        return _reply(str(exc), False, _detail(project_id, run_id), 409, run_id=run_id, redirect=_detail(project_id, run_id))
     return _reply("Ralph started", True, _detail(project_id, run_id), run_id=run_id, redirect=_detail(project_id, run_id))
 
 
@@ -143,7 +146,10 @@ def resume(project_id: int, run_id: int):
     back = _detail(project_id, run_id)
     if run.status not in ("PAUSED", "CREATED") or _manager().is_executing(run_id):
         return _reply(f"A {run.status.lower()} run cannot be resumed", False, back, 409)
-    _manager().start(run_id)
+    try:
+        _manager().start(run_id)
+    except ValueError as exc:
+        return _reply(str(exc), False, back, 409)
     return _reply("Resumed", True, back)
 
 

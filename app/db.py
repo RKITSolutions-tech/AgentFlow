@@ -365,6 +365,19 @@ CREATE TABLE IF NOT EXISTS sprint_readiness_checks (
     checked_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS project_locks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    owner_type TEXT NOT NULL CHECK(owner_type IN ('ralph_run', 'pipeline_run', 'manual_run')),
+    owner_id INTEGER NOT NULL,
+    acquired_at TEXT NOT NULL,
+    heartbeat_at TEXT NOT NULL,
+    released_at TEXT,
+    status TEXT NOT NULL DEFAULT 'ACTIVE' CHECK(status IN ('ACTIVE', 'STALE', 'RELEASED'))
+);
+-- At most one ACTIVE lock per project: the database arbitrates races.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_project_locks_active ON project_locks(project_id) WHERE status = 'ACTIVE';
+
 CREATE TABLE IF NOT EXISTS pipelines (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     project_id INTEGER REFERENCES projects(id) ON DELETE CASCADE,

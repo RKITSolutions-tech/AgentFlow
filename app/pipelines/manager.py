@@ -7,6 +7,7 @@ import threading
 from app.execution.host import HostExecutionProvider
 from app.pipelines import executions
 from app.pipelines.engine import PipelineEngine
+from app.projects import lock
 from app.runs import artifacts
 from app.runs.security import redact
 
@@ -62,13 +63,30 @@ class PipelineManager:
         with self._lock:
             if execution_id in self._threads:
                 raise ValueError(f"Execution {execution_id} is already running")
+        heartbeat = self._take_lock(execution_id)
+        with self._lock:
             thread = threading.Thread(
-                target=self._work, args=(execution_id,), daemon=True, name=f"pipeline-{execution_id}"
+                target=self._work, args=(execution_id, heartbeat), daemon=True, name=f"pipeline-{execution_id}"
             )
             self._threads[execution_id] = thread
         thread.start()
 
-    def _work(self, execution_id: int) -> None:
+    def _take_lock(self, execution_id: int) -> lock.Heartbeat:
+        """Own the project while this execution runs; a rival's lock stops a
+        never-started execution (a resumed one stays paused)."""
+        db = self._connect()
+        try:
+            ex = executions.get_execution(db, execution_id)
+            try:
+                return lock.acquire_for_worker(db, self._database_path, ex.project_id, "pipeline_run", execution_id)
+            except lock.LockConflict:
+                if ex.status == "PENDING":
+                    executions.update_execution(db, execution_id, status="CANCELLED")
+                raise
+        finally:
+            db.close()
+
+    def _work(self, execution_id: int, heartbeat: lock.Heartbeat | None = None) -> None:
         db = self._connect()
         try:
             engine = self._engine(db)
@@ -76,6 +94,8 @@ class PipelineManager:
                 self._engines[execution_id] = engine
             engine.run(execution_id)
         finally:
+            if heartbeat is not None:
+                heartbeat.stop()
             with self._lock:
                 self._threads.pop(execution_id, None)
                 self._engines.pop(execution_id, None)

@@ -1,9 +1,11 @@
 {% extends "base.html" %}
 {% from "_project_tabs.html" import project_tabs %}
+{% from "projects/_lock.html" import lock_status %}
 {% block title %}{{ project.name }} - Ralph - AgentFlow{% endblock %}
 {% block content %}
   {{ project_tabs(project, none, 'ralph') }}
   <h1>{{ project.name }} - Ralph</h1>
+  {{ lock_status(project.id) }}
   <form method="post" action="{{ url_for('ralph.start_run', project_id=project.id) }}" class="stacked" data-ajax-form>
     <label>Title <input name="title" maxlength="120"></label>
     <label>Task <textarea name="task" rows="3" required></textarea></label>

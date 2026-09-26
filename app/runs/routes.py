@@ -150,7 +150,10 @@ def create_run(project_id: int):
         for seq, step in enumerate(steps, start=1)
         if step["command_redacted"]
     }
-    _manager().start(run_id, live_commands)
+    try:
+        _manager().start(run_id, live_commands)
+    except ValueError as exc:  # LockConflict: the project is busy
+        return _reply(project_id, run_id, str(exc), False, 409)
     return _reply(project_id, run_id, "Run started", True)
 
 
@@ -245,5 +248,8 @@ def restart_run(project_id: int, run_id: int):
     new_id = models.create_run(
         get_db(), project_id, run.repository_id, run.title, steps, restart_of=run.id
     )
-    _manager().start(new_id)
+    try:
+        _manager().start(new_id)
+    except ValueError as exc:  # LockConflict: the project is busy
+        return _reply(project_id, new_id, str(exc), False, 409)
     return _reply(project_id, new_id, "Run restarted as a new run", True)

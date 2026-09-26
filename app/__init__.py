@@ -56,9 +56,9 @@ def create_app(config: Config | None = None) -> Flask:
 
     from app.pipelines.persistence import seed_builtins
 
-    with app.app_context():
-        from app.db import get_db
+    from app.db import get_db
 
+    with app.app_context():
         seed_builtins(get_db())
 
     from app.pipelines.manager import PipelineManager
@@ -69,6 +69,20 @@ def create_app(config: Config | None = None) -> Flask:
 
     app.extensions["ralph_manager"] = RalphManager(app.extensions["pipeline_manager"])
     app.extensions["ralph_manager"].reconcile()
+
+    from app.projects import lock as project_lock
+
+    # No worker survives a restart, so any ACTIVE lock is an orphan.
+    with app.app_context():
+        project_lock.release_all_active(get_db())
+    if not app.config.get("TESTING") and app.config["DATABASE_PATH"] != ":memory:":
+        app.extensions["lock_sweeper"] = project_lock.Sweeper(app.config["DATABASE_PATH"]).start()
+
+    def _project_lock(project_id: int):
+        return project_lock.current(get_db(), project_id)
+
+    app.jinja_env.globals["project_lock"] = _project_lock
+    app.jinja_env.globals["lock_is_stale"] = project_lock.is_stale
 
     from app.shell import init_shell
 

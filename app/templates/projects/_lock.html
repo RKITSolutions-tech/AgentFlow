@@ -1,0 +1,14 @@
+{# Who holds the project's execution lock, if anyone (docs/RUN_AND_RALPH.md §19). #}
+{% macro lock_status(project_id, detail=False) %}
+  {% set held = project_lock(project_id) %}
+  {% if held %}
+    {% set stale = lock_is_stale(held) %}
+    <p class="lock-status lock-status-{{ 'stale' if stale else 'held' }}" role="status">
+      <span class="run-status run-status-{{ 'failed' if stale else 'running' }}">{{ 'Lock stale' if stale else 'Locked' }}</span>
+      {{ held.owner }}
+      {% if detail %}<span class="form-hint">acquired {{ held.acquired_at[:19] }} &middot; heartbeat {{ held.heartbeat_at[:19] }}</span>{% endif %}
+    </p>
+  {% elif detail %}
+    <p class="lock-status form-hint">Not locked: nothing is executing in this project.</p>
+  {% endif %}
+{% endmacro %}

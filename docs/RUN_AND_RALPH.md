@@ -455,3 +455,43 @@ confirm, not settled decisions.
   completion only; per-iteration checkpoint commits (§16) are not done.
 - Prompts and replies are redacted before storage and flagged
   (`redacted`); the *unredacted* prompt is still what the agent receives.
+
+### Project execution lock (task 28)
+
+Implemented in `app/projects/lock.py`, table `project_locks` (plain `sqlite3`, like the
+rest of the app; the task text's SQLAlchemy model is not used).
+
+- **One ACTIVE lock per project**, enforced by a partial unique index, so two
+  processes racing to acquire cannot both win. Columns: `owner_type`
+  (`ralph_run` | `pipeline_run` | `manual_run`), `owner_id`, `acquired_at`,
+  `heartbeat_at`, `released_at`, `status` (`ACTIVE` | `STALE` | `RELEASED`). Rows
+  are kept as history rather than deleted.
+- **Scope is the whole project**, as §19 says: a manual Run, a standalone pipeline
+  execution and a Ralph run for the same project exclude each other. A Ralph run's
+  verification pipeline executes *inside* the Ralph run's lock (the orchestrator calls
+  the engine directly), so it does not conflict with its own run.
+- **Lifecycle.** The manager's `start()` acquires synchronously, so the caller gets a
+  `LockConflict` (a `ValueError`; HTTP 409 naming the holder) instead of a silent
+  failure. The worker thread then owns a `Heartbeat` that refreshes `heartbeat_at`
+  every **30 s** on its own connection and releases the lock in its `finally`, whatever
+  the outcome (complete, cancel, error). Pausing or blocking a Ralph run ends its
+  worker, so it releases the lock; the run resumes by re-acquiring.
+- **Conflict strategy: fail, do not wait.** There is no queueing of runs behind a lock.
+  A never-started manual Run is marked `FAILED` and a `PENDING` pipeline execution
+  `CANCELLED`, each with the holder in the reason; a Ralph run stays `CREATED` so it can
+  be resumed once the project is free. (Waiting can be added later without changing the
+  lock table.)
+- **Same owner may re-acquire** (it just refreshes the heartbeat), so a request from the
+  owner's own run, such as steering, never fails against its own lock.
+- **Stale threshold: 360 s** (12 missed heartbeats). A stale lock is taken over by the
+  next `acquire` (marked `STALE`), swept every **60 s** by `Sweeper` (not started when
+  `TESTING`), and, because no worker survives a restart, *all* ACTIVE locks are marked
+  `STALE` at app start. A displaced owner's late heartbeat is a no-op
+  (`refresh_heartbeat` returns False).
+- **UI.** The project overview shows the holder, acquisition time and last heartbeat
+  (or "Not locked"); Runs, Pipelines and Ralph pages show a badge when locked, red
+  "Lock stale" past the threshold. The sprint queue's `project_busy` treats a held lock
+  as busy, and also a *paused or waiting* Ralph run, which has released the lock but
+  still owns the working tree.
+- Not done: locking on finer scopes (per repository/branch), and locks around
+  interactive agent chat sessions or terminals.

@@ -2,7 +2,7 @@
   "master": {
     "tasks": [
       {
-        "id": 1,
+        "id": "1",
         "title": "Build the application and project foundation",
         "description": "Create the host-run Flask application shell, SQLite persistence, responsive navigation, and Project/repository management.",
         "details": "Follow docs/HIGH_LEVEL_DESIGN.md and docs/DOMAIN_AND_ORCHESTRATION_DESIGN.md. Bind to loopback by default. Support creating, viewing, editing, and listing Projects. Each Project may contain one or more validated repository paths and one default repository. Reject paths outside configured allowed roots and persist records across restarts.",
@@ -14,7 +14,7 @@
         "updatedAt": "2026-09-22T23:05:51.035Z"
       },
       {
-        "id": 2,
+        "id": "2",
         "title": "Implement host execution and event streaming",
         "description": "Implement the canonical HostExecutionProvider and reconnectable delivery of command events.",
         "status": "done",
@@ -28,7 +28,7 @@
         "updatedAt": "2026-09-23T06:23:52.157Z"
       },
       {
-        "id": 3,
+        "id": "3",
         "title": "Create the agent contract and FakeAgent vertical slice",
         "description": "Define the shared AgentAdapter contract and prove it with a deterministic FakeAgent end-to-end workflow.",
         "details": "Follow docs/AGENT_ADAPTER.md. Implement scripted FakeAgent messages, file changes, failure, retry, and success. Complete the vertical slice: open a Project, start FakeAgent, stream output, modify a fixture file, show its Git diff, run a configured test, and persist prompts, replies, events, session metadata, and the result.",
@@ -43,7 +43,7 @@
         "updatedAt": "2026-09-23T08:15:51.212Z"
       },
       {
-        "id": 4,
+        "id": "4",
         "title": "Implement Codex sessions",
         "description": "Integrate Codex through HostExecutionProvider using the shared AgentAdapter contract.",
         "details": "Detect Codex availability and version. Support session creation, listing, discovery and resume when supported, prompt input, live output, stop, and persisted prompt/reply history. Persistently map external Codex identifiers to AgentFlow session identifiers and report unsupported capabilities explicitly. Keep FakeAgent as the automated-test adapter.",
@@ -121,7 +121,7 @@
         "updatedAt": "2026-09-23T18:55:45.789Z"
       },
       {
-        "id": 5,
+        "id": "5",
         "title": "Build the operational project workspace",
         "description": "Add file, search, Git, and persistent terminal tools to the Phase 1 Project workspace.",
         "details": "Provide repository-scoped file browsing and basic editing, search, Git status/diff/log/stage/unstage/commit, and a reconnectable tmux-backed terminal. Reuse Project repository validation and HostExecutionProvider boundaries. Link changed files to their diff and file view, and avoid loading large or binary files into the normal editor. Keep essential actions usable on desktop and mobile.",
@@ -232,7 +232,7 @@
         "updatedAt": "2026-09-25T09:25:57.979Z"
       },
       {
-        "id": 6,
+        "id": "6",
         "title": "Add basic runs, history, and hardening",
         "description": "Add single-Task command and test Runs with inspection, persistence, recovery, and security controls.",
         "details": "Follow docs/RUN_AND_RALPH.md for the Phase 1 subset. Record step status, timing, logs, prompts, replies, and artifact metadata in SQLite while storing artifact content and large logs on the filesystem. Support pause/stop, restart reconciliation, Run history, and step inspection. Mark a Run blocked when its previously active process is missing after restart. Redact secrets before persistence where practical and require explicit configuration for unsafe all-interface binding.",
@@ -315,7 +315,7 @@
         "updatedAt": "2026-09-26T00:25:26.801Z"
       },
       {
-        "id": 7,
+        "id": "7",
         "title": "Review Phase 1 design decisions and consolidate Phase 2 planning",
         "description": "Audit all design documents (AGENT_ADAPTER.md, EXECUTION_PROVIDER.md, HIGH_LEVEL_DESIGN.md, TASK_INTELLIGENCE.md, DOCUMENT_LIFECYCLE.md, and implementation notes) to identify deferred decisions and open questions from Phase 1 work, then consolidate findings into Phase 2 planning artifacts.",
         "status": "done",
@@ -334,7 +334,7 @@
         "updatedAt": "2026-09-26T00:25:27.432Z"
       },
       {
-        "id": 8,
+        "id": "8",
         "title": "Fix 5 hardcoded Playwright UI tests to work without pre-started dev server",
         "description": "Repair 5 failing Playwright tests that hardcode http://127.0.0.1:5000 and require a manually-started Flask server, causing false failures in pytest runs without external setup. Make them self-contained by either spinning up an ephemeral Flask server fixture or guarding them with a skip check.",
         "details": "Investigate why tests/test_chat_message.py::test_send_and_display_chat_message, tests/test_chat_message.py::test_chat_form_input_and_state, tests/test_codex_chat_response.py::test_codex_message_and_response, tests/test_hello_codex.py::test_send_hello_get_codex_response, and tests/test_hello_message.py::test_send_hello_message_via_ui were written against a live external server instead of using the Flask test client fixture pattern documented in CLAUDE.md.\n\nChoose one of two approaches:\n\n(a) Self-contained server fixture: Create a session-scoped pytest fixture (or conftest helper) that:\n  - Spawns a Flask dev server in a subprocess using multiprocessing or threading\n  - Binds to an ephemeral port (0) and discovers the assigned port\n  - Passes the server URL (e.g., http://127.0.0.1:<dynamic-port>) to Playwright tests via pytest parametrization or indirect fixture injection\n  - Tears down the server after the test session completes\n  - Ensures the server is reachable before tests run (wait with retry/timeout)\n\n(b) Skip guard (if integration with live server is essential):\n  - Add a pytest skip check following the existing shutil.which(...) convention in CLAUDE.md\n  - Create a helper function that attempts to connect to http://127.0.0.1:5000 with a short timeout (e.g., socket or requests.head)\n  - Decorate each test with @pytest.mark.skipif(not is_server_reachable(), reason=\"Flask dev server not running on port 5000\")\n  - Ensure the skip is clean and does not report as a failure\n\nPrefer approach (a) if Playwright automation and end-to-end UI verification are core to the test strategy; use (b) only if there is a genuine reason these tests must exercise a live running server rather than a fixture-managed one.\n\nUpdate the hardcoded base URL references in all 5 tests to use the dynamically assigned URL (via fixture or conftest variable).",
@@ -350,7 +350,7 @@
         "updatedAt": "2026-09-26T00:25:27.425Z"
       },
       {
-        "id": 9,
+        "id": "9",
         "title": "Implement Phase 1 document lifecycle data layer",
         "description": "Add documents and document_refs tables to the SQLite schema, extend agent_sessions with document tracking columns, and implement document CRUD helpers and dataclasses following existing app patterns.",
         "details": "1. Extend app/db.py SCHEMA with two new tables:\n   - documents: id (PK), project_id (FK), repo_id (FK), chain_id, doc_type [DESIGN|IMPLEMENTATION|TESTING|PLAN|STANDARD], path, title, status [DRAFT|IN_REVIEW|APPROVED|SUPERSEDED], current_git_sha, supersedes_id (self-FK, nullable), created_at, updated_at\n   - document_refs: document_id (FK), referenced_document_id (FK), relationship [DERIVES_FROM|REFERENCES|SUPERSEDES], primary key (document_id, referenced_document_id)\n\n2. Extend agent_sessions table with two new nullable columns:\n   - document_id (FK to documents)\n   - reviewed_git_sha\n\n3. Add three new event_type values to agent_events (reuse existing table, no new table):\n   - review_comment with data={line_start, line_end, body, severity}\n   - review_verdict with data={verdict}\n   - doc_read with data={document_id, git_sha}\n\n4. Create app/documents/models.py following the pattern established in app/projects/models.py and app/agents/models.py:\n   - Define Document and DocumentRef dataclasses mirroring agent_sessions/agent_events structure\n   - Implement CRUD helpers: create_document, update_document_status, get_document, list_documents, supersede_document, create_document_ref, get_document_refs, get_referencing_documents\n   - Use raw SQL following the existing style in app/agents/models.py (add_agent_event, create_agent_session)\n   - Ensure document status transitions follow DRAFT -> IN_REVIEW -> APPROVED and DRAFT -> SUPERSEDED paths\n\n5. Validate foreign key constraints and cascade behavior (e.g., deleting a document should handle document_refs appropriately per design intent).\n\n6. This is data-layer only—no UI, no pipeline wiring, no review-loop automation per DOCUMENT_LIFECYCLE.md section 13.",
@@ -430,7 +430,7 @@
         "updatedAt": "2026-09-24T22:07:42.009Z"
       },
       {
-        "id": 10,
+        "id": "10",
         "title": "Design and build interactive agent prompts and notifications (gap G1/G2)",
         "description": "Support structured clarifying questions and permission/approval prompts from agents, plus notifications when a session or run is blocked awaiting a human.",
         "details": "See docs/CLOUDCLI_GAP_ANALYSIS.md G1/G2 and docs/AGENT_ADAPTER.md section 12 (observed CloudCLI behaviour: docked input panel, numbered options, auto-added Other with free text, Skip/Submit, Running badge). Decide whether a clarifying question is a distinct event kind (leaning yes). Decide adapter detection for agents without a native structured tool (Codex). Add web-push style notifications with per-channel preferences. Do not copy CloudCLI code (AGPL); implementation must be independent.",
@@ -508,7 +508,7 @@
         "updatedAt": "2026-09-25T20:31:18.988Z"
       },
       {
-        "id": 11,
+        "id": "11",
         "title": "Add git branch and remote operations (gap G3)",
         "description": "Extend the workspace Git view beyond status/diff/log/stage/commit.",
         "details": "See docs/CLOUDCLI_GAP_ANALYSIS.md G3. Branch list/checkout/create/delete; push/pull/fetch/publish; discard and delete-untracked; revert local commit; remote status; optional AI commit message. Validate all paths and refs via app/security.py rules; require confirmation for destructive actions; AJAX per CLAUDE.md UI rules; check 375px and 1280px.",
@@ -520,7 +520,7 @@
         "updatedAt": "2026-09-25T22:24:41.547Z"
       },
       {
-        "id": 12,
+        "id": "12",
         "title": "Add session management: rename, archive, search, token usage (gap G4)",
         "description": "Make large numbers of sessions manageable and inspectable.",
         "details": "See docs/CLOUDCLI_GAP_ANALYSIS.md G4. Rename, archive/restore, fork, cross-session search, recent and running views, token usage per session, switch model/effort mid-session where the adapter supports it (capability-gated per AGENT_ADAPTER.md). Auto-title untitled sessions from the first prompt.",
@@ -532,7 +532,7 @@
         "updatedAt": "2026-09-25T22:29:42.527Z"
       },
       {
-        "id": 13,
+        "id": "13",
         "title": "Add file operations: create, rename, delete, upload (gap G5)",
         "description": "Extend the file workspace beyond view and basic edit.",
         "details": "See docs/CLOUDCLI_GAP_ANALYSIS.md G5. Create file/folder, rename, delete with confirmation, upload with size limits. Enforce ALLOWED_PROJECT_ROOTS via app/security.py; handle binary and large files; AJAX per CLAUDE.md UI rules.",
@@ -544,7 +544,7 @@
         "updatedAt": "2026-09-25T22:31:55.334Z"
       },
       {
-        "id": 14,
+        "id": "14",
         "title": "Add composer features: slash commands, @ file mentions, attachments, permission modes (gap G6)",
         "description": "Bring the session prompt bar closer to CloudCLI capability.",
         "details": "See docs/CLOUDCLI_GAP_ANALYSIS.md G6. Slash commands, @ file mentions resolved against the project, attachments/images, permission-mode selection where the adapter supports it, scheduled messages; voice input is low priority. Mobile-first: chat/input bars are a listed risk area in CLAUDE.md.",
@@ -556,7 +556,7 @@
         "updatedAt": "2026-09-25T22:37:48.897Z"
       },
       {
-        "id": 15,
+        "id": "15",
         "title": "Add project management: star, rename, archive, clone, worktree UI (gap G7)",
         "description": "Improve project lifecycle handling.",
         "details": "See docs/CLOUDCLI_GAP_ANALYSIS.md G7. Star/pin, rename, archive/restore, clone from URL with progress, filesystem browse when adding a project (restricted to ALLOWED_PROJECT_ROOTS), worktree create/merge/remove UI aligned with the Ralph worktree design in docs/RUN_AND_RALPH.md.",
@@ -568,7 +568,7 @@
         "updatedAt": "2026-09-25T22:45:36.890Z"
       },
       {
-        "id": 16,
+        "id": "16",
         "title": "Decide scope for extensibility, embedded browser, auth and polish (gaps G8-G12)",
         "description": "Record explicit accept/defer decisions for the remaining CloudCLI gaps.",
         "details": "See docs/CLOUDCLI_GAP_ANALYSIS.md G8-G12: MCP/skills/plugins management, embedded agent browser vs UI verification (HLD 17), Task Master tab divergence, auth revisit if exposed beyond a single trusted user, dark mode and installable app. Output: decisions recorded in the gap doc, follow-up tasks only where accepted.",
@@ -580,7 +580,7 @@
         "updatedAt": "2026-09-26T00:25:27.439Z"
       },
       {
-        "id": 17,
+        "id": "17",
         "title": "Design and implement Backlog data model and database schema",
         "description": "Create the foundational data structures for backlog management including BacklogItem, Triage state, priority levels, and metadata storage. Establish SQLite schema for persistence of backlog items with file/image associations.",
         "details": "Create app/backlog/models.py with SQLAlchemy ORM models:\n- BacklogItem: id, title, description, content, status (inbox/triaged/selected/archived), priority (low/medium/high), created_at, updated_at, sprint_id (nullable)\n- BacklogAttachment: id, backlog_item_id, file_path, file_type (image/file/link), uploaded_at\n- TriageHistory: id, backlog_item_id, old_status, new_status, notes, changed_by, changed_at\n\nCreate SQLite migrations in alembic/versions/. Ensure BacklogItem references existing Project. Implement CRUD operations in app/backlog/persistence.py. Add path traversal validation for file uploads using existing app/security.py patterns. Store attachments in AGENTFLOW_ARTIFACT_DIR/backlog/<project_id>/<item_id>/. Include indexes on status, priority, sprint_id for query performance.",
@@ -657,7 +657,7 @@
         "updatedAt": "2026-09-26T09:12:01.945Z"
       },
       {
-        "id": 18,
+        "id": "18",
         "title": "Implement Backlog UI pages (inbox, triage, sprint selection)",
         "description": "Build web interface for capturing, viewing, and triaging backlog items. Create pages for inbox view, triage workflow, and sprint selection with rich content support and file uploads.",
         "details": "Create templates in app/templates/backlog/:\n- inbox.html: List inbox items, quick-add form for text capture with file upload widget, filter by status\n- triage.html: Card-based view of items awaiting triage, inline status/priority/category editing, notes field, bulk operations (mark triaged, assign to sprint)\n- sprint_items.html: Items selected for current sprint, drag-to-reorder, link to sprint planning\n\nImplement routes in app/backlog/views.py:\n- GET /projects/<id>/backlog/inbox - list inbox items with counts\n- POST /projects/<id>/backlog/items - create new backlog item with file uploads\n- PUT /projects/<id>/backlog/items/<id> - update triage status/priority\n- GET /projects/<id>/backlog/items/<id> - view item details\n- DELETE /projects/<id>/backlog/items/<id> - archive item\n\nUse existing app.css design tokens. Implement AJAX endpoints (detect X-Requested-With header) returning JSON for in-place updates. Mobile-responsive: stack cards vertically below 860px, ensure 44px touch targets. Wrap file paths/descriptions. Include data-ajax-action handlers for bulk operations.",
@@ -674,7 +674,7 @@
         "updatedAt": "2026-09-26T11:03:32.408Z"
       },
       {
-        "id": 19,
+        "id": "19",
         "title": "Design and implement Sprint data model and planning workflow",
         "description": "Create Sprint entity with goals, documentation references, task proposal generation, and dependency tracking. Establish workflow from sprint planning through readiness review to approval.",
         "details": "Create app/sprints/models.py with SQLAlchemy models:\n- Sprint: id, project_id, name, goal, status (planning/ready/active/completed), planned_start, planned_end, created_at, approved_at, approved_by\n- SprintBacklogLink: id, sprint_id, backlog_item_id, added_at (track items selected for sprint)\n- SprintDependency: id, sprint_id, depends_on_sprint_id (track cross-sprint dependencies)\n- SprintReadinessCheck: id, sprint_id, check_name, status (pass/fail/pending), details, checked_at\n\nImplement PlanningAgent in app/sprints/planning_agent.py:\n- Accepts Sprint and selected BacklogItems\n- Uses existing AgentAdapter abstraction to invoke AI planning (Codex/Claude)\n- Generates task graph with proposed breakdown, acceptance criteria, and resource estimates\n- Returns TaskProposal objects with suggestions for refinement\n\nImplement readiness checks: verify dependencies are met, minimum items selected, sprint goal defined, no resource conflicts. Store readiness results in SprintReadinessCheck. Implement approval workflow with approval history.",
@@ -691,7 +691,7 @@
         "updatedAt": "2026-09-26T11:03:36.266Z"
       },
       {
-        "id": 20,
+        "id": "20",
         "title": "Implement Sprint planning UI and approval workflow interface",
         "description": "Build web interface for sprint planning, viewing proposed task breakdown, defining acceptance criteria, and approval workflow.",
         "details": "Create templates in app/templates/sprints/:\n- planning.html: Form to create sprint, select items from backlog (with checkboxes), set goal, add documentation links, trigger planning agent, display proposed task graph\n- tasks_review.html: Display AI-generated task proposals with acceptance criteria, allow inline editing, show dependencies, resource estimates\n- readiness_review.html: Display readiness checks (pass/fail), prompt for approval with signature/comment field\n- sprint_detail.html: View active/completed sprint, show linked backlog items, task breakdown, readiness status, approval info\n\nImplement routes in app/sprints/views.py:\n- GET /projects/<id>/sprints/new - show sprint planning form\n- POST /projects/<id>/sprints - create sprint and trigger planning\n- GET /projects/<id>/sprints/<id>/tasks - show proposed tasks (calls PlanningAgent)\n- PUT /projects/<id>/sprints/<id>/tasks/<id> - edit proposed task acceptance criteria\n- POST /projects/<id>/sprints/<id>/approve - record approval, transition to ready status\n- GET /projects/<id>/sprints - list sprints with status\n\nUse existing project_tabs navigation. Implement async job tracking for planning agent (store Agent session ID, poll for results). Display task graph in left-to-right format on desktop, top-to-bottom on mobile. Show dependencies visually.",
@@ -709,7 +709,7 @@
         "updatedAt": "2026-09-26T11:08:30.677Z"
       },
       {
-        "id": 21,
+        "id": "21",
         "title": "Define and implement Pipeline data model and YAML/JSON pipeline format",
         "description": "Create Pipeline entity and reusable pipeline definition format supporting deterministic execution, substeps, rigging steps, and manual approval gates. Establish validation and composition rules.",
         "details": "Create app/pipelines/models.py with SQLAlchemy models:\n- Pipeline: id, name, version, format (yaml/json), definition (text), created_at, created_by, description\n- PipelineRun: id, pipeline_id, sprint_id, status (scheduled/running/paused/success/failed), started_at, completed_at, current_step_id, iteration_count\n- PipelineStep: id, run_id, step_name, step_type (task/subtask/approval/rigging/compensation), config (JSON), status (pending/running/success/failed/skipped), started_at, completed_at, output, error_message\n- SubPipeline: id, name, steps (JSON array), reusable (boolean)\n\nDefine YAML schema in app/pipelines/schema.py:\n```yaml\npipeline:\n  name: string\n  version: string\n  rigging:\n    setup: [steps]\n    teardown: [steps]\n  steps:\n    - name: string\n      type: task | approval | subprocess | rigging\n      config:\n        if_type_task:\n          task_id: string\n          timeout: seconds\n        if_type_approval:\n          prompt: string\n          required_approvers: [user_ids]\n        if_type_subprocess:\n          pipeline_ref: string\n          params: {key: value}\n      compensation:\n        on_failure: retry | skip | abort | manual_review\n        retry_count: integer\n        retry_delay: seconds\n    - name: string\n      depends_on: [step_names] (optional)\n```\n\nImplement PipelineValidator to check: step references exist, dependencies form DAG, all required fields present. Implement PipelineComposer for SubPipeline composition. Store pipeline definitions in app/pipelines/definitions/ directory.",
@@ -726,7 +726,7 @@
         "updatedAt": "2026-09-26T11:09:38.171Z"
       },
       {
-        "id": 22,
+        "id": "22",
         "title": "Implement deterministic pipeline execution engine",
         "description": "Build the core pipeline execution system supporting step sequencing, dependency resolution, rigging steps, approval gates, and compensation strategies. Integrate with existing ExecutionProvider for command execution.",
         "details": "Create app/pipelines/executor.py with PipelineExecutor class:\n- Accepts PipelineRun and ExecutionProvider\n- Maintains execution state (current_step_id, step_results dictionary)\n- Resolves step dependencies using topological sort\n- Executes steps sequentially or in parallel (with dependency constraints)\n- Handles rigging steps: setup runs before first step, teardown runs on completion/error\n- Supports manual approval steps (pause execution, wait for approval via UI)\n- Implements compensation: retry logic with exponential backoff, skip failures, abort on critical errors\n- Records all step output/errors to PipelineStep records in database\n- Detects step timeouts using threading/asyncio\n\nImplement StepExecutor subclasses:\n- TaskStepExecutor: invokes existing Task through AgentAdapter (reuse Codex/Claude integration)\n- CommandStepExecutor: executes shell commands through ExecutionProvider\n- ApprovalStepExecutor: pauses and polls for approval\n- SubPipelineExecutor: recursively executes referenced pipeline\n\nImplement pause/resume using transaction checkpoints: persist current_step_id and step results, allow resuming from saved state. Implement no-progress detection: if step doesn't complete within timeout and shows no new output, trigger manual review or compensation strategy.",
@@ -743,7 +743,7 @@
         "updatedAt": "2026-09-26T11:15:50.108Z"
       },
       {
-        "id": 23,
+        "id": "23",
         "title": "Implement Ralph orchestration agent with failure feedback and iteration",
         "description": "Build Ralph autonomous agent orchestration layer supporting multiple iterations, failure detection, steering feedback, and automatic commit on success. Integrate with pipeline executor and task framework.",
         "details": "Create app/ralph/orchestrator.py with RalphOrchestrator class:\n- Wraps PipelineExecutor with iteration loop logic\n- Iteration structure: execute pipeline step → collect output → analyze results → check for success/failure\n- IterationHistory model: id, run_id, iteration_number, status (in_progress/success/failed), started_at, completed_at, analysis, next_action\n\nImplement failure detection:\n- Parse task output and test results for failure indicators (exit codes, test failures, assertions)\n- Use AgentAdapter feedback mechanism (existing agent session can provide result status)\n- Track consecutive failures per step\n\nImplement steering feedback:\n- After failure, compose steering prompt: show failure details, step context, previous attempts, request corrective action\n- Send to same agent session (resume with feedback)\n- Store steering prompts and responses in IterationHistory for inspection\n\nImplement no-progress detection:\n- Compare consecutive iteration outputs (diff)\n- If outputs identical for 2+ iterations and not yet successful, trigger manual review\n- Set status to blocked_no_progress, notify operator\n\nImplement automatic commit on success:\n- After final iteration succeeds, invoke git commands through ExecutionProvider\n- Commit message: \"[AUTO] Phase 2 pipeline: {sprint_name} task {task_id} (iteration {count})\"\n- Push to configured branch\n- Store commit SHA in IterationHistory\n\nImplement pause/resume:\n- Save iteration state (iteration_number, current output, analysis)\n- Support resume from checkpoint via RunManager\n- Restore agent session from AgentSession record in database",
@@ -895,7 +895,7 @@
         "updatedAt": "2026-09-26T11:20:43.807Z"
       },
       {
-        "id": 24,
+        "id": "24",
         "title": "Implement pipeline visualization engine and desktop/mobile graph rendering",
         "description": "Build real-time visualization of pipeline execution showing step states, dependencies, compensation paths, and inspector panel for detailed inspection of results.",
         "details": "Create app/pipelines/visualization.py:\n- PipelineGraphBuilder: converts Pipeline + PipelineRun state to graph JSON format\n- Graph format: nodes (steps with state: pending/running/success/failed), edges (dependencies), compensation_paths\n- Compute layout: left-to-right on desktop (800px+), top-to-bottom on mobile (<800px)\n\nCreate templates in app/templates/pipelines/:\n- run_detail.html: displays graph canvas (use SVG or canvas), right-hand inspector panel, iteration timeline\n- Graph rendering: desktop uses d3.js or similar for left-to-right DAG layout, mobile uses custom flex layout for vertical stacking\n- Inspector panel: shows selected step details: prompts (from agent session), replies, test results, file changes, artifacts\n- Iteration timeline: horizontal scrollable list of iterations with status badges, click to view iteration results\n\nImplement routes in app/pipelines/views.py:\n- GET /projects/<id>/sprints/<id>/run/<id> - display pipeline run with graph\n- GET /projects/<id>/sprints/<id>/run/<id>/graph.json - returns graph data for rendering (real-time updates via polling/websocket)\n- GET /projects/<id>/sprints/<id>/run/<id>/step/<step_id>.json - returns step details for inspector\n- GET /projects/<id>/sprints/<id>/run/<id>/artifacts - list artifacts from run\n- GET /projects/<id>/sprints/<id>/run/<id>/export - export run as JSON/CSV\n\nImplement step state indicators: color-coded by status (pending: gray, running: blue, success: green, failed: red, compensation: yellow). Show compensation paths (dashed edges to retry/recovery steps). Highlight currently executing step with animation.",
@@ -913,7 +913,7 @@
         "updatedAt": "2026-09-26T11:26:15.993Z"
       },
       {
-        "id": 25,
+        "id": "25",
         "title": "Implement artifact library with collection, filtering, and comparison tools",
         "description": "Build centralized artifact storage and retrieval system capturing screenshots, traces, logs, and diffs. Implement filtering, search, comparison, and originating step linkage.",
         "details": "Create app/artifacts/models.py with SQLAlchemy models:\n- Artifact: id, run_id, step_id, artifact_type (screenshot/trace/log/diff/file), name, file_path, mime_type, created_at, metadata (JSON: resolution, file_size, etc.)\n- ArtifactTag: id, artifact_id, tag (for categorization)\n- ArtifactComparison: id, artifact_a_id, artifact_b_id, comparison_type (diff/visual_diff), result (JSON)\n\nImplement ArtifactCollector in app/artifacts/collector.py:\n- Hooks into PipelineStep completion\n- Collects artifacts from step output directory (via ExecutionProvider file listing)\n- Classifies by file type: .png/.jpg → screenshot, .html → trace, .log → log, .diff → diff\n- Stores in AGENTFLOW_ARTIFACT_DIR/pipelines/<run_id>/<step_id>/\n- Links Artifact to originating Step via step_id\n\nImplement routes in app/artifacts/views.py:\n- GET /projects/<id>/sprints/<id>/run/<id>/artifacts - list artifacts with filters (type, date range, step)\n- GET /projects/<id>/artifacts/<id> - display artifact with metadata\n- GET /projects/<id>/artifacts/<id>/preview - return artifact preview/thumbnail\n- POST /projects/<id>/artifacts/<id>/compare - compare two artifacts\n- GET /projects/<id>/artifacts/search?q=<term> - full-text search artifacts (via file names, metadata)\n\nImplement ArtifactComparator for visual diffs (screenshots), text diffs (logs), file diffs. Store comparison results in ArtifactComparison. Implement filtering UI: multi-select type, date range picker, step selector. Support export as CSV with artifact metadata and links.",
@@ -931,7 +931,7 @@
         "updatedAt": "2026-09-26T11:32:14.228Z"
       },
       {
-        "id": 26,
+        "id": "26",
         "title": "Implement acceptance criteria management and evidence tracking",
         "description": "Create first-class acceptance criteria system with templates, approval workflows, and traceability linking criteria to verification artifacts and test results.",
         "details": "Create app/acceptance/models.py with SQLAlchemy models:\n- AcceptanceCriteria: id, task_id, title, description, status (draft/approved/verified/failed), created_at, approved_at, verified_at\n- AcceptanceCriteriaTemplate: id, name, description, template_text (markdown), fields (JSON: variable placeholders)\n- CriteriaEvidence: id, criteria_id, evidence_type (artifact/test_result/manual_approval), reference_id (artifact_id or test_id), verified_by, verified_at, notes\n\nImplement CriteriaTemplates in app/acceptance/templates.py:\n- \"API endpoint returns 200 with correct schema\"\n- \"All unit tests pass (100% green)\"\n- \"Integration test with real database succeeds\"\n- \"Screenshot matches design mock\"\n- \"Performance metric under {threshold}ms\"\n- \"Security scan finds no critical issues\"\n\nImplement routes in app/acceptance/views.py:\n- GET /tasks/<id>/criteria - list criteria for task\n- POST /tasks/<id>/criteria - create new criteria (with template support)\n- PUT /tasks/<id>/criteria/<id> - update criteria, attach evidence\n- POST /tasks/<id>/criteria/<id>/verify - mark criteria verified with evidence link\n- GET /tasks/<id>/criteria/<id>/evidence - show linked artifacts and test results\n- GET /templates - list acceptance criteria templates\n\nImplement automatic evidence linking: when artifact/test result is created during pipeline execution, attempt to match against open criteria (keyword matching on test name, artifact type). Show suggested linkage to operator. Implement approval workflow: criteria must be approved by non-implementer (enforced via user roles) before task completion. Track verification timestamp and approver identity.",
@@ -949,89 +949,91 @@
         "updatedAt": "2026-09-26T11:36:21.786Z"
       },
       {
-        "id": 27,
+        "id": "27",
         "title": "Implement Sprint execution queue and task promotion workflow",
         "description": "Build the sprint execution queue system that promotes approved planned_work_items to canonical task states (READY, RELEASED, IN_PROGRESS, BLOCKED, FAILED, COMPLETE), implements manual release actions, and creates Ralph runs from released tasks with their acceptance criteria and pipeline profiles.",
         "details": "Create app/sprints/queue.py with SprintExecutionQueue class managing task state machine:\n- Extend SprintBacklogLink with canonical state tracking (READY, RELEASED, IN_PROGRESS, BLOCKED, FAILED, COMPLETE) per docs/SPRINT_PLANNING_AND_BACKLOG.md §27-28\n- Implement state transitions with validation (only READY→RELEASED, RELEASED→IN_PROGRESS, etc.)\n- Add release_sprint() action in app/sprints/persistence.py that transitions all ready items to RELEASED\n- Implement eligible_task() that returns next task meeting criteria: state==RELEASED, all dependencies complete, not blocked, project lock available\n- Create RalphRunFactory in app/ralph/ that constructs PipelineRun from task (title, description, acceptance_criteria, pipeline_profile)\n- Update app/ralph/orchestrator.py to set task_id FK (replacing work_item_id workaround in acceptance.py)\n- Add endpoints in app/sprints/views.py:\n  - POST /sprints/<id>/release for manual release action\n  - GET /sprints/<id>/queue for queue visualization\n  - POST /sprints/<id>/next-task to advance queue\n- Update design docs (docs/SPRINT_PLANNING_AND_BACKLOG.md §27-28) with queue mechanics, state diagram, and assumptions about project locking\n- Create app/sprints/models.py extensions for canonical task state enum and transition rules",
         "testStrategy": "Unit tests in tests/sprints/test_queue.py: test state transitions reject invalid moves, test eligible_task() returns correct task given dependency/block/lock state, test release_sprint() transitions all ready items. Integration test: create sprint with multiple items, approve all, release, verify queue order respects dependencies and blocks, manually release one task, create Ralph run from it, verify task_id is set correctly in run and acceptance criteria. Test mobile UI for queue list and release action. Verify project lock acquisition prevents concurrent run creation. Test edge cases: release with no ready items, promote when project locked, advance when all tasks blocked.",
-        "status": "pending",
+        "status": "done",
         "dependencies": [
-          19,
-          20,
-          21,
-          22,
-          23,
-          24,
-          25,
-          26
+          "19",
+          "20",
+          "21",
+          "22",
+          "23",
+          "24",
+          "25",
+          "26"
         ],
         "priority": "high",
-        "subtasks": []
+        "subtasks": [],
+        "updatedAt": "2026-09-26T13:41:40.174Z"
       },
       {
-        "id": 28,
+        "id": "28",
         "title": "Implement project execution lock mechanism in SQLite",
         "description": "Add per-project execution locking with owner, heartbeat, and acquisition tracking to prevent concurrent execution conflicts across Ralph runs, pipeline executions, and manual runs. Implement stale-lock detection and UI lock holder visibility.",
         "details": "Create app/projects/lock.py with ProjectLock model and LockManager:\n\n1. SQLAlchemy model in app/projects/models.py:\n   - ProjectLock: id, project_id (FK), owner_type (ralph_run/pipeline_run/manual_run), owner_id, acquired_at, heartbeat_at, released_at, status (active/stale/released)\n   - Add lock_acquired_by, lock_holder_info properties to Project model\n\n2. Implement LockManager class:\n   - acquire_lock(project_id, owner_type, owner_id, timeout_seconds=300): acquire or raise LockConflict if held\n   - release_lock(project_id, owner_id): release lock\n   - refresh_heartbeat(project_id, owner_id): update heartbeat_at timestamp (called every 30s during execution)\n   - is_lock_stale(project_id, threshold_seconds=360): detect dead holders\n   - detect_and_release_stale_locks(): periodic cleanup task\n\n3. Integration points:\n   - Ralph orchestrator: acquire on run start (ralph/orchestrator.py), release on complete/cancel\n   - Pipeline engine: acquire before execution (pipelines/engine.py), release after completion\n   - RunManager: acquire on manual run start (runs/executor.py), release on stop/error\n   - Periodic task: background job every 60s to release stale locks\n\n4. Update design docs:\n   - docs/RUN_AND_RALPH.md §19: document lock lifecycle, stale detection threshold assumptions (360s), heartbeat interval (30s), conflict handling strategy (wait vs fail)\n   - Add lock conflict error handling pattern (LockConflict exception with owner info)\n\n5. UI enhancements:\n   - Project detail page: show lock holder (owner_type, owner_id, acquired_at, heartbeat_at) if active\n   - Run/Pipeline pages: show lock status badge\n   - Manual run UI: indicate if lock acquisition failed with reason",
         "testStrategy": "Unit tests in tests/projects/test_lock.py:\n- test acquire_lock succeeds when project unlocked\n- test acquire_lock raises LockConflict when already held\n- test release_lock clears lock and sets released_at\n- test refresh_heartbeat updates heartbeat_at without changing acquired_at\n- test is_lock_stale returns true when heartbeat older than threshold\n- test detect_and_release_stale_locks releases old locks and updates status\n\nIntegration tests:\n- test Ralph run acquires lock on start, releases on completion\n- test concurrent pipeline execution attempt fails with LockConflict\n- test manual run during active lock shows UI lock holder info\n- test heartbeat refresh during long-running execution keeps lock alive\n- test lock is released when run cancelled or encounters error\n- test orphaned lock (process died) is detected and released by cleanup task\n- test concurrent requests from same owner (e.g., Ralph steering) can refresh but not re-acquire\n\nDatabase migration test: verify schema adds without dropping existing data",
-        "status": "pending",
+        "status": "done",
         "dependencies": [
-          2,
-          22,
-          23,
-          27
+          "2",
+          "22",
+          "23",
+          "27"
         ],
         "priority": "high",
-        "subtasks": []
+        "subtasks": [],
+        "updatedAt": "2026-09-26T14:03:15.859Z"
       },
       {
-        "id": 29,
+        "id": "29",
         "title": "Historical replay for pipeline execution with state reconstruction and timeline navigation",
         "description": "Implement historical replay functionality that reconstructs pipeline node states, inspector content, and timeline as of any event N without re-executing, including previous/next/play controls, clickable timeline events, and Ralph iteration grouping.",
         "details": "Create app/pipelines/replay.py with PipelineReplayEngine class:\n\n1. State reconstruction without re-execution:\n   - Implement reconstruct_state_at_event(run_id, event_number) that walks pipeline_events and step_executions in order\n   - Build node state snapshot: pending/running/success/failed/skipped with timing data as of that event\n   - Reconstruct step outputs, artifacts collected, and compensation execution state\n   - Cache reconstructed states in memory during replay session to avoid repeated walks\n\n2. Inspector content generation:\n   - Extend app/pipelines/visualization.py PipelineGraphBuilder to accept optional event_number parameter\n   - When event_number provided, use reconstructed state instead of current run state\n   - Include step details, outputs, artifacts, logs, and compensation info from that point in time\n\n3. Timeline controls and navigation:\n   - Add ReplayController class managing playhead position and playback state\n   - Implement previous(), next(), play(speed=1.0), pause(), seek_to_event(n) methods\n   - Track which events are user-visible (step started, step completed, compensation executed, etc.)\n\n4. Clickable timeline events:\n   - Extend run_detail.html template with interactive timeline strip below graph\n   - Each event shows icon (step/compensation/milestone), timestamp, and description\n   - Clicking event calls seek_to_event() which updates graph and inspector to that state\n   - Highlight current playhead position\n\n5. Ralph iteration grouping:\n   - When run_type is 'ralph_run', group events by iteration number from step_executions.iteration_number\n   - Render iteration swimlanes in timeline or as collapsible sections\n   - Allow filtering timeline to show only specific iterations\n   - Add iteration summary cards showing changes per iteration\n\n6. API endpoints in app/pipelines/views.py:\n   - GET /projects/<id>/pipelines/<run_id>/replay/state?event=N: return reconstructed state JSON\n   - POST /projects/<id>/pipelines/<run_id>/replay/seek: update playhead, return new inspector content\n   - GET /projects/<id>/pipelines/<run_id>/replay/events: return paginated timeline events with metadata\n\n7. Update docs/PIPELINE_VISUALISATION.md sections 17-18 with:\n   - Architecture of state reconstruction algorithm\n   - Timeline event taxonomy and grouping rules\n   - Ralph iteration display strategy\n   - Performance considerations for large event logs\n   - Example of walking step_executions to rebuild state",
         "testStrategy": "Pytest tests in tests/pipelines/test_replay.py:\n- test_reconstruct_state_at_event rebuilds correct node states for multiple checkpoints\n- test_reconstruct_state_at_event_with_compensation includes compensation execution state\n- test_reconstruct_state_at_event_artifacts lists correct artifacts as of event N\n- test_replay_controller_navigation previous/next/seek work correctly\n- test_replay_controller_playback play/pause/speed control state transitions\n- test_timeline_events_serialization returns correct event list with timestamps\n- test_ralph_iteration_grouping groups events by iteration and surfaces iteration summaries\n- test_inspector_content_at_event shows correct step details for historical state\n\nPlaywright tests in tests/pipelines/test_visualization.py:\n- test_replay_timeline_renders displays clickable event strip below graph\n- test_replay_click_event seeking to event updates graph and inspector panel\n- test_replay_playback_animation play button animates through events at speed\n- test_replay_ralph_iterations shows iteration swimlanes and filtering\n- test_replay_mobile_timeline timeline remains accessible on narrow screens\n- test_replay_performance large pipeline with 1000+ events loads <2s\n\nIntegration test: execute pipeline with steps and compensation, verify state at event 1 != state at final event, verify timeline navigation reconstructs correct inspector content at each checkpoint.",
         "status": "pending",
         "dependencies": [
-          22,
-          23,
-          24,
-          25
+          "22",
+          "23",
+          "24",
+          "25"
         ],
         "priority": "medium",
         "subtasks": []
       },
       {
-        "id": 30,
+        "id": "30",
         "title": "Prompt library (P2.9): tables, UI, and effective prompt assembly",
         "description": "Build a prompt fragment and template library system with toggleable Ralph instruction blocks, UI components for management, and effective-prompt assembly with context-file resolution. Migrate existing PROMPT_TEMPLATES and STANDARD_INSTRUCTIONS into the library and persist effective prompts for all executions.",
         "details": "Create app/prompts/ package with the following components:\n\n1. Data models in app/prompts/models.py:\n   - PromptFragment: id, name, category (instruction/context/example), content (text), version, created_at, updated_at, tags (JSON)\n   - PromptTemplate: id, name, description, fragments (JSON list of fragment_ids), variables (JSON: placeholders), created_at, updated_at\n   - RalphInstructionBlock: id, name, description, content (text), enabled (boolean), order (int), version, applies_to (JSON: agent_types)\n   - ExecutionPrompt: id, run_id (FK to runs or ralph_runs), template_id (FK), effective_prompt (text), context_files (JSON: resolved paths), assembled_at, variables_used (JSON)\n\n2. Implement PromptAssembler class in app/prompts/assembler.py:\n   - assemble_effective_prompt(template_id, context, variables): merge template fragments, resolve @file references against project, substitute variables\n   - resolve_context_files(file_patterns): expand glob patterns and validate paths against allowed project roots\n   - include_ralph_instructions(enabled_blocks): merge enabled instruction blocks in order\n   - handle_template_inheritance: support base templates with override fragments\n   - Return assembled prompt text and metadata (resolved_files, blocks_included, variables_substituted)\n\n3. Migrate existing prompts:\n   - Extract PROMPT_TEMPLATES from app/pipelines/engine.py and create PromptTemplate records\n   - Extract STANDARD_INSTRUCTIONS from app/ralph/orchestrator.py and create RalphInstructionBlock records\n   - Mark blocks as enabled/disabled based on current configuration\n   - Update engine.py and orchestrator.py to fetch from library at runtime\n\n4. Create UI views in app/templates/prompts/:\n   - library.html: table of fragments and templates with add/edit/delete actions (AJAX)\n   - fragment_form.html: create/edit prompt fragment with category, content, tags\n   - template_form.html: compose template from fragments, preview assembled output\n   - ralph_blocks.html: toggleable checklist of Ralph instruction blocks with preview and ordering\n   - Responsive table layout using .table-compact class; mobile-friendly fragment/template selection\n\n5. Create views in app/prompts/views.py:\n   - GET/POST /prompts/library: list and create fragments\n   - GET/POST /prompts/fragments/<id>: edit/delete fragment\n   - GET/POST /prompts/templates: list and create templates\n   - GET/POST /prompts/templates/<id>: edit/delete template\n   - POST /prompts/preview: assemble and preview effective prompt\n   - GET/POST /prompts/ralph-blocks: list, reorder, enable/disable blocks\n   - All mutation endpoints return JSON for AJAX handlers\n\n6. Update Run and RalphRun models:\n   - Add execution_prompt_id (FK to ExecutionPrompt) to capture effective prompt for every execution\n   - Populate ExecutionPrompt when assembling prompt before agent/executor call\n\n7. Integrate with existing systems:\n   - Update PipelineExecutor to assemble prompt for each step using library\n   - Update RalphOrchestrator to include enabled instruction blocks in prompt\n   - Update CodexAdapter.run() to use assembled prompt from ExecutionPrompt record\n\nFollow docs/PHASE2_PLANNING.md §2 for library structure and assembly flow.",
         "testStrategy": "Unit tests in tests/prompts/test_models.py: test fragment creation and versioning, test template composition from fragments, test variable substitution, test Ralph instruction block enable/disable. Unit tests in tests/prompts/test_assembler.py: test assemble_effective_prompt merges fragments correctly, test resolve_context_files expands globs and validates paths, test include_ralph_instructions respects enabled state and order, test variable substitution handles missing variables gracefully, test base template inheritance. Integration tests in tests/prompts/test_views.py: test library UI lists and creates fragments/templates, test fragment/template edit/delete via AJAX, test Ralph blocks checkbox state persists, test preview endpoint returns assembled prompt. Integration test with pipeline execution: create pipeline step with template, execute, verify ExecutionPrompt record created with correct effective_prompt and resolved_files. Test migration: verify PROMPT_TEMPLATES and STANDARD_INSTRUCTIONS from existing code are present in library after migration. Playwright test: navigate library UI on mobile (375px) and desktop (1280px), verify tables render without horizontal scroll, verify forms are usable.",
         "status": "pending",
         "dependencies": [
-          21,
-          22,
-          23,
-          24,
-          25,
-          26,
-          27
+          "21",
+          "22",
+          "23",
+          "24",
+          "25",
+          "26",
+          "27"
         ],
         "priority": "medium",
         "subtasks": []
       },
       {
-        "id": 31,
+        "id": "31",
         "title": "Real-browser verification of Phase 2 UI and JavaScript fixes",
         "description": "Install Playwright browsers, run viewport tests at 375px and 1280px, manually exercise Phase 2 pages (backlog, sprint, pipeline, Ralph, artifacts, acceptance), identify and fix JavaScript defects in app.js, pipeline.js, and acceptance.js, and add assertions for resolved issues.",
         "details": "Set up and execute comprehensive real-browser verification of Phase 2 UI:\n\n1. Environment Setup:\n   - Install Playwright browsers: `playwright install chromium firefox webkit`\n   - Verify tests/test_backlog_sprint_viewports.py exists and runs\n   - Ensure existing viewport tests run cleanly at 375px (mobile) and 1280px (desktop)\n\n2. Manual Viewport Testing (375px and 1280px):\n   - Backlog pages: inbox.html, triage.html, sprint_items.html - verify forms don't require horizontal scroll, file upload widgets are touch-sized (≥44px), quick-add button accessible\n   - Sprint planning/review: planning.html, tasks_review.html, readiness_review.html - verify task graph reflows vertically on mobile, approval signature capture is usable, checkbox selections work on touch\n   - Pipeline execution: run_detail.html with graph - verify SVG/canvas graph orientation switches left-to-right (desktop) to top-to-bottom (mobile), inspector panel stacks below graph on mobile, iteration timeline scrolls horizontally without requiring page scroll\n   - Ralph page: verify execution queue status updates render cleanly, step details don't overflow touch targets\n   - Artifact library: verify search results, comparison UI, and tags wrap correctly, table-compact spacing works at both viewports\n   - Acceptance criteria: verify template form, evidence linking UI, status badge rendering\n\n3. JavaScript Testing and Fixes:\n   - app/static/app.js: Test AJAX form submission (data-ajax-action), row removal (data-row), confirm dialogs (data-confirm), event delegation for dynamic content. Fix any: missing null checks, event listener leaks, inconsistent selector paths, timing issues with DOM updates\n   - app/static/pipeline.js: Test graph rendering at both viewports, step click handlers triggering inspector panel, iteration timeline navigation, dynamic step status color updates. Fix: SVG layout calculations for viewport width, event handler attachment after graph redraw, canvas context issues if used\n   - app/static/acceptance.js: Test template field substitution, criteria form save/cancel, evidence modal open/close, status badge updates. Fix: form validation errors not clearing, modal backdrop clicks not closing, template variable escaping\n\n4. Common Defect Categories to Investigate:\n   - Touch target sizing: all buttons, form inputs, interactive elements ≥44px\n   - Horizontal scroll: forms, tables, modals should fit without overflow at 375px\n   - Event handlers: verify delegated handlers work on dynamically inserted content, no double-binding\n   - Viewport-specific CSS: media queries apply correctly, no hard-coded pixel widths breaking layouts\n   - Modal/drawer: sidebar drawer toggle on <860px, modal backdrop close, focus trapping\n   - Data tables: .table-compact class applied, .row-actions cell wraps, sticky header scrollable body\n   - Graph rendering: SVG positioning, canvas scaling, text label clipping\n   - Form submission: AJAX vs full-page behavior, JSON vs redirect response handling\n\n5. Add Playwright Assertions:\n   - For each defect fixed, add assertion to verify fix (e.g., assert button width ≥44, assert form scrollable without horizontal overflow, assert graph reflows on viewport resize)\n   - Create new test helper functions in tests/conftest.py for common checks: `assert_touch_target_size()`, `assert_no_horizontal_overflow()`, `assert_viewport_layout_switches()`\n   - Add parametrized tests for all Phase 2 pages at both viewports\n\n6. Iterate and Document:\n   - Log each defect found with viewport, page, element, and severity\n   - Update code comments in fixed JavaScript with brief explanation of the issue\n   - Commit fixes with messages referencing the defect type (e.g., 'fix: touch target sizing on sprint page') and viewport scope",
         "testStrategy": "Verification approach:\n\n1. Automated Viewport Tests:\n   - Run: `pytest tests/test_backlog_sprint_viewports.py -v` at 375px and 1280px\n   - Run: `pytest tests/ -k viewport -v` to execute all existing viewport tests\n   - Verify all tests pass without skips or errors\n\n2. Manual Real-Browser Exercises (Playwright):\n   - Create tests/test_phase2_ui_verification.py with test functions for each page/viewport combination\n   - For each Phase 2 page (backlog inbox, triage, sprint items, sprint planning, tasks review, readiness review, pipeline execution, Ralph execution, artifact library, acceptance criteria):\n     - Launch browser at 375px viewport, navigate to page, interact with all controls (buttons, forms, modals, graphs), capture screenshot, verify no horizontal scrollbars, verify all text readable, verify touch targets accessible\n     - Repeat at 1280px, verify layout differences (sidebar visible, graph left-to-right, etc.)\n     - Use Playwright assertions: `expect(page).not_to_have_js_errors()`, `expect(locator).to_be_visible()`, `expect(locator).to_have_css('width', ...)` for touch targets\n\n3. JavaScript Defect Verification:\n   - Browser console: enable `console.error` and `console.warn` capture in Playwright, verify no uncaught exceptions\n   - app.js: test AJAX submission on a backlog quick-add form, verify network request sent, row removed from DOM on success\n   - pipeline.js: resize viewport during graph display, verify graph reflows, step click opens inspector without console errors\n   - acceptance.js: load template, fill criteria form, submit, verify modal closes and list updates\n   - Use Playwright `page.on('console')` to catch JavaScript errors: `assert no console.error messages found`\n\n4. Assertions for Fixes:\n   - For each defect fixed, add a test case that would have failed before the fix:\n     - Touch target sizing: `expect(button).to_have_css('min-width', '44px')` or `expect(button_box.width).to_be_greater_than_or_equal(44)`\n     - Horizontal scroll: `expect(page.viewport_size['width']).to_equal(375)` and `expect(document.body.scrollWidth).to_equal(document.body.clientWidth)`\n     - Event handlers: trigger interaction (click, form submit), verify DOM mutation occurred (row removed, modal opened, status updated)\n     - Graph reflow: capture graph dimensions at 375px and 1280px, verify height increases and width stays within viewport at 375px\n   - Document each assertion in test with comment explaining the defect it guards against\n\n5. Regression Testing:\n   - Run full test suite: `pytest tests/ -v` after fixes to ensure no regressions\n   - Run Playwright tests in headful mode: `pytest tests/test_phase2_ui_verification.py -v --headed` for visual inspection\n   - Test on real mobile device or emulated device using Playwright device descriptors (iPhone 12, Pixel 5) to verify actual touch behavior\n\n6. Sign-off Criteria:\n   - All viewport tests pass at 375px and 1280px\n   - No console errors in browser at either viewport\n   - All Phase 2 pages load and are interactive without horizontal scrollbars at 375px\n   - Touch targets (buttons, form inputs, interactive elements) are ≥44px and easily tappable\n   - Graphs, tables, and modals render correctly at both viewports\n   - JavaScript interactions (form submit, AJAX, modal open/close, graph navigation) work without errors\n   - At least 5 defects identified and fixed with corresponding test assertions added\n   - All fixes committed with clear messages and no regressions in existing tests",
         "status": "pending",
         "dependencies": [
-          18,
-          20,
-          24,
-          25,
-          26
+          "18",
+          "20",
+          "24",
+          "25",
+          "26"
         ],
         "priority": "high",
         "subtasks": []
@@ -1039,15 +1041,12 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-09-26T11:36:21.787Z",
-      "taskCount": 26,
-      "completedCount": 26,
+      "lastModified": "2026-09-26T14:03:15.859Z",
+      "taskCount": 31,
+      "completedCount": 28,
       "tags": [
         "master"
-      ],
-      "created": "2026-09-26T12:32:30.622Z",
-      "description": "Tasks for master context",
-      "updated": "2026-09-26T12:35:43.247Z"
+      ]
     }
   }
 }

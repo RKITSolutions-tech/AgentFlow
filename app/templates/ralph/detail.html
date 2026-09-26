@@ -1,10 +1,12 @@
 {% extends "base.html" %}
 {% from "_project_tabs.html" import project_tabs %}
+{% from "projects/_lock.html" import lock_status %}
 {% block title %}Ralph #{{ run.id }} - {{ project.name }} - AgentFlow{% endblock %}
 {% block content %}
   {{ project_tabs(project, none, 'ralph') }}
   {% if run.status in ('CREATED', 'RUNNING', 'VERIFYING') and executing %}<div data-autorefresh="3000" hidden></div>{% endif %}
   <h1>#{{ run.id }} {{ run.title }}</h1>
+  {{ lock_status(project.id) }}
   <p>
     <span class="run-status">{{ run.status|replace('_', ' ')|capitalize }}</span>
     {% if run.needs_attention %}<span class="run-status run-status-failed">Needs attention</span>{% endif %}

@@ -1,10 +1,12 @@
 {% extends "base.html" %}
 {% from "_project_tabs.html" import project_tabs %}
 {% from "runs/_helpers.html" import status_badge, seconds %}
+{% from "projects/_lock.html" import lock_status %}
 {% block title %}{{ project.name }} - Runs - AgentFlow{% endblock %}
 {% block content %}
   {{ project_tabs(project, none, 'runs') }}
   <h1>{{ project.name }} - Runs</h1>
+  {{ lock_status(project.id) }}
   {% if active %}<div data-autorefresh="3000" hidden></div>{% endif %}
 
   <form method="post" action="{{ url_for('runs.create_run', project_id=project.id) }}" class="stacked run-form">

@@ -7,6 +7,7 @@ import threading
 
 from app.pipelines.engine import PipelineEngine
 from app.pipelines.manager import PipelineManager
+from app.projects import lock
 from app.ralph import models
 from app.ralph.orchestrator import RalphOrchestrator
 from app.sprints import queue
@@ -31,15 +32,25 @@ class RalphManager:
         with self._lock:
             if run_id in self._threads:
                 raise ValueError(f"Ralph run {run_id} is already executing")
-            thread = threading.Thread(target=self._work, args=(run_id,), daemon=True, name=f"ralph-{run_id}")
+        db = self._connect()
+        try:
+            run = models.get_run(db, run_id)
+            # Raises LockConflict (a ValueError) if another run owns the project.
+            heartbeat = lock.acquire_for_worker(db, self._pipelines._database_path, run.project_id, "ralph_run", run_id)
+        finally:
+            db.close()
+        with self._lock:
+            thread = threading.Thread(target=self._work, args=(run_id, heartbeat), daemon=True, name=f"ralph-{run_id}")
             self._threads[run_id] = thread
         thread.start()
 
-    def _work(self, run_id: int) -> None:
+    def _work(self, run_id: int, heartbeat: lock.Heartbeat | None = None) -> None:
         db = self._connect()
         try:
             self.orchestrator(db).run(run_id)
         finally:
+            if heartbeat is not None:
+                heartbeat.stop()
             with self._lock:
                 self._threads.pop(run_id, None)
             db.close()

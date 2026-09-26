@@ -1,10 +1,12 @@
 {% extends "base.html" %}
 {% from "_project_tabs.html" import project_tabs %}
 {% from "pipelines/_helpers.html" import exec_badge %}
+{% from "projects/_lock.html" import lock_status %}
 {% block title %}{{ project.name }} - Pipelines - AgentFlow{% endblock %}
 {% block content %}
   {{ project_tabs(project, none, 'pipelines') }}
   <h1>{{ project.name }} - Pipelines</h1>
+  {{ lock_status(project.id) }}
 
   <form method="post" action="{{ url_for('pipelines.start_execution', project_id=project.id) }}" class="stacked" data-ajax-form>
     <div class="run-form-row">

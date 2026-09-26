@@ -900,3 +900,7 @@ fieldset { min-width: 0; }
 .queue-actions { display: flex; flex-wrap: wrap; gap: var(--space-3, 0.75rem); align-items: flex-end; }
 .queue-actions form { margin: 0; }
 .queue-table tr.queue-next td { background: var(--accent-soft); }
+
+/* Project execution lock */
+.lock-status { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2, 0.5rem); overflow-wrap: anywhere; }
+

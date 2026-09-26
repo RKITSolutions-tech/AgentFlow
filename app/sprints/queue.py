@@ -10,6 +10,7 @@ from __future__ import annotations
 import sqlite3
 
 from app.pipelines import persistence as pipelines
+from app.projects import lock
 from app.projects import models as project_models
 from app.ralph import models as ralph
 from app.runs.models import now
@@ -82,7 +83,13 @@ def release_sprint(db: sqlite3.Connection, sprint_id: int) -> int:
 
 
 def project_busy(db: sqlite3.Connection, project_id: int) -> str | None:
-    """Why the Project cannot take another run right now (None = free)."""
+    """Why the Project cannot take another run right now (None = free).
+
+    The execution lock covers work that is running; paused or waiting Ralph
+    runs release it but still own the working tree, so they count as busy too."""
+    held = lock.current(db, project_id)
+    if held is not None:
+        return f"locked by {held.owner}"
     row = db.execute(
         "SELECT id, status FROM ralph_runs WHERE project_id = ? AND status IN "
         "('CREATED','RUNNING','VERIFYING','PAUSED','WAITING_FOR_HUMAN') LIMIT 1",

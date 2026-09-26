@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_project_tabs.html" import project_tabs %}
+{% from "projects/_lock.html" import lock_status %}
 {% block title %}{{ project.name }} - AgentFlow{% endblock %}
 {% block content %}
   {{ project_tabs(project, none, 'overview') }}
@@ -10,6 +11,9 @@
     <button type="button" data-ajax-reload="{{ url_for('projects.unstar_project' if project.starred else 'projects.star_project', project_id=project.id) }}">{{ 'Unstar' if project.starred else 'Star' }}</button>
     <button type="button" data-ajax-reload="{{ url_for('projects.restore_project' if project.archived else 'projects.archive_project', project_id=project.id) }}">{{ 'Restore' if project.archived else 'Archive' }}</button>
   </p>
+
+  <h2>Execution lock</h2>
+  {{ lock_status(project.id, True) }}
 
   <h2>Repositories</h2>
   {% if project.repositories %}

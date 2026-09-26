@@ -436,6 +436,9 @@ def next_task(project_id: int, sprint_id: int):
     if failed:
         return failed
     work_id, run_id = result
-    current_app.extensions["ralph_manager"].start(run_id)
     target = url_for("ralph.view_run", project_id=project_id, run_id=run_id)
+    try:
+        current_app.extensions["ralph_manager"].start(run_id)
+    except ValueError as exc:  # LockConflict: the run stays CREATED and can be resumed
+        return _reply(str(exc), False, target, 409)
     return _reply("Ralph started on the next task", True, target, run_id=run_id, work_item_id=work_id, redirect=target)
