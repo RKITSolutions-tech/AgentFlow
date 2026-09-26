@@ -378,6 +378,63 @@ CREATE TABLE IF NOT EXISTS project_locks (
 -- At most one ACTIVE lock per project: the database arbitrates races.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_project_locks_active ON project_locks(project_id) WHERE status = 'ACTIVE';
 
+-- Prompt library (docs/PHASE2_PLANNING.md §2, PHASED_DELIVERY_PLAN P2.9). Global to
+-- the installation, not per project.
+CREATE TABLE IF NOT EXISTS prompt_fragments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    category TEXT NOT NULL DEFAULT 'instruction' CHECK(category IN ('instruction', 'context', 'example')),
+    content TEXT NOT NULL,
+    version INTEGER NOT NULL DEFAULT 1,
+    tags TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS prompt_fragment_versions (
+    fragment_id INTEGER NOT NULL REFERENCES prompt_fragments(id) ON DELETE CASCADE,
+    version INTEGER NOT NULL,
+    content TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (fragment_id, version)
+);
+CREATE TABLE IF NOT EXISTS prompt_templates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    description TEXT NOT NULL DEFAULT '',
+    body TEXT NOT NULL DEFAULT '',
+    fragments TEXT NOT NULL DEFAULT '[]',
+    variables TEXT NOT NULL DEFAULT '{}',
+    base_template_id INTEGER REFERENCES prompt_templates(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS ralph_instruction_blocks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    description TEXT NOT NULL DEFAULT '',
+    content TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    position INTEGER NOT NULL DEFAULT 0,
+    version INTEGER NOT NULL DEFAULT 1,
+    applies_to TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS execution_prompts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_type TEXT NOT NULL CHECK(source_type IN ('pipeline_step', 'ralph_iteration')),
+    source_id INTEGER NOT NULL,
+    template_id INTEGER REFERENCES prompt_templates(id) ON DELETE SET NULL,
+    template_name TEXT NOT NULL DEFAULT '',
+    effective_prompt TEXT NOT NULL,
+    context_files TEXT NOT NULL DEFAULT '[]',
+    variables_used TEXT NOT NULL DEFAULT '{}',
+    blocks_included TEXT NOT NULL DEFAULT '[]',
+    redacted INTEGER NOT NULL DEFAULT 0,
+    assembled_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_execution_prompts_source ON execution_prompts(source_type, source_id);
+
 CREATE TABLE IF NOT EXISTS pipelines (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     project_id INTEGER REFERENCES projects(id) ON DELETE CASCADE,
@@ -461,7 +518,8 @@ CREATE TABLE IF NOT EXISTS step_executions (
     session_id INTEGER,
     redacted INTEGER NOT NULL DEFAULT 0,
     started_at TEXT,
-    completed_at TEXT
+    completed_at TEXT,
+    execution_prompt_id INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_step_exec_execution ON step_executions(execution_id, id);
 
@@ -649,6 +707,8 @@ def _seed_model_catalog(db: sqlite3.Connection) -> None:
 _ADDED_COLUMNS = (
     ("projects", "starred", "INTEGER NOT NULL DEFAULT 0"),
     ("ralph_runs", "awaiting_acceptance", "INTEGER NOT NULL DEFAULT 0"),
+    ("step_executions", "execution_prompt_id", "INTEGER"),
+    ("ralph_iterations", "execution_prompt_id", "INTEGER"),
     ("planned_work_items", "task_state", "TEXT NOT NULL DEFAULT 'DRAFT'"),
     ("planned_work_items", "released_at", "TEXT"),
     ("planned_work_items", "verification_pipeline", "TEXT NOT NULL DEFAULT ''"),

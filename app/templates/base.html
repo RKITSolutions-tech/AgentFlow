@@ -36,6 +36,7 @@
         <a href="#" aria-disabled="true">Backlog</a>
         <a href="#" aria-disabled="true">Sprints</a>
         <a href="#" aria-disabled="true">Runs</a>
+        <a href="{{ url_for('prompts.library') }}"{% if ep.startswith('prompts.') %} aria-current="page"{% endif %}>Prompts</a>
         <a href="{{ url_for('notifications.index') }}"{% if ep.startswith('notifications.') %} aria-current="page"{% endif %}>Notifications
           <span class="notify-badge" data-notify-badge{% if not shell.unread_notifications %} hidden{% endif %}>{{ shell.unread_notifications }}</span></a>
         <a href="{{ url_for('settings.index') }}"{% if ep.startswith('settings.') %} aria-current="page"{% endif %}>Settings</a>

@@ -1009,7 +1009,7 @@
         "description": "Build a prompt fragment and template library system with toggleable Ralph instruction blocks, UI components for management, and effective-prompt assembly with context-file resolution. Migrate existing PROMPT_TEMPLATES and STANDARD_INSTRUCTIONS into the library and persist effective prompts for all executions.",
         "details": "Create app/prompts/ package with the following components:\n\n1. Data models in app/prompts/models.py:\n   - PromptFragment: id, name, category (instruction/context/example), content (text), version, created_at, updated_at, tags (JSON)\n   - PromptTemplate: id, name, description, fragments (JSON list of fragment_ids), variables (JSON: placeholders), created_at, updated_at\n   - RalphInstructionBlock: id, name, description, content (text), enabled (boolean), order (int), version, applies_to (JSON: agent_types)\n   - ExecutionPrompt: id, run_id (FK to runs or ralph_runs), template_id (FK), effective_prompt (text), context_files (JSON: resolved paths), assembled_at, variables_used (JSON)\n\n2. Implement PromptAssembler class in app/prompts/assembler.py:\n   - assemble_effective_prompt(template_id, context, variables): merge template fragments, resolve @file references against project, substitute variables\n   - resolve_context_files(file_patterns): expand glob patterns and validate paths against allowed project roots\n   - include_ralph_instructions(enabled_blocks): merge enabled instruction blocks in order\n   - handle_template_inheritance: support base templates with override fragments\n   - Return assembled prompt text and metadata (resolved_files, blocks_included, variables_substituted)\n\n3. Migrate existing prompts:\n   - Extract PROMPT_TEMPLATES from app/pipelines/engine.py and create PromptTemplate records\n   - Extract STANDARD_INSTRUCTIONS from app/ralph/orchestrator.py and create RalphInstructionBlock records\n   - Mark blocks as enabled/disabled based on current configuration\n   - Update engine.py and orchestrator.py to fetch from library at runtime\n\n4. Create UI views in app/templates/prompts/:\n   - library.html: table of fragments and templates with add/edit/delete actions (AJAX)\n   - fragment_form.html: create/edit prompt fragment with category, content, tags\n   - template_form.html: compose template from fragments, preview assembled output\n   - ralph_blocks.html: toggleable checklist of Ralph instruction blocks with preview and ordering\n   - Responsive table layout using .table-compact class; mobile-friendly fragment/template selection\n\n5. Create views in app/prompts/views.py:\n   - GET/POST /prompts/library: list and create fragments\n   - GET/POST /prompts/fragments/<id>: edit/delete fragment\n   - GET/POST /prompts/templates: list and create templates\n   - GET/POST /prompts/templates/<id>: edit/delete template\n   - POST /prompts/preview: assemble and preview effective prompt\n   - GET/POST /prompts/ralph-blocks: list, reorder, enable/disable blocks\n   - All mutation endpoints return JSON for AJAX handlers\n\n6. Update Run and RalphRun models:\n   - Add execution_prompt_id (FK to ExecutionPrompt) to capture effective prompt for every execution\n   - Populate ExecutionPrompt when assembling prompt before agent/executor call\n\n7. Integrate with existing systems:\n   - Update PipelineExecutor to assemble prompt for each step using library\n   - Update RalphOrchestrator to include enabled instruction blocks in prompt\n   - Update CodexAdapter.run() to use assembled prompt from ExecutionPrompt record\n\nFollow docs/PHASE2_PLANNING.md §2 for library structure and assembly flow.",
         "testStrategy": "Unit tests in tests/prompts/test_models.py: test fragment creation and versioning, test template composition from fragments, test variable substitution, test Ralph instruction block enable/disable. Unit tests in tests/prompts/test_assembler.py: test assemble_effective_prompt merges fragments correctly, test resolve_context_files expands globs and validates paths, test include_ralph_instructions respects enabled state and order, test variable substitution handles missing variables gracefully, test base template inheritance. Integration tests in tests/prompts/test_views.py: test library UI lists and creates fragments/templates, test fragment/template edit/delete via AJAX, test Ralph blocks checkbox state persists, test preview endpoint returns assembled prompt. Integration test with pipeline execution: create pipeline step with template, execute, verify ExecutionPrompt record created with correct effective_prompt and resolved_files. Test migration: verify PROMPT_TEMPLATES and STANDARD_INSTRUCTIONS from existing code are present in library after migration. Playwright test: navigate library UI on mobile (375px) and desktop (1280px), verify tables render without horizontal scroll, verify forms are usable.",
-        "status": "pending",
+        "status": "done",
         "dependencies": [
           "21",
           "22",
@@ -1020,7 +1020,8 @@
           "27"
         ],
         "priority": "medium",
-        "subtasks": []
+        "subtasks": [],
+        "updatedAt": "2026-09-26T14:14:48.697Z"
       },
       {
         "id": "31",
@@ -1042,9 +1043,9 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-09-26T14:05:29.197Z",
+      "lastModified": "2026-09-26T14:14:48.697Z",
       "taskCount": 31,
-      "completedCount": 29,
+      "completedCount": 30,
       "tags": [
         "master"
       ]

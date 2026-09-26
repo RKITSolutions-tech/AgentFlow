@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Ralph instructions - Prompt library - AgentFlow{% endblock %}
+{% block content %}
+  <p><a href="{{ url_for('prompts.library') }}">&larr; Prompt library</a></p>
+  <h1>Ralph instruction blocks</h1>
+  <p class="form-hint">Enabled blocks are sent, in this order, with every Ralph iteration. Each iteration records the blocks it used.</p>
+  <ul class="block-list">
+    {% for b in blocks %}
+      <li class="block-item" data-row>
+        <form method="post" action="{{ url_for('prompts.update_block', block_id=b.id) }}" class="block-toggle" data-ajax-form>
+          <input type="hidden" name="enabled" value="{{ '0' if b.enabled else '1' }}">
+          <button type="submit" role="switch" aria-checked="{{ 'true' if b.enabled else 'false' }}">{{ 'On' if b.enabled else 'Off' }}</button>
+        </form>
+        <div class="block-text">
+          <strong>{{ b.name }}</strong> <span class="form-hint">v{{ b.version }}{% if b.applies_to %} &middot; only {{ b.applies_to|join(', ') }}{% endif %}</span>
+          <p class="wrap-cell{% if not b.enabled %} block-off{% endif %}">{{ b.content }}</p>
+        </div>
+        <div class="row-actions">
+          <form method="post" action="{{ url_for('prompts.update_block', block_id=b.id) }}" data-ajax-form><input type="hidden" name="move" value="up"><button type="submit" aria-label="Move {{ b.name }} up"{% if loop.first %} disabled{% endif %}>&uarr;</button></form>
+          <form method="post" action="{{ url_for('prompts.update_block', block_id=b.id) }}" data-ajax-form><input type="hidden" name="move" value="down"><button type="submit" aria-label="Move {{ b.name }} down"{% if loop.last %} disabled{% endif %}>&darr;</button></form>
+          <button type="button" class="link-danger" data-ajax-action="{{ url_for('prompts.delete_block', block_id=b.id) }}" data-confirm="Delete block {{ b.name }}?">Delete</button>
+        </div>
+      </li>
+    {% else %}
+      <li class="form-hint">No blocks: Ralph will send the built-in defaults until you add some.</li>
+    {% endfor %}
+  </ul>
+  <h2>Add a block</h2>
+  <form method="post" action="{{ url_for('prompts.create_block') }}" class="stacked" data-ajax-form>
+    <div class="run-form-row">
+      <label>Name <input name="name" required maxlength="80"></label>
+      <label>Only for agents (comma separated, blank = all) <input name="applies_to" placeholder="codex"></label>
+    </div>
+    <label>Instruction <textarea name="content" rows="2" required></textarea></label>
+    <button type="submit" class="btn-primary">Add block</button>
+  </form>
+{% endblock %}

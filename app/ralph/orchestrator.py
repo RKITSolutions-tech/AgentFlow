@@ -21,17 +21,16 @@ from app.artifacts import collector
 from app.pipelines import executions
 from app.pipelines.engine import PipelineEngine
 from app.projects import models as project_models
+from app.prompts import assembler
+from app.prompts import models as prompt_models
+from app.prompts.defaults import DEFAULT_INSTRUCTIONS
 from app.ralph import models
 from app.runs.models import now
 from app.runs.security import redact
 from app.sprints import queue
 
-STANDARD_INSTRUCTIONS = (
-    "Work only on the task below and keep changes minimal.",
-    "Extend existing code rather than replacing it.",
-    "Do not commit; AgentFlow commits after verification passes.",
-    "Stop when you believe the acceptance criteria are met; verification decides.",
-)
+# Seed/fallback only: the enabled, ordered blocks live in the prompt library.
+STANDARD_INSTRUCTIONS = tuple(text for _, text in DEFAULT_INSTRUCTIONS)
 MAX_SNAPSHOT_FILE_BYTES = 1_000_000
 FEEDBACK_CHARS = 1500
 _NOISE = re.compile(r"\d+(\.\d+)?|0x[0-9a-f]+|/tmp/\S+|[0-9a-f]{7,40}", re.I)
@@ -167,6 +166,10 @@ class RalphOrchestrator:
         prompt = self._build_prompt(run, number, last, steering)
         clean_prompt, redacted = redact(prompt, self._patterns)
         iteration_id = models.add_iteration(db, run.id, number, clean_prompt, redacted)
+        models.update_iteration(db, iteration_id, execution_prompt_id=prompt_models.record_prompt(
+            db, "ralph_iteration", iteration_id, clean_prompt, blocks_included=self._blocks_used,
+            variables_used={"run": run.id, "iteration": number}, redacted=redacted,
+        ))
         models.update_run(db, run.id, current_iteration=number)
         models.consume_steering(db, [s.id for s in steering], number)
 
@@ -223,11 +226,28 @@ class RalphOrchestrator:
         models.update_iteration(db, iteration_id, next_action="retry_with_feedback")
         return "CONTINUE", ""
 
+    def _agent_type(self) -> str:
+        """'fake', 'codex', ... from the adapter class, for blocks scoped by `applies_to`."""
+        if not hasattr(self, "_agent_type_cache"):
+            name = type(self._agent_factory(self._db)).__name__
+            self._agent_type_cache = name.replace("AgentAdapter", "").replace("Adapter", "").lower()
+        return self._agent_type_cache
+
+    def _instructions(self) -> tuple[str, list[str]]:
+        """Enabled library blocks, in order. A library that was never seeded (no
+        blocks at all) falls back to the shipped defaults; a library where every
+        block is disabled really does send none."""
+        blocks = prompt_models.list_blocks(self._db)
+        if not blocks:
+            return "Instructions:\n" + "\n".join(f"- {i}" for i in STANDARD_INSTRUCTIONS), [n for n, _ in DEFAULT_INSTRUCTIONS]
+        return assembler.include_ralph_instructions(blocks, self._agent_type())
+
     def _build_prompt(self, run, number: int, last: models.Iteration | None, steering) -> str:
         parts = [f"Task: {run.title}", run.task_text.strip()]
         if run.acceptance:
             parts.append("Acceptance criteria:\n" + "\n".join(f"- {c}" for c in run.acceptance))
-        parts.append("Instructions:\n" + "\n".join(f"- {i}" for i in STANDARD_INSTRUCTIONS))
+        instructions, self._blocks_used = self._instructions()
+        parts.append(instructions)
         if steering:
             parts.append("Steering from the user (follow these):\n" + "\n".join(f"- {s.message}" for s in steering))
         if last is not None and last.status in ("FAILED", "NO_PROGRESS"):

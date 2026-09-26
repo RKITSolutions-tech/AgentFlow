@@ -52,14 +52,21 @@ def create_app(config: Config | None = None) -> Flask:
     from app.acceptance.views import bp as acceptance_bp
 
     app.register_blueprint(acceptance_bp)
+
+    from app.prompts.views import bp as prompts_bp
+
+    app.register_blueprint(prompts_bp)
     app.extensions["run_manager"].reconcile()
 
     from app.pipelines.persistence import seed_builtins
 
     from app.db import get_db
 
+    from app.prompts.models import seed_defaults
+
     with app.app_context():
         seed_builtins(get_db())
+        seed_defaults(get_db())
 
     from app.pipelines.manager import PipelineManager
 

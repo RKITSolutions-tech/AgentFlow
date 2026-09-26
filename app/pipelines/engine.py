@@ -23,6 +23,9 @@ from app.artifacts import collector
 from app.pipelines import composer, executions, persistence
 from app.pipelines.executions import DONE_STEP, Execution
 from app.projects import models as project_models
+from app.prompts import assembler
+from app.prompts import models as prompt_models
+from app.prompts.defaults import DEFAULT_TEMPLATES
 from app.runs.artifacts import ArtifactPathError, _resolve_within, _safe_name
 from app.runs.security import REDACTION_MARK, redact
 
@@ -35,13 +38,9 @@ PHASE_RANK = {"SETUP": 0, "MAIN": 1}
 SUMMARY_CHARS = 2000
 _VARIABLE = re.compile(r"\$\{([^}]+)\}")
 
-# Small built-in prompt fragments until the prompt library (P2.9) exists.
-PROMPT_TEMPLATES = {
-    "implement-task": "Implement the task described below. Make the smallest change that "
-    "satisfies the acceptance criteria, then stop.\n\n${vars.task}",
-    "verify-acceptance": "Verify each acceptance criterion below against the current code and "
-    "report which pass.\n\n${vars.task}",
-}
+# Kept for callers that imported it; the prompt library (app/prompts) is what the
+# engine reads at runtime and these defaults are only its seed / fallback.
+PROMPT_TEMPLATES = DEFAULT_TEMPLATES
 
 
 class VariableError(ValueError):
@@ -682,16 +681,40 @@ class PipelineEngine:
         prompt = self._resolve(ex, (element.get("config") or {}).get("prompt", ""))
         return StepResult("WAITING", summary=prompt, input_reference=prompt)
 
+    def _assemble_prompt(self, ex: Execution, config: dict):
+        """Effective prompt for an AGENT step from the prompt library: a literal
+        `prompt` wins, else the named `prompt_template`; `context_files` globs (and
+        `@path` mentions in library text) are resolved inside the repository."""
+        literal, name = config.get("prompt"), config.get("prompt_template", "")
+        template, text = None, literal or ""
+        if not literal:
+            template = prompt_models.get_template_by_name(self._db, name) if name else None
+            if template is None:
+                if name in DEFAULT_TEMPLATES:  # library never seeded: use the shipped default
+                    text = DEFAULT_TEMPLATES[name]
+                else:
+                    raise ValueError(f"Unknown prompt template {name!r}")
+        return assembler.assemble_effective_prompt(
+            self._db, template=template, text=text, root=self._workdir(ex),
+            context_globs=list(config.get("context_files") or []),
+            resolver=lambda ref: self._resolve(ex, ref),
+        )
+
     def _h_agent(self, ex, element, step_id, context_id) -> StepResult:
         if self._agent_factory is None:
             raise ValueError("No agent is configured for this engine")
         from app.agents.base import AgentContext
 
         config = element.get("config") or {}
-        template = config.get("prompt") or PROMPT_TEMPLATES.get(config.get("prompt_template", ""))
-        if not template:
-            raise ValueError(f"Unknown prompt template {config.get('prompt_template')!r}")
-        prompt = self._resolve(ex, template)
+        assembled = self._assemble_prompt(ex, config)
+        prompt = assembled.text
+        clean_prompt, prompt_redacted = redact(prompt, self._patterns)
+        prompt_id = prompt_models.record_prompt(
+            self._db, "pipeline_step", step_id, clean_prompt, assembled.template_id, assembled.template_name,
+            assembled.resolved_files, assembled.variables_substituted, assembled.blocks_included,
+            redacted=prompt_redacted,
+        )
+        executions.update_step(self._db, step_id, execution_prompt_id=prompt_id)
         adapter = self._agent_factory(self._db)
         options = {"role": config.get("role", "IMPLEMENTATION")}
         if config.get("script") is not None:

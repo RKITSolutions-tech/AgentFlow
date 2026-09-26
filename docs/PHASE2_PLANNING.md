@@ -77,3 +77,57 @@ later items depend on them:
 1. Context-file resolution (§2) belongs with P2.9 Prompt Library, since both
    feed the same effective-prompt assembly.
 2. The §4 document event types belong with P2.4 Pipeline Engine.
+
+
+## 8. Prompt Library (task 30, P2.9)
+
+Implementation decisions made without the owner in the loop; recommendations to confirm.
+
+- **Global, not per project.** Fragments, templates and Ralph instruction blocks are shared
+  by every project (`/prompts/...`, a "Prompts" link in the sidebar). Per-project overrides
+  are the obvious next step but nothing needs them yet. Storage is plain `sqlite3`
+  (`app/prompts/models.py`); tables `prompt_fragments` (+ `prompt_fragment_versions`),
+  `prompt_templates`, `ralph_instruction_blocks`, `execution_prompts`.
+- **Fragments** have a category (`instruction` | `context` | `example`), tags and a version;
+  changing the content bumps the version and keeps the old text; metadata edits do not.
+- **Templates** are a `body` (with `${...}` variables and `@path` mentions) plus an ordered
+  list of fragments and default variables. `body` was added to the task's fragments-only
+  model because the existing built-in prompts (`implement-task`, `verify-acceptance`) are
+  plain text. **Inheritance** (`base_template_id`): the most-derived non-empty body wins,
+  fragments accumulate base-first without repeats, loops are rejected on save. Deleting a
+  fragment used by a template, or a template used as a base, is refused.
+- **Assembly** (`app/prompts/assembler.py`, AgentFlow-side only, per §2): template chain ->
+  body + fragments -> `${...}` variables -> `@path` mentions and `context_files` globs ->
+  (optionally) enabled Ralph blocks. Adapters still receive just the final string, so
+  `CodexAdapter` is unchanged (the task asked for it to read the `ExecutionPrompt`; the
+  string it is handed *is* that record).
+  - Variables: with no resolver a missing `${x}` is left in place and listed in
+    `missing_variables` (previews); the engine passes its strict resolver, so an unknown
+    `${...}` in a real run still fails the step exactly as before.
+  - Files: globs are relative to the repository, `..`/absolute patterns and symlinks that
+    leave the repository are skipped and reported, at most 20 files of 64 KiB (truncated
+    with a marker) are injected, and the repository must sit under `ALLOWED_PROJECT_ROOTS`.
+    `@mentions` are read from the *library text only*, never from substituted variable
+    values, so task text cannot pull files into a prompt. `user@example.com` is not a mention.
+- **Migration.** `PROMPT_TEMPLATES` and `STANDARD_INSTRUCTIONS` moved to
+  `app/prompts/defaults.py` and are seeded at start-up (`seed_defaults`, idempotent, never
+  overwrites edits; the block set is seeded only into an empty table so a person can disable
+  or reorder without them returning). The old names remain as aliases. The engine and Ralph
+  read the library at runtime; a library that was never seeded falls back to the defaults,
+  whereas a library with every block *disabled* sends no instructions.
+- **Ralph blocks**: on/off, ordered (up/down buttons; no drag and drop), versioned, optional
+  `applies_to` agent types (`fake`, `codex`, derived from the adapter class name; blank = all).
+- **ExecutionPrompt.** Every AGENT step and every Ralph iteration stores its effective prompt
+  (redacted like other stored text, flagged) with template, resolved files, variables used and
+  blocks included in `execution_prompts`, linked by `step_executions.execution_prompt_id` and
+  `ralph_iterations.execution_prompt_id`. The task text said `Run` and `RalphRun`: manual Runs
+  are command-only and have no prompt, and a Ralph run has one prompt *per iteration*, so the
+  link lives on the iteration. The step inspector already shows the effective prompt as the
+  step input; there is no separate page for the record yet.
+- **UI.** `library` (templates and fragments tables, add-fragment form), fragment form with
+  version history, template form with fragment checkboxes and a preview that assembles without
+  saving (variables to try, optional repository for `@file`), and a Ralph blocks list with
+  toggle switches. All mutations are AJAX with JSON replies and non-JS redirects; tables use
+  `.table-compact`/`.row-actions`, and controls are 44px on touch.
+- Not done: a project-level context-file setting (`CLAUDE.md`/`AGENTS.md` discovery, §2), a
+  browsable list of recorded prompts, per-template usage counts, import/export.

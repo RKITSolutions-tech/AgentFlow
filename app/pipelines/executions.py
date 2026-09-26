@@ -61,6 +61,7 @@ class StepExecution:
     redacted: bool
     started_at: str | None
     completed_at: str | None
+    execution_prompt_id: int | None = None
 
 
 @dataclass

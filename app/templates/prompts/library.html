@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Prompt library - AgentFlow{% endblock %}
+{% block content %}
+  <h1>Prompt library</h1>
+  <p class="form-hint">Fragments and templates build the prompts AGENT steps send; Ralph's standing instructions are
+    <a href="{{ url_for('prompts.ralph_blocks') }}">blocks you can switch on and off</a>.</p>
+
+  <h2>Templates</h2>
+  <p><a class="btn-primary" href="{{ url_for('prompts.templates') }}">New template</a></p>
+  <table class="table-compact">
+    <thead><tr><th>Name</th><th>Description</th><th>Fragments</th><th></th></tr></thead>
+    <tbody>
+      {% for t in templates %}
+        <tr data-row>
+          <td class="wrap-cell"><a href="{{ url_for('prompts.edit_template', template_id=t.id) }}">{{ t.name }}</a></td>
+          <td class="wrap-cell">{{ t.description }}</td>
+          <td>{{ t.fragments|length }}</td>
+          <td class="row-actions"><button type="button" class="link-danger" data-ajax-action="{{ url_for('prompts.delete_template', template_id=t.id) }}" data-confirm="Delete template {{ t.name }}?">Delete</button></td>
+        </tr>
+      {% else %}
+        <tr><td colspan="4">No templates.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h2>Fragments</h2>
+  <form method="post" action="{{ url_for('prompts.create_fragment') }}" class="stacked" data-ajax-form>
+    <div class="run-form-row">
+      <label>Name <input name="name" required maxlength="80"></label>
+      <label>Category
+        <select name="category">{% for c in categories %}<option value="{{ c }}">{{ c|capitalize }}</option>{% endfor %}</select>
+      </label>
+      <label>Tags (comma separated) <input name="tags"></label>
+    </div>
+    <label>Content <textarea name="content" rows="3" required></textarea></label>
+    <button type="submit" class="btn-primary">Add fragment</button>
+  </form>
+  <table class="table-compact">
+    <thead><tr><th>Name</th><th>Category</th><th>Version</th><th>Content</th><th></th></tr></thead>
+    <tbody>
+      {% for f in fragments %}
+        <tr data-row>
+          <td class="wrap-cell"><a href="{{ url_for('prompts.edit_fragment', fragment_id=f.id) }}">{{ f.name }}</a>{% for tag in f.tags %} <span class="form-hint">#{{ tag }}</span>{% endfor %}</td>
+          <td>{{ f.category|capitalize }}</td>
+          <td>v{{ f.version }}</td>
+          <td class="wrap-cell">{{ f.content[:120] }}{% if f.content|length > 120 %}&hellip;{% endif %}</td>
+          <td class="row-actions"><button type="button" class="link-danger" data-ajax-action="{{ url_for('prompts.delete_fragment', fragment_id=f.id) }}" data-confirm="Delete fragment {{ f.name }}?">Delete</button></td>
+        </tr>
+      {% else %}
+        <tr><td colspan="5">No fragments.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}

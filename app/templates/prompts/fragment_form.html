@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}{{ fragment.name }} - Prompt library - AgentFlow{% endblock %}
+{% block content %}
+  <p><a href="{{ url_for('prompts.library') }}">&larr; Prompt library</a></p>
+  <h1>{{ fragment.name }} <small>v{{ fragment.version }}</small></h1>
+  <form method="post" action="{{ url_for('prompts.edit_fragment', fragment_id=fragment.id) }}" class="stacked" data-ajax-form>
+    <div class="run-form-row">
+      <label>Name <input name="name" required maxlength="80" value="{{ fragment.name }}"></label>
+      <label>Category
+        <select name="category">{% for c in categories %}<option value="{{ c }}"{% if c == fragment.category %} selected{% endif %}>{{ c|capitalize }}</option>{% endfor %}</select>
+      </label>
+      <label>Tags <input name="tags" value="{{ fragment.tags|join(', ') }}"></label>
+    </div>
+    <label>Content <textarea name="content" rows="8" required>{{ fragment.content }}</textarea></label>
+    <p class="form-hint">Changing the content saves a new version; earlier versions are kept below.</p>
+    <button type="submit" class="btn-primary">Save</button>
+  </form>
+  {% if used_by %}<p class="form-hint">Used by: {% for t in used_by %}<a href="{{ url_for('prompts.edit_template', template_id=t.id) }}">{{ t.name }}</a>{% if not loop.last %}, {% endif %}{% endfor %}</p>{% endif %}
+  <h2>History</h2>
+  <table class="table-compact">
+    <thead><tr><th>Version</th><th>Saved</th><th>Content</th></tr></thead>
+    <tbody>{% for v in versions %}<tr><td>v{{ v.version }}</td><td>{{ v.created_at[:19] }}</td><td class="wrap-cell">{{ v.content[:200] }}</td></tr>{% endfor %}</tbody>
+  </table>
+{% endblock %}

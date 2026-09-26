@@ -922,3 +922,14 @@ fieldset { min-width: 0; }
 .iteration-link.is-current { border-color: var(--accent); }
 .replay-active .pipeline-graph { outline: 2px dashed var(--accent); outline-offset: 2px; }
 
+/* Prompt library */
+.block-list { list-style: none; padding: 0; display: grid; gap: var(--space-3, 0.75rem); }
+.block-item { display: grid; grid-template-columns: auto 1fr; gap: var(--space-3, 0.75rem); align-items: start; padding: var(--space-3, 0.75rem); border: 1px solid var(--border); border-radius: var(--radius); }
+.block-item .row-actions { grid-column: 1 / -1; }
+.block-item form { margin: 0; }
+.block-toggle button { min-width: var(--tap, 44px); min-height: var(--tap, 44px); }
+.block-toggle button[aria-checked="true"] { background: var(--accent-soft); color: var(--accent); }
+.block-off { opacity: 0.6; text-decoration: line-through; }
+.fragment-picker { display: grid; gap: var(--space-2, 0.5rem); border: 1px solid var(--border); border-radius: var(--radius); }
+@media (min-width: 861px) { .block-item { grid-template-columns: auto 1fr auto; } .block-item .row-actions { grid-column: auto; } }
+

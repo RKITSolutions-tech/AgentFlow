@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}{{ template.name if template else 'New template' }} - Prompt library - AgentFlow{% endblock %}
+{% block content %}
+  <p><a href="{{ url_for('prompts.library') }}">&larr; Prompt library</a></p>
+  <h1>{{ template.name if template else 'New template' }}</h1>
+  <form method="post" action="{{ url_for('prompts.edit_template', template_id=template.id) if template else url_for('prompts.templates') }}" class="stacked" id="templateForm" data-ajax-form>
+    <label>Name <input name="name" required maxlength="80" value="{{ template.name if template else '' }}"></label>
+    <label>Description <input name="description" value="{{ template.description if template else '' }}"></label>
+    <label>Inherits from
+      <select name="base_template_id"><option value="">Nothing</option>
+        {% for t in templates %}<option value="{{ t.id }}"{% if template and template.base_template_id == t.id %} selected{% endif %}>{{ t.name }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>Body <textarea name="body" rows="6">{{ template.body if template else '' }}</textarea></label>
+    <p class="form-hint">Use <code>${vars.task}</code> or <code>${name}</code> for variables and <code>@path/to/file</code> to include a repository file.
+      A template that inherits replaces the base's body only if it has one; a fragment with the same name as a base fragment overrides it.</p>
+    <fieldset class="fragment-picker">
+      <legend>Fragments</legend>
+      {% for f in fragments %}
+        <label class="backlog-select"><input type="checkbox" name="fragments" value="{{ f.id }}"{% if template and f.id in template.fragments %} checked{% endif %}> {{ f.name }} <span class="form-hint">{{ f.category }}</span></label>
+      {% else %}
+        <p class="form-hint">No fragments yet.</p>
+      {% endfor %}
+    </fieldset>
+    <label>Default variables, one <code>name=value</code> per line <textarea name="variables" rows="2">{% if template %}{% for k, v in template.variables.items() %}{{ k }}={{ v }}
+{% endfor %}{% endif %}</textarea></label>
+    <div class="row-actions">
+      <button type="submit" class="btn-primary">Save</button>
+      <button type="button" data-preview-url="{{ url_for('prompts.preview') }}" data-preview-form="templateForm">Preview</button>
+    </div>
+  </form>
+  <label>Variables to try in the preview, one <code>name=value</code> per line <textarea data-preview-variables rows="2"></textarea></label>
+  <section aria-live="polite" data-preview-output hidden>
+    <h2>Preview</h2>
+    <pre class="run-log" data-preview-text></pre>
+    <p class="form-hint" data-preview-meta></p>
+  </section>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='prompts.js') }}" defer></script>{% endblock %}

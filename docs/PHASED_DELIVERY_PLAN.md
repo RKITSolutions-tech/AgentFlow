@@ -351,16 +351,16 @@ the deferred Run/terminal items listed there.
 | P2.3 Acceptance | built | criteria, templates, evidence suggestion, completion gate |
 | P2.4 Pipeline Engine | built | definitions, versions, composition, engine (PIPELINE_ENGINE §22) |
 | P2.5 Ralph | built | iterations, steering, no-progress, auto commit (RUN_AND_RALPH §22) |
-| P2.6 Visual Monitoring | partly | execution graph + inspector; no replay, no collapsing sub-pipelines |
-| P2.7 Historical Replay | not started | events are recorded; no replay UI |
+| P2.6 Visual Monitoring | partly | execution graph + inspector + timeline; no collapsing sub-pipelines |
+| P2.7 Historical Replay | built | replay panel, timeline, playhead (PIPELINE_VISUALISATION §30) |
 | P2.8 Artifact Library | built | index, search, compare; images compared byte-wise only |
-| P2.9 Prompt Library | not started | AGENT steps use a small built-in template table |
+| P2.9 Prompt Library | built | fragments, templates, Ralph blocks, recorded effective prompts (PHASE2_PLANNING §8) |
 | P2.10 External Rigging | partly | process/HTTP/health/wait steps; SSH/Docker run as plain commands |
 
-Not yet joined up: nothing turns an approved Sprint's tasks into Ralph runs
-(Sprint execution queue, SPRINT_PLANNING §28) and there is no Project lock, so
-the "Definition of Useful" below is not met end to end. Front-end JavaScript
-and the viewport tests have not been exercised in a real browser.
+Joined up: an approved Sprint's tasks are released and promoted into Ralph runs
+by the execution queue (SPRINT_PLANNING §49, task 27) under a per-project
+execution lock (RUN_AND_RALPH §22, task 28). Promotion is one task at a time on
+request; fully automatic linear execution is not built.
 
 ## 9. Phase 2 Definition of Useful
 
