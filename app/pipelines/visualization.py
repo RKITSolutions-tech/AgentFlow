@@ -39,18 +39,90 @@ def node_state(element: dict, steps: list[StepExecution]) -> str:
     return last.status
 
 
+ALL = "*"  # `expand` value meaning every sub-pipeline is shown inline
+
+
+def parse_expand(value: str | None) -> frozenset[str]:
+    """`?expand=a,b.c` (names of sub-pipelines to show inline), or `*` for all."""
+    return frozenset(p.strip() for p in (value or "").split(",") if p.strip())
+
+
+def representative(name: str, expand: frozenset[str]) -> str:
+    """The node that stands for element `name`: the outermost collapsed
+    sub-pipeline containing it (dotted prefixes, §20), else the element itself."""
+    if ALL in expand:
+        return name
+    parts = name.split(".")
+    for i in range(1, len(parts)):
+        prefix = ".".join(parts[:i])
+        if prefix not in expand:
+            return prefix
+    return name
+
+
+def group_state(member_states: list[str], execution_active: bool) -> str:
+    """One state for a collapsed sub-pipeline (§20) from its steps' states."""
+    s = set(member_states)
+    for bad in ("FAILED", "TIMED_OUT"):
+        if bad in s:
+            return bad
+    if s & {"RUNNING", "RETRYING"}:
+        return "RUNNING"
+    if "WAITING" in s:
+        return "WAITING"
+    if "CANCELLED" in s:
+        return "CANCELLED"
+    if s <= {"DISABLED"}:
+        return "DISABLED"
+    if s <= {"PASSED", "WARNING", "SKIPPED", "DISABLED"}:
+        return "WARNING" if "WARNING" in s else "PASSED"
+    if s & {"PASSED", "WARNING", "SKIPPED"} and execution_active:
+        return "RUNNING"  # some steps done, the rest still to come
+    return "PENDING"
+
+
 def build_graph(
-    db: sqlite3.Connection, execution: Execution, steps: list[StepExecution] | None = None
+    db: sqlite3.Connection, execution: Execution, steps: list[StepExecution] | None = None,
+    expand: frozenset[str] = frozenset(),
 ) -> dict:
     """`steps` replaces the stored step rows: historical replay passes the steps
-    as they were at an earlier event (pipelines/replay.py)."""
-    elements = execution.resolved_configuration["elements"]
+    as they were at an earlier event (pipelines/replay.py). Sub-pipelines are
+    one collapsed node each unless named in `expand` (or `expand` holds `*`)."""
+    original = execution.resolved_configuration["elements"]
     by_element: dict[str, list[StepExecution]] = {}
     for step in (steps if steps is not None else executions.list_steps(db, execution.id)):
         by_element.setdefault(step.element_name, []).append(step)
 
+    rep = {el["name"]: representative(el["name"], expand) for el in original}
+    members: dict[str, list[str]] = {}
+    elements: list[dict] = []
+    for el in original:  # composed order is topological; a group sits where its first member did
+        target = rep[el["name"]]
+        if target == el["name"]:
+            elements.append(el)
+            continue
+        if target not in members:
+            members[target] = []
+            elements.append({"name": target, "type": "SUB_PIPELINE", "phase": el.get("phase", "MAIN"),
+                             "depends_on": [], "config": {}, "group_node": True})
+        members[target].append(el["name"])
+    by_name = {el["name"]: el for el in elements}
+    for el in original:  # a group depends on whatever its members depend on from outside
+        target = rep[el["name"]]
+        if target != el["name"]:
+            deps = by_name[target]["depends_on"]
+            for d in el.get("depends_on") or []:
+                outside = rep.get(d, d)
+                if outside != target and outside not in deps:
+                    deps.append(outside)
+    # Plain elements may depend on something now hidden inside a collapsed group.
+    elements = [
+        el if el.get("group_node") else {**el, "depends_on": list(dict.fromkeys(rep.get(d, d) for d in el.get("depends_on") or []))}
+        for el in elements
+    ]
+
     layer_of: dict[str, int] = {}
-    for el in elements:  # composed order is topological
+    for el in elements:
         deps = [d for d in el.get("depends_on") or [] if d in layer_of]
         layer_of[el["name"]] = 1 + max((layer_of[d] for d in deps), default=-1)
     # Teardown runs after everything else, in its own trailing layers.
@@ -59,15 +131,33 @@ def build_graph(
         if el.get("phase") == "TEARDOWN":
             layer_of[el["name"]] += main_depth + 1
 
+    active = execution.status in ("PENDING", "RUNNING")
     rows: dict[int, int] = {}
     nodes, edges = [], []
     for el in elements:
         name = el["name"]
-        steps = by_element.get(name, [])
-        state = node_state(el, steps)
-        last = steps[-1] if steps else None
         layer = layer_of[name]
         row = rows[layer] = rows.get(layer, -1) + 1
+        if el.get("group_node"):
+            leaf_states = [node_state(orig, by_element.get(orig["name"], []))
+                           for orig in original if orig["name"] in members[name]]
+            state = group_state(leaf_states, active)
+            label, icon = STATES[state]
+            done = sum(1 for x in leaf_states if x in ("PASSED", "WARNING", "SKIPPED", "DISABLED"))
+            nodes.append({
+                "id": name, "label": name.split(".")[-1], "group": name.rsplit(".", 1)[0] if "." in name else "",
+                "type": "SUB_PIPELINE", "category": schema.category("SUB_PIPELINE"), "phase": el.get("phase", "MAIN"),
+                "state": state, "state_label": label, "icon": icon, "attempt": 0, "attempts": 0, "duration": None,
+                "summary": f"{done} of {len(leaf_states)} steps done", "step_id": None, "layer": layer, "row": row,
+                "current": execution.status == "RUNNING" and state == "RUNNING",
+                "collapsed": True, "members": list(members[name]),
+            })
+            for dep in el["depends_on"]:
+                edges.append({"from": dep, "to": name, "kind": "dependency"})
+            continue
+        attempts = by_element.get(name, [])
+        state = node_state(el, attempts)
+        last = attempts[-1] if attempts else None
         duration = duration_seconds(last.started_at, last.completed_at) if last and last.started_at else None
         label, icon = STATES[state]
         nodes.append(
@@ -82,7 +172,7 @@ def build_graph(
                 "state_label": label,
                 "icon": icon,
                 "attempt": last.attempt if last else 0,
-                "attempts": len(steps),
+                "attempts": len(attempts),
                 "duration": duration,
                 "summary": ((last.error_summary or last.result_summary) if last else "")[:SUMMARY_CHARS],
                 "step_id": last.id if last else None,
@@ -93,13 +183,18 @@ def build_graph(
         )
         for dep in el.get("depends_on") or []:
             edges.append({"from": dep, "to": name, "kind": "dependency"})
+    seen_comp = set()
+    for el in original:  # compensation edges, ends mapped onto whatever node is showing
         comp = el.get("compensation") or {}
         action = comp.get("action", "STOP")
         if action in ("LOOP", "RUN_STEP") and comp.get("step"):
-            label_text = f"loop (max {comp.get('max_loops')})" if action == "LOOP" else "on failure"
-            edges.append({"from": name, "to": comp["step"], "kind": "compensation", "action": action, "label": label_text})
-        elif action == "START_PIPELINE":
-            nodes[-1]["compensation_note"] = f"on failure: start pipeline {comp.get('pipeline')}"
+            a, b = rep[el["name"]], rep.get(comp["step"], comp["step"])
+            if a != b and (a, b) not in seen_comp:
+                seen_comp.add((a, b))
+                label_text = f"loop (max {comp.get('max_loops')})" if action == "LOOP" else "on failure"
+                edges.append({"from": a, "to": b, "kind": "compensation", "action": action, "label": label_text})
+        elif action == "START_PIPELINE" and rep[el["name"]] == el["name"]:
+            next(n for n in nodes if n["id"] == el["name"])["compensation_note"] = f"on failure: start pipeline {comp.get('pipeline')}"
 
     return {
         "execution": {
@@ -115,7 +210,14 @@ def build_graph(
         "nodes": nodes,
         "edges": edges,
         "layers": (max(layer_of.values()) + 1) if layer_of else 0,
+        "expand": sorted(expand),
+        "groups": sorted({m for n in original for m in _prefixes(n["name"])}),
     }
+
+
+def _prefixes(name: str) -> list[str]:
+    parts = name.split(".")
+    return [".".join(parts[:i]) for i in range(1, len(parts))]
 
 
 def _clean(value, patterns):
@@ -141,10 +243,10 @@ def step_detail(
     from app.runs.artifacts import ArtifactPathError, _resolve_within
 
     elements = {e["name"]: e for e in execution.resolved_configuration["elements"]}
-    if name not in elements:
-        return None
-    element = elements[name]
     all_steps = steps if steps is not None else executions.list_steps(db, execution.id)
+    if name not in elements:
+        return _group_detail(execution, elements, name, all_steps)
+    element = elements[name]
     attempts = [s for s in all_steps if s.element_name == name]
     attempt_ids = {s.id for s in attempts}
     events = [
@@ -185,4 +287,26 @@ def step_detail(
         "attempts": detail_attempts,
         "events": events,
         "waiting_step_id": next((s.id for s in attempts if s.status == "WAITING"), None),
+        "collapse": name.rsplit(".", 1)[0] if "." in name else None,
+    }
+
+
+def _group_detail(execution: Execution, elements: dict, name: str, all_steps: list[StepExecution]) -> dict | None:
+    """Inspector data for a collapsed sub-pipeline: its steps and their states."""
+    leaves = [e for n, e in elements.items() if n.startswith(name + ".")]
+    if not leaves:
+        return None
+    by_element: dict[str, list[StepExecution]] = {}
+    for s in all_steps:
+        by_element.setdefault(s.element_name, []).append(s)
+    members = []
+    for e in leaves:
+        st = node_state(e, by_element.get(e["name"], []))
+        members.append({"name": e["name"], "label": e["name"][len(name) + 1:], "state": st, "state_label": STATES[st][0]})
+    state = group_state([m["state"] for m in members], execution.status in ("PENDING", "RUNNING"))
+    return {
+        "name": name, "type": "SUB_PIPELINE", "category": schema.category("SUB_PIPELINE"),
+        "phase": leaves[0].get("phase", "MAIN"), "state": state, "state_label": STATES[state][0],
+        "configuration": {}, "compensation": {}, "depends_on": [], "attempts": [], "events": [],
+        "waiting_step_id": None, "members": members, "collapse": None,
     }

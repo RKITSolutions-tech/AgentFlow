@@ -5,15 +5,6 @@
   <p class="form-hint">Fragments and templates build the prompts AGENT steps send; Ralph's standing instructions are
     <a href="{{ url_for('prompts.ralph_blocks') }}">blocks you can switch on and off</a>.</p>
 
-  <h2>Import / export</h2>
-  <p class="form-hint">Templates, fragments and Ralph blocks travel as one JSON file (references by name). Project overrides are not included.</p>
-  <p><a class="btn-primary" href="{{ url_for('prompts.export_library') }}">Export library</a></p>
-  <form method="post" action="{{ url_for('prompts.import_library') }}" class="stacked" enctype="multipart/form-data" data-ajax-form>
-    <label>Import file <input type="file" name="file" accept="application/json,.json"></label>
-    <label class="backlog-select"><input type="checkbox" name="overwrite"> Replace items that already exist</label>
-    <button type="submit">Import</button>
-  </form>
-
   <h2>Templates</h2>
   <p><a class="btn-primary" href="{{ url_for('prompts.templates') }}">New template</a></p>
   <table class="table-compact">
@@ -61,4 +52,13 @@
       {% endfor %}
     </tbody>
   </table>
+
+  <h2>Import / export</h2>
+  <p class="form-hint">Templates, fragments and Ralph blocks travel as one JSON file (references by name). Project overrides are not included.</p>
+  <p><a class="btn-primary" href="{{ url_for('prompts.export_library') }}">Export library</a></p>
+  <form method="post" action="{{ url_for('prompts.import_library') }}" class="stacked" enctype="multipart/form-data" data-ajax-form>
+    <label>Import file <input type="file" name="file" accept="application/json,.json"></label>
+    <label class="backlog-select"><input type="checkbox" name="overwrite"> Replace items that already exist</label>
+    <button type="submit">Import</button>
+  </form>
 {% endblock %}

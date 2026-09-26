@@ -8,8 +8,10 @@ finished as of that event.
 """
 from __future__ import annotations
 
+import bisect
 import dataclasses
 import sqlite3
+from collections import OrderedDict
 from dataclasses import dataclass
 
 from app.pipelines import executions, visualization
@@ -40,6 +42,8 @@ EVENT_KINDS: dict[str, tuple[str, str, bool]] = {
     "ResourceCleanup": ("housekeeping", "⌫", False),
 }
 _TERMINAL_STEP = ("PASSED", "FAILED", "SKIPPED", "DISABLED", "CANCELLED", "TIMED_OUT")
+CHECKPOINT_EVERY = 500  # events between saved snapshots: a seek folds at most this many
+MEMO_SIZE = 256  # reconstructed states kept for scrubbing back and forth
 _PIPELINE_END = {"PipelineCompleted": "COMPLETED", "PipelineFailed": "FAILED", "PipelineCancelled": "CANCELLED"}
 
 
@@ -77,7 +81,8 @@ class Replayer:
                 i, e.id, e.event_type, e.data, e.created_at, kind, icon, visible,
                 step.element_name if step else None, e.step_execution_id,
             ))
-        self._memo: dict[int, dict] = {}
+        self._memo: OrderedDict[int, dict] = OrderedDict()
+        self._checkpoints: dict[int, tuple] = {}  # event count -> (status, waiting, loops, step_status)
         self._artifacts = [
             dict(r) for r in db.execute(
                 "SELECT id, kind, name, step_execution_id, step_name, size FROM artifact_library "
@@ -93,15 +98,10 @@ class Replayer:
     def _clamp(self, n: int) -> int:
         return max(0, min(int(n), len(self.events)))
 
-    def state_at(self, n: int) -> dict:
-        """Snapshot after the first `n` events: step statuses, execution status,
-        waiting step, loop counters. Pure data, no database writes."""
-        n = self._clamp(n)
-        if n in self._memo:
-            return self._memo[n]
-        status, waiting, loops = "PENDING", None, {}
-        step_status: dict[int, str] = {}
-        for ev in self.events[:n]:
+    def _fold(self, start: tuple, lo: int, hi: int) -> tuple:
+        """Apply events `lo`..`hi` (0-based slice) to a copy of a (status, waiting, loops, steps) state."""
+        status, waiting, loops, step_status = start[0], start[1], dict(start[2]), dict(start[3])
+        for ev in self.events[lo:hi]:
             real = self._steps.get(ev.step_id) if ev.step_id else None
             t = ev.type
             if t == "StepStarted":
@@ -123,11 +123,38 @@ class Replayer:
                 status, waiting = "RUNNING", None
             elif t in _PIPELINE_END:
                 status, waiting = _PIPELINE_END[t], None
-        state = {
-            "event": n, "status": status, "waiting_step_id": waiting, "loops": loops,
-            "steps": step_status,
-        }
+        return status, waiting, loops, step_status
+
+    def _checkpoint_before(self, n: int) -> tuple[int, tuple]:
+        """The nearest saved snapshot at or before event `n`. All checkpoints are
+        built in one pass the first time they are needed, so every later seek
+        folds at most CHECKPOINT_EVERY events however long the log is."""
+        if not self._checkpoints:
+            state = ("PENDING", None, {}, {})
+            self._checkpoints[0] = state
+            for lo in range(0, len(self.events), CHECKPOINT_EVERY):
+                hi = min(lo + CHECKPOINT_EVERY, len(self.events))
+                state = self._fold(state, lo, hi)
+                if hi - lo == CHECKPOINT_EVERY:
+                    self._checkpoints[hi] = state
+        at = (n // CHECKPOINT_EVERY) * CHECKPOINT_EVERY
+        while at not in self._checkpoints:
+            at -= CHECKPOINT_EVERY
+        return at, self._checkpoints[at]
+
+    def state_at(self, n: int) -> dict:
+        """Snapshot after the first `n` events: step statuses, execution status,
+        waiting step, loop counters. Pure data, no database writes."""
+        n = self._clamp(n)
+        if n in self._memo:
+            self._memo.move_to_end(n)
+            return self._memo[n]
+        at, saved = self._checkpoint_before(n)
+        status, waiting, loops, step_status = self._fold(saved, at, n)
+        state = {"event": n, "status": status, "waiting_step_id": waiting, "loops": loops, "steps": step_status}
         self._memo[n] = state
+        if len(self._memo) > MEMO_SIZE:
+            self._memo.popitem(last=False)
         return state
 
     def steps_at(self, n: int) -> list[StepExecution]:
@@ -161,8 +188,8 @@ class Replayer:
             warnings=real.warnings if state["event"] == len(self.events) else 0,
         )
 
-    def graph_at(self, n: int) -> dict:
-        graph = visualization.build_graph(self.db, self.execution_at(n), steps=self.steps_at(n))
+    def graph_at(self, n: int, expand: frozenset[str] = frozenset()) -> dict:
+        graph = visualization.build_graph(self.db, self.execution_at(n), steps=self.steps_at(n), expand=expand)
         graph["replay"] = {"event": self._clamp(n), "total": len(self.events)}
         return graph
 
@@ -173,7 +200,7 @@ class Replayer:
 
     def inspector_at(self, n: int, node: str, root: str, patterns: tuple[str, ...] = ()) -> dict | None:
         n = self._clamp(n)
-        raw = [e for e, ev in zip(self._raw_events, self.events) if ev.position <= n]
+        raw = self._raw_events[:n]  # event `position` is its 1-based index
         return visualization.step_detail(
             self.db, root, self.execution_at(n), node, patterns, steps=self.steps_at(n), events=raw
         )
@@ -181,13 +208,18 @@ class Replayer:
     def event_at(self, n: int) -> ReplayEvent | None:
         return self.events[n - 1] if 1 <= n <= len(self.events) else None
 
-    def state_json(self, n: int, node: str | None = None, root: str = "", patterns: tuple[str, ...] = ()) -> dict:
+    def state_json(
+        self, n: int, node: str | None = None, root: str = "", patterns: tuple[str, ...] = (),
+        expand: frozenset[str] = frozenset(),
+    ) -> dict:
         n = self._clamp(n)
         ev = self.event_at(n)
         node = node or (ev.node if ev else None)
+        if node:  # inside a collapsed sub-pipeline the group node stands in for the step
+            node = visualization.representative(node, expand)
         return {
             "event": n, "total": len(self.events), "current": ev.as_dict() if ev else None,
-            "graph": self.graph_at(n), "artifacts": self.artifacts_at(n),
+            "graph": self.graph_at(n, expand), "artifacts": self.artifacts_at(n),
             "node": node,
             "inspector": self.inspector_at(n, node, root, patterns) if node else None,
         }
@@ -231,22 +263,21 @@ class ReplayController:
 
     def seek_to_event(self, n: int) -> int:
         """Jump to event n, or the nearest visible stop at or before it."""
-        earlier = [p for p in self._stops if p <= n]
-        self.position = earlier[-1] if earlier else self._stops[0]
+        self.position = self._stops[max(bisect.bisect_right(self._stops, n) - 1, 0)]
         return self.position
 
     def next(self) -> int:
-        later = [p for p in self._stops if p > self.position]
-        if later:
-            self.position = later[0]
+        i = bisect.bisect_right(self._stops, self.position)
+        if i < len(self._stops):
+            self.position = self._stops[i]
         else:
             self.playing = False
         return self.position
 
     def previous(self) -> int:
-        earlier = [p for p in self._stops if p < self.position]
-        if earlier:
-            self.position = earlier[-1]
+        i = bisect.bisect_left(self._stops, self.position)
+        if i > 0:
+            self.position = self._stops[i - 1]
         return self.position
 
     def first(self) -> int:

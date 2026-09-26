@@ -954,3 +954,27 @@ fieldset { min-width: 0; }
 @media (max-width: 860px), (pointer: coarse) {
   .prompt-override > summary { display: flex; align-items: center; min-height: var(--tap); }
 }
+
+/* Sub-pipeline groups, Ralph swimlanes and iteration comparison (docs/PIPELINE_VISUALISATION.md §19-20) */
+.node-group { border-style: dashed; box-shadow: 4px 4px 0 -1px var(--surface-3), 4px 4px 0 0 var(--border); }
+.graph-groups { align-items: center; }
+.swimlanes { display: grid; gap: var(--space-3, 0.75rem); }
+.swimlane { border: 1px solid var(--border); border-radius: var(--radius); padding: var(--space-3, 0.75rem); min-width: 0; }
+.swimlane h2 { font-size: 1rem; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2, 0.5rem); margin-top: 0; }
+.lane-events { display: flex; gap: var(--space-2, 0.5rem); list-style: none; margin: 0; padding: 0 0 var(--space-2, 0.5rem); overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.lane-events li { flex: 0 0 auto; }
+.lane-event { display: block; min-height: var(--tap, 44px); padding: 0.25rem 0.6rem; border: 1px solid var(--border); border-radius: var(--radius); max-width: 14rem; overflow-wrap: anywhere; }
+.lane-event .replay-time { display: block; color: var(--text-muted); font-size: 0.8em; }
+.lane-milestone { border-color: var(--accent); }
+.lane-human { border-color: var(--warning); }
+.lane-compensation { border-style: dashed; }
+.compare-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4, 1rem); }
+.compare-side, .compare-grid > div { min-width: 0; }
+.compare-form { align-items: end; }
+.diff-lines { white-space: pre-wrap; overflow-wrap: anywhere; }
+.diff-lines span { display: block; }
+.diff-add { background: var(--success-soft); color: var(--success); }
+.diff-del { background: var(--danger-soft); color: var(--danger); }
+.diff-gap { color: var(--text-muted); }
+.row-changed td { background: var(--warning-soft); }
+@media (max-width: 860px) { .compare-grid { grid-template-columns: 1fr; } }

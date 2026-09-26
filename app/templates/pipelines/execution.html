@@ -53,10 +53,18 @@
     <ol class="replay-timeline" data-replay-timeline></ol>
     <div class="replay-artifacts" data-replay-artifacts></div>
   </section>
+  {% if graph.groups %}
+    <div class="row-actions graph-groups">
+      <span class="form-hint">Sub-pipelines: {{ graph.groups|length }}</span>
+      <a href="?expand=*">Expand all</a>
+      <a href="?">Collapse all</a>
+    </div>
+  {% endif %}
   <div class="pipeline-view" data-pipeline-view
        data-replay-events-url="{{ base }}/replay/events"
        data-replay-seek-url="{{ base }}/replay/seek"
-       data-graph-url="{{ base }}/graph.json"
+       data-graph-url="{{ base }}/graph.json{% if graph.expand %}?expand={{ graph.expand|join(',')|urlencode }}{% endif %}"
+       data-expand="{{ graph.expand|join(',') }}"
        data-node-url="{{ base }}/nodes/__NAME__.json"
        data-decision-url="{{ base }}/steps/__STEP__/decision"
        data-log-url="{{ base }}/steps/__STEP__/log"
@@ -69,10 +77,10 @@
             <ul>
               {% for n in graph.nodes if n.layer == layer %}
                 <li>
-                  <button type="button" class="pipeline-node node-{{ n.state|lower }} cat-{{ n.category|lower }}{% if n.current %} node-current{% endif %}"
+                  <button type="button" class="pipeline-node node-{{ n.state|lower }} cat-{{ n.category|lower }}{% if n.current %} node-current{% endif %}{% if n.collapsed %} node-group{% endif %}"
                           data-node="{{ n.id }}" aria-pressed="false">
                     <span class="node-title"><span class="node-icon" aria-hidden="true">{{ n.icon }}</span> {{ n.label }}</span>
-                    <span class="node-meta">{{ n.type|replace('_', ' ')|capitalize }}{% if n.group %} &middot; {{ n.group }}{% endif %}</span>
+                    <span class="node-meta">{{ n.type|replace('_', ' ')|capitalize }}{% if n.collapsed %} ({{ n.members|length }} steps){% endif %}{% if n.group %} &middot; {{ n.group }}{% endif %}</span>
                     <span class="node-state">{{ n.state_label }}{% if n.attempts > 1 %} &middot; attempt {{ n.attempt }}{% endif %}</span>
                     {% if n.summary %}<span class="node-summary">{{ n.summary }}</span>{% endif %}
                   </button>

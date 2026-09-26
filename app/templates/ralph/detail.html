@@ -44,6 +44,12 @@
   {% endif %}
 
   <h2>Iterations</h2>
+  {% if iterations|length > 1 %}
+    <div class="row-actions">
+      <a href="{{ url_for('ralph.timeline', project_id=project.id, run_id=run.id) }}">Timeline</a>
+      <a href="{{ url_for('ralph.compare', project_id=project.id, run_id=run.id) }}">Compare iterations</a>
+    </div>
+  {% endif %}
   <ol class="iteration-timeline">
     {% for i in iterations %}
       <li><a href="#iteration-{{ i.number }}"><strong>#{{ i.number }}</strong><span>{{ i.status|replace('_', ' ')|capitalize }}</span></a></li>

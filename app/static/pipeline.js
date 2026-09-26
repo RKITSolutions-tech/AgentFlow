@@ -80,6 +80,8 @@
     inspector.textContent = "";
     var head = el("h2", "", d.name);
     inspector.appendChild(head);
+    if (d.members) inspector.appendChild(groupSection(d));
+    if (d.collapse) inspector.appendChild(groupToggle("Collapse " + d.collapse, function (set) { collapseGroup(set, d.collapse); }));
     inspector.appendChild(el("p", "", d.type.replace(/_/g, " ") + " · " + d.category.toLowerCase() + " · " + d.phase.toLowerCase() + " · " + d.state_label));
 
     var last = d.attempts[d.attempts.length - 1];
@@ -129,6 +131,36 @@
       inspector.appendChild(a);
     }
     if (d.waiting_step_id) inspector.appendChild(decisionForm(d));
+  }
+
+  // ---- sub-pipeline groups (§20): one node until expanded; the choice lives in ?expand= ----
+  function expandedSet() {
+    return new Set((view.dataset.expand || "").split(",").filter(Boolean));
+  }
+
+  function collapseGroup(set, prefix) {
+    Array.from(set).forEach(function (n) { if (n === prefix || n.indexOf(prefix + ".") === 0) set.delete(n); });
+  }
+
+  function groupToggle(label, change) {
+    var b = el("button", "", label);
+    b.type = "button";
+    b.addEventListener("click", function () {
+      var set = expandedSet();
+      change(set);
+      var url = new URL(location.href);
+      if (set.size) url.searchParams.set("expand", Array.from(set).join(",")); else url.searchParams.delete("expand");
+      location.href = url.toString();
+    });
+    return b;
+  }
+
+  function groupSection(d) {
+    var list = el("ul");
+    d.members.forEach(function (m) { list.appendChild(el("li", "", m.label + ": " + m.state_label)); });
+    var s = section("Steps in this sub-pipeline", list);
+    s.appendChild(groupToggle("Expand " + d.name, function (set) { set.add(d.name); }));
+    return s;
   }
 
   function decisionForm(d) {
@@ -333,6 +365,7 @@
       var body = new FormData();
       body.set("action", action);
       body.set("current", String(position));
+      if (view.dataset.expand) body.set("expand", view.dataset.expand);
       if (event !== undefined) body.set("event", String(event));
       return fetch(view.dataset.replaySeekUrl, {
         method: "POST", body: body, headers: { "X-Requested-With": "XMLHttpRequest" },
@@ -366,12 +399,13 @@
       });
     }
 
-    function open() {
+    function open(startAt) {
       replaying = true;
       panel.hidden = false;
       toggle.setAttribute("aria-expanded", "true");
       view.classList.add("replay-active");
-      if (!loaded) loadEvents("").then(function () { seek("first"); });
+      if (!loaded) loadEvents("").then(function () { if (startAt) seek("seek", startAt); else seek("first"); });
+      else if (startAt) seek("seek", startAt);
     }
 
     function close() {
@@ -384,7 +418,7 @@
       if (selected) select(selected, false);
     }
 
-    toggle.addEventListener("click", function () { if (panel.hidden) open(); else close(); });
+    toggle.addEventListener("click", function () { if (panel.hidden) open(0); else close(); });
     panel.querySelector("[data-replay-exit]").addEventListener("click", close);
     playBtn.addEventListener("click", function () { if (timer) stop(); else play(); });
     speedSel.addEventListener("change", function () { if (timer) { stop(); play(); } });
@@ -397,7 +431,9 @@
       var b = event.target.closest("[data-position]");
       if (b) { stop(); seek("seek", Number(b.dataset.position)); }
     });
-    if (location.hash === "#replay" && !toggle.disabled) open();
+    // `#replay` opens at the start; `#replay=N` opens at event N (links from the Ralph timeline).
+    var hashMatch = /^#replay(?:=(\d+))?$/.exec(location.hash);
+    if (hashMatch && !toggle.disabled) open(hashMatch[1] ? Number(hashMatch[1]) : 0);
   }
 
   window.addEventListener("resize", drawEdges);

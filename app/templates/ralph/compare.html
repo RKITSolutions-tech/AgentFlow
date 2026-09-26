@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% from "_project_tabs.html" import project_tabs %}
+{% macro diff(lines) %}
+  <pre class="run-log diff-lines">{% for l in lines %}<span class="diff-{{ l.kind }}">{{ {'add': '+ ', 'del': '- ', 'ctx': '  ', 'gap': ''}[l.kind] }}{{ l.text }}</span>
+{% else %}<span class="diff-ctx">(identical)</span>{% endfor %}</pre>
+{% endmacro %}
+{% block title %}Compare - Ralph #{{ run.id }} - {{ project.name }} - AgentFlow{% endblock %}
+{% block content %}
+  {{ project_tabs(project, none, 'ralph') }}
+  <p><a href="{{ url_for('ralph.view_run', project_id=project.id, run_id=run.id) }}">&larr; Run #{{ run.id }}</a>
+    &middot; <a href="{{ url_for('ralph.timeline', project_id=project.id, run_id=run.id) }}">Timeline</a></p>
+  <h1>Compare iterations</h1>
+  <form method="get" class="run-form-row compare-form">
+    <label>Left <select name="a">{% for n in numbers %}<option value="{{ n }}"{% if n == a.number %} selected{% endif %}>Iteration {{ n }}</option>{% endfor %}</select></label>
+    <label>Right <select name="b">{% for n in numbers %}<option value="{{ n }}"{% if n == b.number %} selected{% endif %}>Iteration {{ n }}</option>{% endfor %}</select></label>
+    <button type="submit">Compare</button>
+  </form>
+
+  <div class="compare-grid" data-compare>
+    {% for side in (a, b) %}
+      <section class="compare-side">
+        <h2>Iteration {{ side.number }} <span class="run-status">{{ side.status|replace('_', ' ')|capitalize }}</span></h2>
+        {% if side.execution_id %}<p><a href="{{ url_for('pipelines.view_execution', project_id=project.id, execution_id=side.execution_id) }}">Verification run #{{ side.execution_id }}</a></p>{% endif %}
+        {% if side.commit %}<p>Commit <code>{{ side.commit[:12] }}</code></p>{% endif %}
+        {% if side.analysis %}<h3>Analysis</h3><pre class="run-log">{{ side.analysis }}</pre>{% endif %}
+      </section>
+    {% endfor %}
+  </div>
+
+  <h2>Verification steps</h2>
+  <table class="table-compact">
+    <thead><tr><th>Step</th><th>Iteration {{ a.number }}</th><th>Iteration {{ b.number }}</th></tr></thead>
+    <tbody>
+      {% for s in steps %}
+        <tr{% if s.changed %} class="row-changed"{% endif %}><td class="wrap-cell">{{ s.name }}</td><td>{{ s.a|replace('_', ' ')|capitalize }}</td><td>{{ s.b|replace('_', ' ')|capitalize }}{% if s.changed %} <span class="form-hint">changed</span>{% endif %}</td></tr>
+      {% else %}
+        <tr><td colspan="3">No verification steps recorded.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h2>Files changed</h2>
+  <div class="compare-grid">
+    <div><h3>Only in {{ a.number }}</h3><p class="wrap-cell">{{ files.only_a|join(', ') or 'none' }}</p></div>
+    <div><h3>Only in {{ b.number }}</h3><p class="wrap-cell">{{ files.only_b|join(', ') or 'none' }}</p></div>
+  </div>
+  {% if files.both %}<p class="wrap-cell form-hint">In both: {{ files.both|join(', ') }}</p>{% endif %}
+
+  <h2>Prompt (iteration {{ a.number }} &rarr; {{ b.number }})</h2>
+  {{ diff(prompt_diff) }}
+  <h2>Agent reply</h2>
+  {{ diff(reply_diff) }}
+{% endblock %}

@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% from "_project_tabs.html" import project_tabs %}
+{% block title %}Timeline - Ralph #{{ run.id }} - {{ project.name }} - AgentFlow{% endblock %}
+{% block content %}
+  {{ project_tabs(project, none, 'ralph') }}
+  <p><a href="{{ url_for('ralph.view_run', project_id=project.id, run_id=run.id) }}">&larr; Run #{{ run.id }}</a></p>
+  <h1>Iteration timeline</h1>
+  <p class="form-hint">One lane per iteration, from each iteration's verification pipeline. Choose an event to replay that execution from there.
+    {% if lanes|length > 1 %}<a href="{{ url_for('ralph.compare', project_id=project.id, run_id=run.id) }}">Compare iterations</a>{% endif %}</p>
+
+  <div class="swimlanes" data-swimlanes>
+    {% for lane in lanes %}
+      <section class="swimlane" aria-label="Iteration {{ lane.number }}" data-lane="{{ lane.number }}">
+        <h2>Iteration {{ lane.number }}
+          <span class="run-status run-status-{{ {'PASSED': 'completed', 'FAILED': 'failed', 'BLOCKED': 'failed', 'NO_PROGRESS': 'failed'}.get(lane.status, 'created') }}">{{ lane.status|replace('_', ' ')|capitalize }}</span>
+          <span class="form-hint">{{ lane.files_changed }} file(s) changed{% if lane.next_action %} &middot; next: {{ lane.next_action|replace('_', ' ') }}{% endif %}</span>
+        </h2>
+        <ol class="lane-events">
+          {% for e in lane.events %}
+            <li><a class="lane-event lane-{{ e.kind }}" href="{{ url_for('pipelines.view_execution', project_id=project.id, execution_id=lane.execution_id) }}#replay={{ e.position }}"
+                   title="{{ e.type }}{% if e.data %}: {{ e.data }}{% endif %}"><span aria-hidden="true">{{ e.icon }}</span> {{ e.type }}{% if e.node %} &middot; {{ e.node }}{% endif %}<span class="replay-time">{{ e.at[11:19] }}</span></a></li>
+          {% else %}
+            <li class="form-hint">No verification events recorded.</li>
+          {% endfor %}
+        </ol>
+      </section>
+    {% else %}
+      <p class="form-hint">No iterations yet.</p>
+    {% endfor %}
+  </div>
+
+  <h2>All events</h2>
+  <table class="table-compact">
+    <thead><tr><th>Time</th><th>Iteration</th><th>Event</th></tr></thead>
+    <tbody>
+      {% for e in events %}
+        <tr>
+          <td>{{ e.at[11:19] }}</td>
+          <td>#{{ e.iteration }}</td>
+          <td class="wrap-cell"><a href="{{ url_for('pipelines.view_execution', project_id=project.id, execution_id=e.execution_id) }}#replay={{ e.position }}">{{ e.icon }} {{ e.type }}{% if e.node %} &middot; {{ e.node }}{% endif %}</a></td>
+        </tr>
+      {% else %}
+        <tr><td colspan="3">Nothing recorded.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}

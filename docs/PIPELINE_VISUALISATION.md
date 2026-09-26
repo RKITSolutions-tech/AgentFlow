@@ -541,10 +541,8 @@ confirm.
 - **Live updates** poll `graph.json` every 2s while the execution is running
   and reload when any node state changes; it is not SSE (§23). The selected
   node is kept in the URL hash. Ralph pages use the existing `data-autorefresh`.
-- **Not built:** collapsing sub-pipelines into one node (§20; children appear flat with their
-  parent as a badge), grouping *graph nodes* by Ralph iteration (§19; the Ralph
-  page lists iterations, each linking to its own graph), side-by-side iteration
-  comparison, the design-mockup review layout of §21.
+- **Not built:** the design-mockup review layout of §21. (Sub-pipeline collapsing, the merged
+  Ralph timeline, swimlanes and iteration comparison were added by task 35, below.)
 - CSV export prefixes cells beginning with `= + - @` with `'` so command output
   cannot become a spreadsheet formula.
 - The mobile/desktop layout tests (`tests/test_backlog_sprint_viewports.py`) skip
@@ -641,6 +639,49 @@ confirm.
 - **Performance.** State is O(events) per position and memoised per `Replayer`
   (built once per request; it reads events, steps and artifacts once). 1,200 events
   replay in well under 2s in a test; timelines are capped at 1,000 events per page.
-  For much larger logs, checkpoint every K events instead of folding from zero.
+  Task 35 added checkpoints: on first use `Replayer` folds the whole log once and keeps a
+  snapshot every `CHECKPOINT_EVERY` (500) events, so any later seek folds at most 500 events
+  however long the log is (tested with 10,001). The per-position memo is an LRU of 256
+  states; `ReplayController` finds stops with `bisect`; the inspector no longer re-scans the
+  log. The events themselves are still read from SQLite once per request (O(N) to load, then
+  constant per seek); paging that load is not done.
 - The mobile/desktop behaviour is covered by Playwright tests at 375px and 1280px in
   `tests/pipelines/test_replay.py`.
+
+## 31. Task 35 decisions: sub-pipelines, Ralph timeline, comparison
+
+Assumptions made without the owner in the loop.
+
+- **Sub-pipelines are one node by default (§20).** The composer flattens a `SUB_PIPELINE`
+  into elements named `<parent>.<child>`, so a *group* is a dotted-name prefix. `build_graph`
+  replaces every element under a prefix with one synthetic node (`type: SUB_PIPELINE`,
+  `collapsed: true`, `members`, summary "N of M steps done"), rewires dependency edges and
+  compensation edges to the visible nodes, and re-layers the collapsed graph. Nested groups
+  collapse to the outermost prefix; expanding it reveals the next level collapsed.
+- **Group state** (`group_state`): any failed/timed-out member wins, then running, waiting,
+  cancelled; all done is passed (warning if any member warned); some done and the execution
+  still active is running, otherwise pending.
+- **Expanding is a page-level choice in the URL**: `?expand=a,a.b` (or `*`). The choice is
+  the same for the graph, `graph.json`, replay `state`/`seek` and the inspector, so the DOM
+  nodes and replay always agree. Clicking a group opens the inspector with its steps and an
+  "Expand" button; an expanded step's inspector offers "Collapse <group>"; the page also has
+  "Expand all / Collapse all". This is a reload, not an in-place animation. During replay, an
+  event on a hidden step selects its group node. Drill-down into `START_PIPELINE`
+  compensation runs (separate child executions) is unchanged: they are separate executions
+  linked by their parent.
+- **Ralph timeline** (`/projects/<id>/ralph/<run>/timeline`, `?all=1` includes housekeeping
+  events, JSON via the AJAX header): each iteration is a swimlane of its verification
+  execution's visible events, plus one merged table ordered by time then iteration. Every
+  event links to `.../executions/<id>#replay=N`, which opens that execution's replay at event
+  N (`#replay` alone still opens at the start). Lanes are stitched from separate executions
+  (there is still no single event stream), so time gaps between iterations are not shown.
+  A lane scrolls sideways inside itself on narrow screens.
+- **Iteration comparison** (`.../compare?a=1&b=2`, default the last two iterations; needs two):
+  side by side (stacked below 860px): status, analysis, commit; verification steps with a
+  changed-status highlight (last attempt per step; "—" = the step did not exist); files only in
+  one side or both; and `difflib` line diffs of prompt and reply (2,000-line cap). Screenshots,
+  test output and acceptance changes from the §19 wish list are not compared; they are one
+  click away through the linked verification runs.
+- Tests: `tests/pipelines/test_replay_followups.py` (10k-event seek, checkpoint equality,
+  grouping, routes, timeline, compare, and Playwright at 375px / 1280px).
+

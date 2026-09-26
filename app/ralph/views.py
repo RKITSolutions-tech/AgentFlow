@@ -6,6 +6,7 @@ from app.db import get_db
 from app.pipelines import executions, persistence
 from app.projects import models as project_models
 from app.ralph import models
+from app.ralph import timeline as timeline_mod
 from app.ralph.manager import RalphManager
 
 bp = Blueprint("ralph", __name__, url_prefix="/projects/<int:project_id>/ralph")
@@ -172,3 +173,34 @@ def complete(project_id: int, run_id: int):
 @bp.post("/<int:run_id>/unblock")
 def unblock(project_id: int, run_id: int):
     return _control(project_id, run_id, "unblock", "Continuing", request.form.get("message", ""))
+
+
+@bp.get("/<int:run_id>/timeline")
+def timeline(project_id: int, run_id: int):
+    """One lane per iteration and the merged event list (PIPELINE_VISUALISATION §19)."""
+    project = _project(project_id)
+    run = _run(project_id, run_id)
+    data = timeline_mod.merged_timeline(get_db(), run_id, include_hidden=request.args.get("all") == "1")
+    if _wants_json():
+        return data
+    return render_template("ralph/timeline.html", project=project, run=run, **data)
+
+
+@bp.get("/<int:run_id>/compare")
+def compare(project_id: int, run_id: int):
+    """Two iterations side by side; defaults to the last two."""
+    project = _project(project_id)
+    run = _run(project_id, run_id)
+    numbers = [i.number for i in models.list_iterations(get_db(), run_id)]
+    if len(numbers) < 2:
+        flash("A run needs at least two iterations to compare", "error")
+        return redirect(_detail(project_id, run_id))
+    try:
+        a = int(request.args.get("a") or numbers[-2])
+        b = int(request.args.get("b") or numbers[-1])
+    except ValueError:
+        abort(400)
+    result = timeline_mod.compare(get_db(), run_id, a, b)
+    if result is None:
+        abort(404)
+    return render_template("ralph/compare.html", project=project, run=run, numbers=numbers, **result)

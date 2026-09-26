@@ -127,7 +127,7 @@ def start_execution(project_id: int):
 def view_execution(project_id: int, execution_id: int):
     project = _project(project_id)
     ex = _execution(project_id, execution_id)
-    graph = visualization.build_graph(get_db(), ex)
+    graph = visualization.build_graph(get_db(), ex, expand=_expand())
     return render_template(
         "pipelines/execution.html", project=project, execution=ex, graph=graph,
         pipeline=persistence.get_pipeline(get_db(), ex.pipeline_id),
@@ -141,7 +141,7 @@ def view_execution(project_id: int, execution_id: int):
 @bp.get("/executions/<int:execution_id>/graph.json")
 def graph_json(project_id: int, execution_id: int):
     _project(project_id)
-    return visualization.build_graph(get_db(), _execution(project_id, execution_id))
+    return visualization.build_graph(get_db(), _execution(project_id, execution_id), expand=_expand())
 
 
 @bp.get("/executions/<int:execution_id>/nodes/<name>.json")
@@ -158,6 +158,11 @@ def node_json(project_id: int, execution_id: int, name: str):
 
 def _patterns() -> tuple[str, ...]:
     return tuple(current_app.config.get("REDACT_PATTERNS", ()))
+
+
+def _expand() -> frozenset[str]:
+    """Sub-pipelines shown inline (`?expand=a,b` or `*`); the rest are one node each (§20)."""
+    return visualization.parse_expand(request.values.get("expand"))
 
 
 def _int_arg(value, default: int | None = None) -> int | None:
@@ -186,7 +191,7 @@ def replay_state(project_id: int, execution_id: int):
     n = _int_arg(request.args.get("event"))
     if n is None or not 0 <= n <= len(replayer):
         return {"error": f"event must be between 0 and {len(replayer)}"}, 400
-    return replayer.state_json(n, request.args.get("node") or None, _root(), _patterns())
+    return replayer.state_json(n, request.args.get("node") or None, _root(), _patterns(), _expand())
 
 
 @bp.post("/executions/<int:execution_id>/replay/seek")
@@ -200,7 +205,7 @@ def replay_seek(project_id: int, execution_id: int):
         position = controller.apply(request.values.get("action", "seek"), _int_arg(request.values.get("event")))
     except ValueError as exc:
         return {"error": str(exc)}, 400
-    body = replayer.state_json(position, request.values.get("node") or None, _root(), _patterns())
+    body = replayer.state_json(position, request.values.get("node") or None, _root(), _patterns(), _expand())
     body.update(at_start=controller.at_start, at_end=controller.at_end)
     return body
 

@@ -1089,12 +1089,13 @@
         "description": "Items deferred from tasks 24 and 29 (PIPELINE_VISUALISATION §17-20, §30).",
         "details": "1) Checkpoint reconstructed state every K events so very large event logs seek in constant time. 2) Collapse sub-pipelines into one node with drill-down (§20). 3) A merged multi-execution Ralph timeline, iteration swimlanes and side-by-side iteration comparison (§19). Tests with 10k events; Playwright at 375px and 1280px.",
         "testStrategy": "",
-        "status": "pending",
+        "status": "done",
         "dependencies": [
           "31"
         ],
         "priority": "low",
-        "subtasks": []
+        "subtasks": [],
+        "updatedAt": "2026-09-26T17:02:49.150Z"
       },
       {
         "id": "36",
@@ -1112,9 +1113,9 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-09-26T16:42:48.035Z",
+      "lastModified": "2026-09-26T17:02:49.151Z",
       "taskCount": 36,
-      "completedCount": 34,
+      "completedCount": 35,
       "tags": [
         "master"
       ]
