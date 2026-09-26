@@ -439,21 +439,35 @@ Decided in discussion; not yet built. A `RESEARCH` role is added to the session 
 
 - **Read-only.** No file writes, no commits, no project mutation. The adapter must refuse or ignore write tools
   under this role.
-- **Repository first, then web (revised).** Phase A: the agent researches the project's own repository and docs,
-  reusing the context-file path checks (`ALLOWED_PROJECT_ROOTS`, PHASE2_PLANNING §8: relative paths only, symlinks
-  that leave the repository skipped, file count and size limits). Phase B adds the web, backed by the research
-  cache below. The agent's own tools (the Claude CLI has them and works on the OS login without an API key) do the
-  searching; AgentFlow mediates fetches so they can be cached.
-- **Research cache (Phase B).** Web material worth reusing (API docs, language and library references such as
-  Python) is stored, not re-fetched each time. An entry has source URL, content hash, fetched-at, an expiry
-  (TTL by kind; versioned docs live longer than "latest" pages), tags (language, library, version) and a
-  project-or-global scope. Content lives on disk under the artifact directory (path-checked, size-capped); metadata
-  and search live in SQLite. A report cites cache entries by id, so a finding stays traceable to what was read when.
-  Stale entries are refreshed on demand and never silently served past expiry without a marker. Cached pages are
-  redacted before storage. A person can view, search, pin, refresh and delete entries.
-- **No leakage to the web.** Repository content and project secrets must not be sent in web queries or fetch
-  requests. Web queries are built from the question and library names only; the repository side of a session
-  never reaches the web side verbatim.
+- **Lookup order: project repository, then the shared knowledge base, then the web (revised).** Each layer is tried
+  before the next, and a report says which layer each finding came from. Many patterns repeat across projects, so
+  the web is the last resort, not the default.
+  - *Phase A, repository:* the project's own repository and docs, reusing the context-file path checks
+    (`ALLOWED_PROJECT_ROOTS`, PHASE2_PLANNING §8: relative paths only, symlinks that leave the repository skipped,
+    file count and size limits).
+  - *Phase B, shared knowledge base:* one central store used by every project on the installation.
+  - *Phase C, web:* the agent's own tools (the Claude CLI has them and works on the OS login without an API key)
+    do the searching; AgentFlow mediates fetches so results land in the knowledge base.
+- **Shared knowledge base (central, multi-project).** Located by `AGENTFLOW_KNOWLEDGE_DIR` (default `knowledge/`
+  beside the database; may be a git repository, which gives history and sharing for free). Plain files on disk
+  (path-checked, size-capped) with metadata and search in SQLite. Two entry kinds:
+  - `web_cache`: a fetched page (API docs, language and library references such as Python). Source URL, content
+    hash, fetched-at, expiry by kind (versioned docs live longer than "latest" pages). Stale entries are refreshed
+    on demand and marked, never silently served past expiry.
+  - `note`: a distilled, reusable finding or pattern (how to structure X, gotchas of library Y), written by the
+    research agent or a person. Has a title, body, sources, tags (language, library, version, topic) and a
+    `confidence` (`unverified` | `reviewed`).
+  Every entry records provenance (which project, session and step created it, and when) and a use count. A report
+  cites entries by id, so a finding stays traceable to what was read when.
+- **The agent updates it, not just reads it.** After a session the agent proposes new or improved `note` entries and
+  refreshed `web_cache` entries. Web pages are stored automatically (redacted first). Notes derived from a
+  project's repository are *proposals*: they enter as `unverified`, hidden from other projects until a person
+  promotes them, so one project's confidential detail cannot leak into another. Notes derived only from public web
+  sources may be shared straight away as `unverified`.
+- **Sharing rules.** Nothing from a repository or a project secret is written to the shared store verbatim or
+  sent to the web: only a distilled note, after redaction and (for repository-derived notes) human promotion.
+  Entries carry a `scope` (`global` or a project id); the agent only reads `global` entries plus those of the
+  current project. A person can view, search, edit, pin, refresh, merge duplicates and delete entries.
 - **Structured report.** The reply is a report: summary, findings, and a source list. A finding with no source is marked
   `unverified`. The report is redacted like other stored text and indexed in the Artifact Library with a link to the
   originating session or step.
