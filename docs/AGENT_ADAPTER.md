@@ -439,9 +439,21 @@ Decided in discussion; not yet built. A `RESEARCH` role is added to the session 
 
 - **Read-only.** No file writes, no commits, no project mutation. The adapter must refuse or ignore write tools
   under this role.
-- **Web only at first.** Web search and fetch come from the agent's own tools (the Claude CLI has them and works on
-  the OS login without an API key). AgentFlow does not fetch pages itself. Reading the project's repository and docs
-  is a later step and would reuse the context-file path checks (`ALLOWED_PROJECT_ROOTS`, PHASE2_PLANNING §8).
+- **Repository first, then web (revised).** Phase A: the agent researches the project's own repository and docs,
+  reusing the context-file path checks (`ALLOWED_PROJECT_ROOTS`, PHASE2_PLANNING §8: relative paths only, symlinks
+  that leave the repository skipped, file count and size limits). Phase B adds the web, backed by the research
+  cache below. The agent's own tools (the Claude CLI has them and works on the OS login without an API key) do the
+  searching; AgentFlow mediates fetches so they can be cached.
+- **Research cache (Phase B).** Web material worth reusing (API docs, language and library references such as
+  Python) is stored, not re-fetched each time. An entry has source URL, content hash, fetched-at, an expiry
+  (TTL by kind; versioned docs live longer than "latest" pages), tags (language, library, version) and a
+  project-or-global scope. Content lives on disk under the artifact directory (path-checked, size-capped); metadata
+  and search live in SQLite. A report cites cache entries by id, so a finding stays traceable to what was read when.
+  Stale entries are refreshed on demand and never silently served past expiry without a marker. Cached pages are
+  redacted before storage. A person can view, search, pin, refresh and delete entries.
+- **No leakage to the web.** Repository content and project secrets must not be sent in web queries or fetch
+  requests. Web queries are built from the question and library names only; the repository side of a session
+  never reaches the web side verbatim.
 - **Structured report.** The reply is a report: summary, findings, and a source list. A finding with no source is marked
   `unverified`. The report is redacted like other stored text and indexed in the Artifact Library with a link to the
   originating session or step.
