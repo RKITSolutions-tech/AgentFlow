@@ -190,3 +190,38 @@ def test_auto_run_endpoint_and_page(client, env):
     assert resp.status_code == 200
     assert client.post(f"{base}/auto-run", data={"enabled": "1"}, headers=AJAX).status_code in (200, 409)
     assert env.db.execute("SELECT auto_run FROM sprints").fetchone()[0] == 1
+
+
+def test_restart_blocks_inflight_run_and_auto_mode_moves_on(app, client, env):
+    from app.ralph.manager import RalphManager
+
+    queue.release_sprint(env.db, env.sprint_id)
+    queue.set_auto_run(env.db, env.sprint_id, True)
+    _, first = queue.advance(env.db, env.sprint_id)
+    ralph.update_run(env.db, first, status="RUNNING")
+    manager = RalphManager(app.extensions["pipeline_manager"])
+    started = []
+    manager.start = lambda run_id: started.append(run_id)
+
+    assert manager.reconcile() == [first]
+    assert _state(env, env.a) == "BLOCKED"
+    assert manager.resume_automatic_sprints() == started and len(started) == 1
+    # A depends-free sibling is picked; B waits on the blocked A.
+    assert ralph.get_run(env.db, started[0]).work_item_id == env.c
+
+
+def test_restart_with_nothing_eligible_leaves_sprint_waiting(app, client, env):
+    from app.ralph.manager import RalphManager
+
+    queue.release_sprint(env.db, env.sprint_id)
+    queue.set_auto_run(env.db, env.sprint_id, True)
+    for w in (env.b, env.c):
+        queue.set_state(env.db, w, "CANCELLED")
+    _, run_id = queue.advance(env.db, env.sprint_id)
+    ralph.update_run(env.db, run_id, status="RUNNING")
+    manager = RalphManager(app.extensions["pipeline_manager"])
+    manager.start = lambda run_id: pytest.fail("nothing should start")
+    manager.reconcile()
+    assert manager.resume_automatic_sprints() == []
+    page = client.get(f"/projects/{env.project_id}/sprints/{env.sprint_id}/queue").get_data(as_text=True)
+    assert "Automatic mode is waiting" in page

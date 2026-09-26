@@ -182,6 +182,20 @@ def advance(db: sqlite3.Connection, sprint_id: int) -> tuple[int, int] | None:
         return None  # nothing eligible, project busy, or no pipeline: wait for a person
 
 
+def auto_waiting(db: sqlite3.Connection, sprint_id: int) -> str | None:
+    """Why automatic mode is not running a task right now (None = it is off).
+    Shown on the queue page."""
+    sprint = sprints.get_sprint(db, sprint_id)
+    if sprint is None or not sprint.auto_run or sprint.status != "EXECUTING":
+        return None
+    busy = project_busy(db, sprint.project_id)
+    if busy:
+        return f"project busy: {busy}"
+    if eligible_task(db, sprint_id) is None:
+        return "no eligible task: the rest are blocked, waiting on dependencies or not released"
+    return "the next task has not started yet"
+
+
 def sync_from_run(db: sqlite3.Connection, run_id: int) -> None:
     """Reflect a Ralph run's status on its Task and, when every task is done,
     move the Sprint to VERIFYING."""

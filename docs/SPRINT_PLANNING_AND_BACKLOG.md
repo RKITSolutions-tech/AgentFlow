@@ -1141,6 +1141,13 @@ DRAFT/READY_FOR_REVIEW -> READY -> RELEASED -> IN_PROGRESS -> COMPLETE
   `sprint_id`), using the pipeline chosen in the form, else the task's
   `verification_pipeline`, else the project's first enabled pipeline (an error if none),
   and the primary repository.
+- **Restart.** `RalphManager.reconcile()` marks an in-flight run BLOCKED and syncs its task
+  to `BLOCKED`; then `resume_automatic_sprints()` (app start, not under `TESTING`, after
+  orphaned locks are released) runs `queue.advance` for every `EXECUTING` sprint with
+  `auto_run = 1`, so independent tasks carry on. The blocked task waits for a person
+  (assumption: it is not retried automatically, since its working tree may be half-edited).
+  With nothing eligible the sprint stays idle and the queue page says "Automatic mode is
+  waiting: <reason>" (`queue.auto_waiting`).
 - **Task state follows the run.** `queue.sync_from_run` runs whenever a Ralph run's
   status changes: running/paused -> `IN_PROGRESS`; blocked or waiting for sign-off ->
   `BLOCKED`; completed -> `COMPLETE`; failed/timed out -> `FAILED`; cancelled ->

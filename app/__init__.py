@@ -83,6 +83,7 @@ def create_app(config: Config | None = None) -> Flask:
     with app.app_context():
         project_lock.release_all_active(get_db())
     if not app.config.get("TESTING") and app.config["DATABASE_PATH"] != ":memory:":
+        app.extensions["ralph_manager"].resume_automatic_sprints()
         app.extensions["lock_sweeper"] = project_lock.Sweeper(app.config["DATABASE_PATH"]).start()
 
     def _project_lock(project_id: int):

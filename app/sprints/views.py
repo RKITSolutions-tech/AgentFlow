@@ -415,6 +415,7 @@ def queue_view(project_id: int, sprint_id: int):
         "sprints/queue.html", project=project, sprint=sprint,
         rows=queue.describe(db, sprint_id), progress=queue.progress(db, sprint_id),
         busy=queue.project_busy(db, project_id),
+        auto_waiting=queue.auto_waiting(db, sprint_id),
         pipelines=[p for p in pipeline_store.list_pipelines(db, project_id) if p.enabled],
         repositories=project.repositories,
     )

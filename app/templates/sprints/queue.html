@@ -13,6 +13,8 @@
 
   {% if busy %}<p class="form-hint">Project busy: {{ busy }}. The next task waits for it.</p>{% endif %}
 
+  {% if auto_waiting %}<p class="form-hint" data-auto-waiting>Automatic mode is waiting: {{ auto_waiting }}.</p>{% endif %}
+
   {% if sprint.status in ('READY', 'EXECUTING') %}
     <div class="queue-actions">
       <form method="post" action="{{ url_for('sprints.release', project_id=project.id, sprint_id=sprint.id) }}" data-ajax-form>

@@ -128,9 +128,29 @@ class RalphManager:
                     db, run_id, status="BLOCKED", needs_attention=1,
                     reason="AgentFlow restarted while this run was executing",
                 )
+                queue.sync_from_run(db, run_id)  # the task goes BLOCKED; the sprint can move on
             return [r[0] for r in rows]
         finally:
             db.close()
+
+    def resume_automatic_sprints(self) -> list[int]:
+        """After a restart, give every EXECUTING sprint in automatic mode its next
+        eligible task (its in-flight run was BLOCKED by `reconcile`). Returns the
+        started run ids; a sprint with nothing eligible is left waiting."""
+        db = self._connect()
+        try:
+            ids = [r[0] for r in db.execute("SELECT id FROM sprints WHERE auto_run = 1 AND status = 'EXECUTING'")]
+            promoted = [p for p in (queue.advance(db, sid) for sid in ids) if p]
+        finally:
+            db.close()
+        started = []
+        for _, run_id in promoted:
+            try:
+                self.start(run_id)
+                started.append(run_id)
+            except ValueError:
+                pass  # lock taken meanwhile: the run stays CREATED and can be resumed
+        return started
 
 
 def _now() -> str:
