@@ -39,10 +39,14 @@ def node_state(element: dict, steps: list[StepExecution]) -> str:
     return last.status
 
 
-def build_graph(db: sqlite3.Connection, execution: Execution) -> dict:
+def build_graph(
+    db: sqlite3.Connection, execution: Execution, steps: list[StepExecution] | None = None
+) -> dict:
+    """`steps` replaces the stored step rows: historical replay passes the steps
+    as they were at an earlier event (pipelines/replay.py)."""
     elements = execution.resolved_configuration["elements"]
     by_element: dict[str, list[StepExecution]] = {}
-    for step in executions.list_steps(db, execution.id):
+    for step in (steps if steps is not None else executions.list_steps(db, execution.id)):
         by_element.setdefault(step.element_name, []).append(step)
 
     layer_of: dict[str, int] = {}
@@ -126,10 +130,12 @@ def _clean(value, patterns):
 
 
 def step_detail(
-    db: sqlite3.Connection, root: str, execution: Execution, name: str, patterns: tuple[str, ...] = ()
+    db: sqlite3.Connection, root: str, execution: Execution, name: str, patterns: tuple[str, ...] = (),
+    steps: list[StepExecution] | None = None, events: list | None = None,
 ) -> dict | None:
     """Everything the inspector shows for one element: every attempt, the
-    events that mention it, and a preview of its captured output."""
+    events that mention it, and a preview of its captured output. `steps` and
+    `events` override the stored rows for historical replay."""
     import os
 
     from app.runs.artifacts import ArtifactPathError, _resolve_within
@@ -138,11 +144,13 @@ def step_detail(
     if name not in elements:
         return None
     element = elements[name]
-    attempts = [s for s in executions.list_steps(db, execution.id) if s.element_name == name]
+    all_steps = steps if steps is not None else executions.list_steps(db, execution.id)
+    attempts = [s for s in all_steps if s.element_name == name]
+    attempt_ids = {s.id for s in attempts}
     events = [
         {"type": e.event_type, "data": e.data, "at": e.created_at}
-        for e in executions.list_events(db, execution.id)
-        if e.step_execution_id in {s.id for s in attempts}
+        for e in (events if events is not None else executions.list_events(db, execution.id))
+        if e.step_execution_id in attempt_ids
     ]
     detail_attempts = []
     for s in attempts:

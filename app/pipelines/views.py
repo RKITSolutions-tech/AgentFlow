@@ -18,7 +18,7 @@ from flask import (
 )
 
 from app.db import get_db
-from app.pipelines import executions, persistence, visualization
+from app.pipelines import executions, persistence, replay, visualization
 from app.pipelines.manager import PipelineManager
 from app.projects import models as project_models
 from app.runs import artifacts as run_artifacts
@@ -131,6 +131,10 @@ def view_execution(project_id: int, execution_id: int):
     return render_template(
         "pipelines/execution.html", project=project, execution=ex, graph=graph,
         pipeline=persistence.get_pipeline(get_db(), ex.pipeline_id),
+        iterations=replay.ralph_iterations(get_db(), ex),
+        replay_total=get_db().execute(
+            "SELECT COUNT(*) FROM pipeline_events WHERE execution_id = ?", (execution_id,)
+        ).fetchone()[0],
     )
 
 
@@ -150,6 +154,55 @@ def node_json(project_id: int, execution_id: int, name: str):
     if detail is None:
         abort(404)
     return detail
+
+
+def _patterns() -> tuple[str, ...]:
+    return tuple(current_app.config.get("REDACT_PATTERNS", ()))
+
+
+def _int_arg(value, default: int | None = None) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+@bp.get("/executions/<int:execution_id>/replay/events")
+def replay_events(project_id: int, execution_id: int):
+    """Paginated timeline (§18): every recorded event with its kind, icon and node."""
+    _project(project_id)
+    replayer = replay.Replayer(get_db(), _execution(project_id, execution_id))
+    return replayer.timeline(
+        _int_arg(request.args.get("offset"), 0), min(_int_arg(request.args.get("limit"), 200), 1000),
+        request.args.get("kind") or None,
+    )
+
+
+@bp.get("/executions/<int:execution_id>/replay/state")
+def replay_state(project_id: int, execution_id: int):
+    """The graph, artifacts and inspector as they were after event `event`."""
+    _project(project_id)
+    replayer = replay.Replayer(get_db(), _execution(project_id, execution_id))
+    n = _int_arg(request.args.get("event"))
+    if n is None or not 0 <= n <= len(replayer):
+        return {"error": f"event must be between 0 and {len(replayer)}"}, 400
+    return replayer.state_json(n, request.args.get("node") or None, _root(), _patterns())
+
+
+@bp.post("/executions/<int:execution_id>/replay/seek")
+def replay_seek(project_id: int, execution_id: int):
+    """Move the playhead (`action` = previous | next | first | last | seek) and
+    return the state at its new position. The position lives in the browser."""
+    _project(project_id)
+    replayer = replay.Replayer(get_db(), _execution(project_id, execution_id))
+    controller = replay.ReplayController(replayer, _int_arg(request.values.get("current"), 0))
+    try:
+        position = controller.apply(request.values.get("action", "seek"), _int_arg(request.values.get("event")))
+    except ValueError as exc:
+        return {"error": str(exc)}, 400
+    body = replayer.state_json(position, request.values.get("node") or None, _root(), _patterns())
+    body.update(at_start=controller.at_start, at_end=controller.at_end)
+    return body
 
 
 @bp.get("/executions/<int:execution_id>/steps/<int:step_id>/log")

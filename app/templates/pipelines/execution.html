@@ -16,11 +16,26 @@
     {% if not execution.terminal %}
       <button type="button" class="link-danger" data-ajax-reload="{{ url_for('pipelines.cancel_execution', project_id=project.id, execution_id=execution.id) }}" data-confirm="Cancel this execution?">Cancel</button>
     {% endif %}
+    <button type="button" data-replay-toggle aria-expanded="false" aria-controls="replayPanel"{% if not replay_total %} disabled{% endif %}>Replay</button>
     <a href="{{ base }}/export.json">Export JSON</a>
     <a href="{{ base }}/export.csv">Export CSV</a>
   </div>
 
+  {% if iterations %}
+    <nav class="replay-iterations" aria-label="Ralph iterations">
+      <span class="form-hint">Ralph run <a href="{{ url_for('ralph.view_run', project_id=project.id, run_id=iterations.run_id) }}">#{{ iterations.run_id }}</a>:</span>
+      {% for it in iterations.iterations if it.execution_id %}
+        <a class="iteration-link{% if it.current %} is-current{% endif %}" href="{{ url_for('pipelines.view_execution', project_id=project.id, execution_id=it.execution_id) }}#replay"
+           {% if it.current %}aria-current="page"{% endif %} title="{{ it.status|replace('_', ' ')|capitalize }} &middot; {{ it.files_changed }} file(s) changed{% if it.analysis %} &middot; {{ it.analysis }}{% endif %}">
+          Iteration {{ it.number }} <span class="run-status run-status-{{ {'PASSED': 'completed', 'FAILED': 'failed', 'BLOCKED': 'failed'}.get(it.status, 'created') }}">{{ it.status|replace('_', ' ')|capitalize }}</span>
+        </a>
+      {% endfor %}
+    </nav>
+  {% endif %}
+
   <div class="pipeline-view" data-pipeline-view
+       data-replay-events-url="{{ base }}/replay/events"
+       data-replay-seek-url="{{ base }}/replay/seek"
        data-graph-url="{{ base }}/graph.json"
        data-node-url="{{ base }}/nodes/__NAME__.json"
        data-decision-url="{{ base }}/steps/__STEP__/decision"
@@ -52,6 +67,26 @@
       <p class="form-hint">Select a step to inspect it.</p>
     </aside>
   </div>
+  <section class="replay-panel" id="replayPanel" data-replay-panel hidden aria-label="Historical replay">
+    <div class="replay-controls" role="group" aria-label="Replay controls">
+      <button type="button" data-replay-action="first" aria-label="First event">&#x23EE;</button>
+      <button type="button" data-replay-action="previous" aria-label="Previous event">&#x25C0; Previous</button>
+      <button type="button" data-replay-play aria-pressed="false">&#x25B6; Play</button>
+      <button type="button" data-replay-action="next" aria-label="Next event">Next &#x25B6;</button>
+      <button type="button" data-replay-action="last" aria-label="Last event">&#x23ED;</button>
+      <label class="replay-speed">Speed
+        <select data-replay-speed><option value="0.5">0.5&times;</option><option value="1" selected>1&times;</option><option value="2">2&times;</option><option value="4">4&times;</option></select>
+      </label>
+      <label class="replay-speed">Show
+        <select data-replay-kind><option value="">All events</option></select>
+      </label>
+      <span class="form-hint" data-replay-position aria-live="polite"></span>
+      <button type="button" data-replay-exit>Back to final state</button>
+    </div>
+    <p class="form-hint" data-replay-current></p>
+    <ol class="replay-timeline" data-replay-timeline></ol>
+    <div class="replay-artifacts" data-replay-artifacts></div>
+  </section>
   <p class="form-hint">Dashed lines are compensation paths (loops and recovery steps).</p>
 {% endblock %}
 {% block scripts %}<script src="{{ url_for('static', filename='pipeline.js') }}" defer></script>{% endblock %}

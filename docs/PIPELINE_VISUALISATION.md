@@ -541,8 +541,7 @@ confirm.
 - **Live updates** poll `graph.json` every 2s while the execution is running
   and reload when any node state changes; it is not SSE (§23). The selected
   node is kept in the URL hash. Ralph pages use the existing `data-autorefresh`.
-- **Not built:** historical replay (§17), timeline click-through (§18),
-  collapsing sub-pipelines into one node (§20; children appear flat with their
+- **Not built:** collapsing sub-pipelines into one node (§20; children appear flat with their
   parent as a badge), grouping *graph nodes* by Ralph iteration (§19; the Ralph
   page lists iterations, each linking to its own graph), side-by-side iteration
   comparison, the design-mockup review layout of §21.
@@ -590,3 +589,59 @@ confirm.
 - Phase 1 Run artifacts (`app/runs`) are **not** migrated into the library; they
   stay on the Run pages. Only pipeline and Ralph evidence is indexed. Filtering by
   Sprint or Task is not offered because neither has an execution link yet.
+
+### Historical replay and timeline (task 29)
+
+- **Nothing is re-executed.** `app/pipelines/replay.py` folds the execution's
+  `pipeline_events` (in id order) over its stored `step_executions`. Position `N`
+  means "after the first N events"; 0 is before anything ran. The same
+  `visualization.build_graph` / `step_detail` produce the output, given the
+  reconstructed step rows instead of the stored ones, so a replay at the last
+  event is identical to the live view (tested).
+- **Reconstruction rules.** Events say *when* a step changed state; the step row
+  supplies *what* it produced. `StepStarted` -> RUNNING; `StepCompleted` -> PASSED;
+  `StepFailed` -> the step's final FAILED / TIMED_OUT / CANCELLED; `StepSkipped` /
+  `StepDisabled`; `ManualApprovalRequested` -> WAITING with the execution PAUSED and
+  `waiting_step_id` set (they stay so through `ManualApprovalReceived` until
+  `PipelineResumed`, as recorded); `LoopBack` events rebuild the loop counters. A step
+  with no event yet is absent (PENDING). Output, exit code and completion time are
+  blanked until the step is terminal, so scrubbing back never shows results from the
+  future. Retries show as attempts appearing one by one. Artifacts "so far" are
+  those of steps terminal (or waiting) at that event. The execution's reason, warning
+  count and needs-attention flag are only shown at the final event, because they are
+  not event-sourced.
+- **Event taxonomy** (`EVENT_KINDS`): `milestone` (pipeline started / resumed /
+  completed / failed / cancelled), `step`, `human` (approval requested / received,
+  intervention), `compensation` (compensation, loop-back, sub-pipeline) and
+  `housekeeping` (artifact collection failure, resource cleanup). Each event has an
+  icon and its node; unknown types are `other`. Housekeeping events change no node,
+  so `ReplayController` steps over them but they stay in the timeline and the export.
+- **Playhead.** `ReplayController` is a small state machine (previous / next / first /
+  last / seek, play at 0.5x-4x, pause, `tick`) over the visible events. The server
+  keeps no playhead: `POST .../replay/seek` takes `current` + `action` and returns the
+  state at the new position; the browser owns position and the play timer (one seek per
+  tick at `1000ms / speed`), and discards a response a newer click has overtaken.
+- **Routes** (under `/projects/<id>/pipelines/executions/<eid>/replay/`): `events`
+  (paginated, `?kind=`), `state?event=N` (graph, artifacts, inspector for the
+  event's node, or `&node=`), `seek`. The task text put these under
+  `/pipelines/<run_id>/`; they follow the existing execution routes instead.
+- **UI.** A "Replay" button on the execution page opens a panel under the graph:
+  first / previous / play-pause / next / last, speed, kind filter, and a timeline strip
+  that scrolls sideways *inside itself* (the page never does); every control is at least
+  44px. The current event is `aria-current`, later ones are dimmed. The inspector
+  follows the current event's node (so stepping shows what just happened rather than
+  keeping a stale node); "Back to final state" restores the live graph. Live polling is
+  suspended while replaying. `#replay` in the URL opens the panel.
+- **Ralph iterations (§19).** The task text assumed `step_executions.iteration_number`;
+  it does not exist. Each Ralph iteration's verification is its *own* execution
+  (created with `variables.run` / `variables.iteration`, linked from
+  `ralph_iterations.verification_execution_id`), so grouping is a strip of "Iteration N"
+  links (with status, files changed, analysis) across the run's executions on every
+  such execution's page, each opening straight into that iteration's replay. There is no
+  merged multi-execution timeline, and no swimlanes or side-by-side comparison.
+- **Performance.** State is O(events) per position and memoised per `Replayer`
+  (built once per request; it reads events, steps and artifacts once). 1,200 events
+  replay in well under 2s in a test; timelines are capped at 1,000 events per page.
+  For much larger logs, checkpoint every K events instead of folding from zero.
+- The mobile/desktop behaviour is covered by Playwright tests at 375px and 1280px in
+  `tests/pipelines/test_replay.py`.

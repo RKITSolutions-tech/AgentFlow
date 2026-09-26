@@ -992,7 +992,7 @@
         "description": "Implement historical replay functionality that reconstructs pipeline node states, inspector content, and timeline as of any event N without re-executing, including previous/next/play controls, clickable timeline events, and Ralph iteration grouping.",
         "details": "Create app/pipelines/replay.py with PipelineReplayEngine class:\n\n1. State reconstruction without re-execution:\n   - Implement reconstruct_state_at_event(run_id, event_number) that walks pipeline_events and step_executions in order\n   - Build node state snapshot: pending/running/success/failed/skipped with timing data as of that event\n   - Reconstruct step outputs, artifacts collected, and compensation execution state\n   - Cache reconstructed states in memory during replay session to avoid repeated walks\n\n2. Inspector content generation:\n   - Extend app/pipelines/visualization.py PipelineGraphBuilder to accept optional event_number parameter\n   - When event_number provided, use reconstructed state instead of current run state\n   - Include step details, outputs, artifacts, logs, and compensation info from that point in time\n\n3. Timeline controls and navigation:\n   - Add ReplayController class managing playhead position and playback state\n   - Implement previous(), next(), play(speed=1.0), pause(), seek_to_event(n) methods\n   - Track which events are user-visible (step started, step completed, compensation executed, etc.)\n\n4. Clickable timeline events:\n   - Extend run_detail.html template with interactive timeline strip below graph\n   - Each event shows icon (step/compensation/milestone), timestamp, and description\n   - Clicking event calls seek_to_event() which updates graph and inspector to that state\n   - Highlight current playhead position\n\n5. Ralph iteration grouping:\n   - When run_type is 'ralph_run', group events by iteration number from step_executions.iteration_number\n   - Render iteration swimlanes in timeline or as collapsible sections\n   - Allow filtering timeline to show only specific iterations\n   - Add iteration summary cards showing changes per iteration\n\n6. API endpoints in app/pipelines/views.py:\n   - GET /projects/<id>/pipelines/<run_id>/replay/state?event=N: return reconstructed state JSON\n   - POST /projects/<id>/pipelines/<run_id>/replay/seek: update playhead, return new inspector content\n   - GET /projects/<id>/pipelines/<run_id>/replay/events: return paginated timeline events with metadata\n\n7. Update docs/PIPELINE_VISUALISATION.md sections 17-18 with:\n   - Architecture of state reconstruction algorithm\n   - Timeline event taxonomy and grouping rules\n   - Ralph iteration display strategy\n   - Performance considerations for large event logs\n   - Example of walking step_executions to rebuild state",
         "testStrategy": "Pytest tests in tests/pipelines/test_replay.py:\n- test_reconstruct_state_at_event rebuilds correct node states for multiple checkpoints\n- test_reconstruct_state_at_event_with_compensation includes compensation execution state\n- test_reconstruct_state_at_event_artifacts lists correct artifacts as of event N\n- test_replay_controller_navigation previous/next/seek work correctly\n- test_replay_controller_playback play/pause/speed control state transitions\n- test_timeline_events_serialization returns correct event list with timestamps\n- test_ralph_iteration_grouping groups events by iteration and surfaces iteration summaries\n- test_inspector_content_at_event shows correct step details for historical state\n\nPlaywright tests in tests/pipelines/test_visualization.py:\n- test_replay_timeline_renders displays clickable event strip below graph\n- test_replay_click_event seeking to event updates graph and inspector panel\n- test_replay_playback_animation play button animates through events at speed\n- test_replay_ralph_iterations shows iteration swimlanes and filtering\n- test_replay_mobile_timeline timeline remains accessible on narrow screens\n- test_replay_performance large pipeline with 1000+ events loads <2s\n\nIntegration test: execute pipeline with steps and compensation, verify state at event 1 != state at final event, verify timeline navigation reconstructs correct inspector content at each checkpoint.",
-        "status": "pending",
+        "status": "done",
         "dependencies": [
           "22",
           "23",
@@ -1000,7 +1000,8 @@
           "25"
         ],
         "priority": "medium",
-        "subtasks": []
+        "subtasks": [],
+        "updatedAt": "2026-09-26T14:05:29.196Z"
       },
       {
         "id": "30",
@@ -1041,9 +1042,9 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-09-26T14:03:15.859Z",
+      "lastModified": "2026-09-26T14:05:29.197Z",
       "taskCount": 31,
-      "completedCount": 28,
+      "completedCount": 29,
       "tags": [
         "master"
       ]
