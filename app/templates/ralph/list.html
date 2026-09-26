@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% from "_project_tabs.html" import project_tabs %}
+{% block title %}{{ project.name }} - Ralph - AgentFlow{% endblock %}
+{% block content %}
+  {{ project_tabs(project, none, 'ralph') }}
+  <h1>{{ project.name }} - Ralph</h1>
+  <form method="post" action="{{ url_for('ralph.start_run', project_id=project.id) }}" class="stacked" data-ajax-form>
+    <label>Title <input name="title" maxlength="120"></label>
+    <label>Task <textarea name="task" rows="3" required></textarea></label>
+    <label>Acceptance criteria, one per line <textarea name="acceptance" rows="2"></textarea></label>
+    <div class="run-form-row">
+      <label>Verification pipeline
+        <select name="verification_pipeline" required>{% for p in pipelines %}<option value="{{ p.name }}">{{ p.name }}</option>{% endfor %}</select>
+      </label>
+      <label>Repository
+        <select name="repository_id" required>{% for r in project.repositories %}<option value="{{ r.id }}"{% if r.is_primary %} selected{% endif %}>{{ r.name }}</option>{% endfor %}</select>
+      </label>
+      <label>Max iterations <input name="max_iterations" type="number" min="1" placeholder="8"></label>
+      <label>Max runtime (seconds) <input name="max_runtime_seconds" type="number" min="1" step="any" placeholder="none"></label>
+    </div>
+    <label class="backlog-select"><input type="checkbox" name="auto_commit" checked> Commit locally when verification passes</label>
+    <button type="submit" class="btn-primary"{% if not project.repositories %} disabled{% endif %}>Start Ralph</button>
+  </form>
+  <table class="table-compact">
+    <thead><tr><th>Run</th><th>Status</th><th>Iterations</th><th>Started</th></tr></thead>
+    <tbody>
+      {% for r in runs %}
+        <tr>
+          <td class="wrap-cell"><a href="{{ url_for('ralph.view_run', project_id=project.id, run_id=r.id) }}">#{{ r.id }} {{ r.title }}</a></td>
+          <td><span class="run-status run-status-{{ {'COMPLETED': 'completed', 'RUNNING': 'running', 'VERIFYING': 'running', 'PAUSED': 'paused', 'BLOCKED': 'failed', 'FAILED': 'failed'}.get(r.status, 'created') }}">{{ r.status|replace('_', ' ')|capitalize }}</span></td>
+          <td>{{ r.current_iteration }}/{{ r.max_iterations }}</td>
+          <td>{{ r.started_at or r.created_at }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="4">No Ralph runs yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}

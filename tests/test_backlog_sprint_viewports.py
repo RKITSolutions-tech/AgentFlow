@@ -79,3 +79,48 @@ def test_touch_targets_and_graph_orientation(app, client, live_server):
             assert direction == "row"
         finally:
             browser.close()
+
+
+def test_pipeline_view_layout(app, client, live_server):
+    """Graph runs left-to-right at 1280px and stacks at 375px; steps open the inspector."""
+    import sys
+
+    from app.execution.host import HostExecutionProvider
+    from app.pipelines import persistence as pipelines
+    from app.pipelines.engine import PipelineEngine
+
+    sync_playwright = require_playwright()
+    resp = client.post("/projects/new", data={"name": "Proj"})
+    pid = int(resp.headers["Location"].rsplit("/", 1)[-1])
+    from tests.conftest import create_project_with_repo
+
+    pid, _ = create_project_with_repo(client, app.config["allowed_root"], "vrepo", "P2")
+    with app.app_context():
+        db = get_db()
+        cmd = {"command": f'{sys.executable} -c "print(1)"'}
+        pipelines.create_pipeline(
+            db, {"name": "v", "elements": [
+                {"name": "a", "type": "COMMAND", "config": cmd},
+                {"name": "b", "type": "TEST", "config": cmd}]}, pid)
+        provider = HostExecutionProvider(app.config["DATABASE_PATH"], app.config["ALLOWED_PROJECT_ROOTS"])
+        engine = PipelineEngine(db, provider, "artifacts-viewport")
+        eid = engine.create("v", pid, 1)
+        engine.run(eid)
+    url = f"{live_server}/projects/{pid}/pipelines/executions/{eid}"
+    with sync_playwright() as p:
+        browser = launch_chromium(p)
+        try:
+            desktop = browser.new_page(viewport=VIEWPORTS[1])
+            desktop.goto(url)
+            assert desktop.evaluate("getComputedStyle(document.querySelector('.pipeline-layers')).flexDirection") == "row"
+            desktop.click("[data-node='a']")
+            desktop.wait_for_selector("[data-inspector] h2")
+            assert desktop.inner_text("[data-inspector] h2") == "a"
+            mobile = browser.new_page(viewport=VIEWPORTS[0])
+            mobile.goto(url)
+            assert mobile.evaluate("getComputedStyle(document.querySelector('.pipeline-layers')).flexDirection") == "column"
+            overflow = mobile.evaluate("document.documentElement.scrollWidth - document.documentElement.clientWidth")
+            assert overflow <= 0
+            assert mobile.query_selector("[data-node='a']").bounding_box()["height"] >= 40
+        finally:
+            browser.close()

@@ -38,6 +38,12 @@ def create_app(config: Config | None = None) -> Flask:
     from app.sprints.views import bp as sprints_bp
 
     app.register_blueprint(sprints_bp)
+
+    from app.pipelines.views import bp as pipelines_bp
+    from app.ralph.views import bp as ralph_bp
+
+    app.register_blueprint(pipelines_bp)
+    app.register_blueprint(ralph_bp)
     app.extensions["run_manager"].reconcile()
 
     from app.pipelines.persistence import seed_builtins

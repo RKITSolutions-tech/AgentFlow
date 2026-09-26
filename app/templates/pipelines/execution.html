@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% from "_project_tabs.html" import project_tabs %}
+{% from "pipelines/_helpers.html" import exec_badge %}
+{% block title %}Execution #{{ execution.id }} - {{ project.name }} - AgentFlow{% endblock %}
+{% block content %}
+  {{ project_tabs(project, none, 'pipelines') }}
+  {% set base = url_for('pipelines.view_execution', project_id=project.id, execution_id=execution.id) %}
+  <h1>{{ pipeline.name if pipeline else 'Pipeline' }} <small>v{{ execution.pipeline_version }} &middot; execution #{{ execution.id }}</small></h1>
+  <p>
+    <span data-exec-status>{{ exec_badge(execution.status) }}</span>
+    {% if execution.needs_attention %}<span class="run-status run-status-failed">Needs attention</span>{% endif %}
+    {% if execution.warnings %}<span class="run-status run-status-paused">{{ execution.warnings }} warning{{ '' if execution.warnings == 1 else 's' }}</span>{% endif %}
+    {% if execution.reason %}<span class="form-hint">{{ execution.reason }}</span>{% endif %}
+  </p>
+  <div class="row-actions">
+    {% if not execution.terminal %}
+      <button type="button" class="link-danger" data-ajax-reload="{{ url_for('pipelines.cancel_execution', project_id=project.id, execution_id=execution.id) }}" data-confirm="Cancel this execution?">Cancel</button>
+    {% endif %}
+    <a href="{{ base }}/export.json">Export JSON</a>
+    <a href="{{ base }}/export.csv">Export CSV</a>
+  </div>
+
+  <div class="pipeline-view" data-pipeline-view
+       data-graph-url="{{ base }}/graph.json"
+       data-node-url="{{ base }}/nodes/__NAME__.json"
+       data-decision-url="{{ base }}/steps/__STEP__/decision"
+       data-log-url="{{ base }}/steps/__STEP__/log"
+       data-active="{{ 'true' if not execution.terminal and execution.status != 'PAUSED' else 'false' }}">
+    <div class="pipeline-graph" aria-label="Pipeline graph">
+      <svg class="pipeline-edges" aria-hidden="true" focusable="false"></svg>
+      <ol class="pipeline-layers">
+        {% for layer in range(graph.layers) %}
+          <li class="pipeline-layer">
+            <ul>
+              {% for n in graph.nodes if n.layer == layer %}
+                <li>
+                  <button type="button" class="pipeline-node node-{{ n.state|lower }} cat-{{ n.category|lower }}{% if n.current %} node-current{% endif %}"
+                          data-node="{{ n.id }}" aria-pressed="false">
+                    <span class="node-title"><span class="node-icon" aria-hidden="true">{{ n.icon }}</span> {{ n.label }}</span>
+                    <span class="node-meta">{{ n.type|replace('_', ' ')|capitalize }}{% if n.group %} &middot; {{ n.group }}{% endif %}</span>
+                    <span class="node-state">{{ n.state_label }}{% if n.attempts > 1 %} &middot; attempt {{ n.attempt }}{% endif %}</span>
+                    {% if n.summary %}<span class="node-summary">{{ n.summary }}</span>{% endif %}
+                  </button>
+                </li>
+              {% endfor %}
+            </ul>
+          </li>
+        {% endfor %}
+      </ol>
+    </div>
+    <aside class="pipeline-inspector" aria-live="polite" data-inspector>
+      <p class="form-hint">Select a step to inspect it.</p>
+    </aside>
+  </div>
+  <p class="form-hint">Dashed lines are compensation paths (loops and recovery steps).</p>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='pipeline.js') }}" defer></script>{% endblock %}

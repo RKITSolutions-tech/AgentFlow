@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% from "_project_tabs.html" import project_tabs %}
+{% from "pipelines/_helpers.html" import exec_badge %}
+{% block title %}{{ project.name }} - Pipelines - AgentFlow{% endblock %}
+{% block content %}
+  {{ project_tabs(project, none, 'pipelines') }}
+  <h1>{{ project.name }} - Pipelines</h1>
+
+  <form method="post" action="{{ url_for('pipelines.start_execution', project_id=project.id) }}" class="stacked" data-ajax-form>
+    <div class="run-form-row">
+      <label>Pipeline
+        <select name="pipeline" required>
+          {% for p in pipelines %}<option value="{{ p.name }}">{{ p.name }}{% if p.project_id is none %} (built-in){% endif %} - v{{ p.current_version }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>Repository
+        <select name="repository_id" required>
+          {% for r in project.repositories %}<option value="{{ r.id }}"{% if r.is_primary %} selected{% endif %}>{{ r.name }}</option>{% endfor %}
+        </select>
+      </label>
+    </div>
+    <label>Variables, one <code>key=value</code> per line (used as <code>${vars.key}</code>)
+      <textarea name="variables" rows="2"></textarea>
+    </label>
+    <button type="submit" class="btn-primary"{% if not project.repositories %} disabled{% endif %}>Start pipeline</button>
+    {% if not project.repositories %}<p class="form-hint">Add a repository to this project first.</p>{% endif %}
+  </form>
+
+  <table class="table-compact">
+    <thead><tr><th>Execution</th><th>Pipeline</th><th>Status</th><th>Started</th></tr></thead>
+    <tbody>
+      {% for e in executions %}
+        <tr>
+          <td><a href="{{ url_for('pipelines.view_execution', project_id=project.id, execution_id=e.id) }}">#{{ e.id }}</a></td>
+          <td class="wrap-cell">{{ names.get(e.pipeline_id, '?') }} v{{ e.pipeline_version }}</td>
+          <td>{{ exec_badge(e.status) }}{% if e.needs_attention %} <span class="run-status run-status-failed">Needs attention</span>{% endif %}</td>
+          <td>{{ e.started_at or e.created_at }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="4">No executions yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}

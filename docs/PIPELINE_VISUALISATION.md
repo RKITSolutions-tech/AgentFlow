@@ -508,3 +508,47 @@ What came out?
 What evidence exists?
 Why did it succeed or fail?
 ```
+
+## 25. Implementation Decisions (Phase 2, autonomous assumptions)
+
+Made without the owner in the loop while building task 24; recommendations to
+confirm.
+
+- **Routes.** A pipeline execution belongs to a Project, not to a Sprint, so the
+  view lives at `/projects/<id>/pipelines/executions/<eid>` (with
+  `graph.json`, `nodes/<name>.json`, `steps/<sid>/log`, `export.json|csv`,
+  `cancel`, `steps/<sid>/decision`) rather than under `/sprints/<id>/run/<id>`.
+  Ralph runs are at `/projects/<id>/ralph/<run>` and link each iteration to its
+  verification execution. Project tabs gained **Pipelines** and **Ralph**.
+- **Graph technology (§24).** No d3 or other dependency. The server assigns every
+  node a `layer` (longest dependency path; teardown trails everything);
+  CSS lays layers out as columns at >=861px and rows below it (§4), and a small
+  script draws edges as an SVG overlay (dependency edges solid, compensation
+  edges dashed and amber). Node state is always text + icon + border colour,
+  never colour alone; rigging nodes use a dashed border and human nodes a pill
+  shape; the running node pulses (a static ring under reduced motion).
+- **States.** Pending, Running, Retrying (running attempt > 1), Passed, Failed,
+  Warning (failed but `CONTINUE`), Waiting for human, Skipped, Disabled,
+  Cancelled, Timed out. "Paused" is shown as the execution status.
+- **Inspector** is loaded on demand per node: Summary (attempts, duration, exit
+  code, on-failure policy, dependencies), Failure, Input (for AGENT steps this
+  is the *effective prompt*, §11), Output / agent reply, Configuration (secrets
+  redacted), Attempts, Events, and a download of the full output. The
+  Tests/Files/Artifacts tabs are not separate yet: test steps show their command
+  output, and artifacts arrive with task 25. Manual steps show approve /
+  reject (or "request changes" for reviews) controls in the inspector and a
+  name is required.
+- **Live updates** poll `graph.json` every 2s while the execution is running
+  and reload when any node state changes; it is not SSE (§23). The selected
+  node is kept in the URL hash. Ralph pages use the existing `data-autorefresh`.
+- **Not built:** historical replay (§17), timeline click-through (§18),
+  collapsing sub-pipelines into one node (§20; children appear flat with their
+  parent as a badge), grouping *graph nodes* by Ralph iteration (§19; the Ralph
+  page lists iterations, each linking to its own graph), side-by-side iteration
+  comparison, the design-mockup review layout of §21.
+- CSV export prefixes cells beginning with `= + - @` with `'` so command output
+  cannot become a spreadsheet formula.
+- The mobile/desktop layout tests (`tests/test_backlog_sprint_viewports.py`) skip
+  where Playwright or a browser is missing, which is the case in the
+  environment these tasks were built in; the front-end JavaScript has only had
+  a syntax check, so it needs a real browser pass.

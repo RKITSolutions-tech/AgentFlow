@@ -1,0 +1,3 @@
+{% macro exec_badge(status) %}
+  <span class="run-status run-status-{{ {'COMPLETED': 'completed', 'RUNNING': 'running', 'PAUSED': 'paused', 'FAILED': 'failed', 'CANCELLED': 'failed'}.get(status, 'created') }}">{{ status|replace('_', ' ')|capitalize }}</span>
+{% endmacro %}

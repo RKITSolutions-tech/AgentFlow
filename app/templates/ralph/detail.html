@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% from "_project_tabs.html" import project_tabs %}
+{% block title %}Ralph #{{ run.id }} - {{ project.name }} - AgentFlow{% endblock %}
+{% block content %}
+  {{ project_tabs(project, none, 'ralph') }}
+  {% if run.status in ('CREATED', 'RUNNING', 'VERIFYING') and executing %}<div data-autorefresh="3000" hidden></div>{% endif %}
+  <h1>#{{ run.id }} {{ run.title }}</h1>
+  <p>
+    <span class="run-status">{{ run.status|replace('_', ' ')|capitalize }}</span>
+    {% if run.needs_attention %}<span class="run-status run-status-failed">Needs attention</span>{% endif %}
+    <span class="form-hint">{{ run.reason }}</span>
+  </p>
+  <dl class="run-meta">
+    <dt>Iteration</dt><dd>{{ run.current_iteration }} of {{ run.max_iterations }}</dd>
+    <dt>Verification</dt><dd>{{ run.verification_pipeline }}</dd>
+    {% if run.commit_sha %}<dt>Commit</dt><dd><code>{{ run.commit_sha[:12] }}</code></dd>{% endif %}
+  </dl>
+
+  <div class="row-actions">
+    {% if run.status in ('RUNNING', 'VERIFYING') %}
+      <button type="button" data-ajax-reload="{{ url_for('ralph.pause', project_id=project.id, run_id=run.id) }}">Pause</button>
+    {% elif run.status == 'PAUSED' %}
+      <button type="button" data-ajax-reload="{{ url_for('ralph.resume', project_id=project.id, run_id=run.id) }}">Resume</button>
+    {% endif %}
+    {% if run.status not in ('COMPLETED', 'FAILED', 'CANCELLED', 'TIMED_OUT') %}
+      <button type="button" class="link-danger" data-ajax-reload="{{ url_for('ralph.cancel', project_id=project.id, run_id=run.id) }}" data-confirm="Cancel this run?">Cancel</button>
+    {% endif %}
+  </div>
+
+  {% if run.status in ('BLOCKED', 'WAITING_FOR_HUMAN') %}
+    <form method="post" action="{{ url_for('ralph.unblock', project_id=project.id, run_id=run.id) }}" class="stacked" data-ajax-form>
+      <label>Guidance for the next iteration (optional) <textarea name="message" rows="2"></textarea></label>
+      <button type="submit" class="btn-primary">Continue</button>
+    </form>
+  {% endif %}
+
+  <h2>Iterations</h2>
+  <ol class="iteration-timeline">
+    {% for i in iterations %}
+      <li><a href="#iteration-{{ i.number }}"><strong>#{{ i.number }}</strong><span>{{ i.status|replace('_', ' ')|capitalize }}</span></a></li>
+    {% else %}
+      <li class="form-hint">No iterations yet.</li>
+    {% endfor %}
+  </ol>
+  {% for i in iterations %}
+    <details id="iteration-{{ i.number }}" class="iteration"{% if loop.last or i.status in ('FAILED', 'NO_PROGRESS') and loop.revindex <= 2 %} open{% endif %}>
+      <summary>Iteration {{ i.number }} &middot; {{ i.status|replace('_', ' ')|capitalize }}{% if i.next_action %} &middot; next: {{ i.next_action|replace('_', ' ') }}{% endif %}</summary>
+      {% if i.verification_execution_id %}
+        <p><a href="{{ url_for('pipelines.view_execution', project_id=project.id, execution_id=i.verification_execution_id) }}">Verification pipeline run #{{ i.verification_execution_id }}</a>
+          {% set ex = executions.get(i.verification_execution_id) %}{% if ex %}({{ ex.status|lower }}){% endif %}</p>
+      {% endif %}
+      {% if i.changed_files %}<p class="wrap-cell">Changed: {{ i.changed_files|join(', ') }}</p>{% endif %}
+      {% if i.analysis %}<h3>Analysis</h3><pre class="run-log">{{ i.analysis }}</pre>{% endif %}
+      <h3>Prompt sent</h3><pre class="run-log">{{ i.prompt }}</pre>
+      <h3>Agent reply</h3><pre class="run-log">{{ i.reply or '(none)' }}</pre>
+      {% if i.redacted %}<p class="form-hint">Secrets were redacted from the stored prompt and reply.</p>{% endif %}
+    </details>
+  {% endfor %}
+
+  <h2>Steering</h2>
+  {% if run.status not in ('COMPLETED', 'FAILED', 'CANCELLED', 'TIMED_OUT') %}
+    <form method="post" action="{{ url_for('ralph.steer', project_id=project.id, run_id=run.id) }}" class="stacked" data-ajax-form>
+      <label>Instruction for the next iteration <textarea name="message" rows="2" required></textarea></label>
+      <button type="submit">Add steering</button>
+    </form>
+  {% endif %}
+  <ul>
+    {% for s in steering %}
+      <li class="wrap-cell">{{ s.message }} <span class="form-hint">{{ s.created_at[:19] }}{% if s.consumed_iteration %} &middot; used in iteration {{ s.consumed_iteration }}{% else %} &middot; waiting{% endif %}</span></li>
+    {% else %}
+      <li class="form-hint">None.</li>
+    {% endfor %}
+  </ul>
+{% endblock %}
