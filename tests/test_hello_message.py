@@ -75,10 +75,12 @@ def test_send_hello_message_via_ui(app, client, live_server):
     # Step 3: Use Playwright to send message
     print("\n3️⃣  Using Playwright to send message...")
     try:
-        from playwright.sync_api import sync_playwright
+        from tests.conftest import launch_chromium, require_playwright
+
+        sync_playwright = require_playwright()
 
         with sync_playwright() as p:
-            browser = p.chromium.launch()
+            browser = launch_chromium(p)
             page = browser.new_page()
 
             # Navigate to chat

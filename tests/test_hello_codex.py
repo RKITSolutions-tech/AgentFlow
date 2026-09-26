@@ -84,10 +84,12 @@ def test_send_hello_get_codex_response(app, client, live_server):
     # Use Playwright to interact with the chat
     print("\n3️⃣  Opening chat with Playwright...")
     try:
-        from playwright.sync_api import sync_playwright
+        from tests.conftest import launch_chromium, require_playwright
+
+        sync_playwright = require_playwright()
 
         with sync_playwright() as p:
-            browser = p.chromium.launch()
+            browser = launch_chromium(p)
             context = browser.new_context()
             page = context.new_page()
             print("   ✅ Browser launched")

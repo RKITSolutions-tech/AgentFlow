@@ -57,13 +57,15 @@ def test_send_and_display_chat_message(app, client, live_server):
     # Step 3: Use Playwright to interact with the chat
     print("\n3️⃣  Testing chat interface with Playwright...")
     try:
-        from playwright.sync_api import sync_playwright
+        from tests.conftest import launch_chromium, require_playwright
+
+        sync_playwright = require_playwright()
 
         with sync_playwright() as p:
             print("   ✅ Playwright started")
 
             # Launch browser
-            browser = p.chromium.launch()
+            browser = launch_chromium(p)
             print("   ✅ Browser launched")
 
             context = browser.new_context()
@@ -193,10 +195,12 @@ def test_chat_form_input_and_state(app, client, live_server):
         )
 
     try:
-        from playwright.sync_api import sync_playwright
+        from tests.conftest import launch_chromium, require_playwright
+
+        sync_playwright = require_playwright()
 
         with sync_playwright() as p:
-            browser = p.chromium.launch()
+            browser = launch_chromium(p)
             context = browser.new_context()
             page = context.new_page()
 

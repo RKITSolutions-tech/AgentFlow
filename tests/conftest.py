@@ -8,6 +8,23 @@ from app import create_app
 from app.config import Config
 
 
+def require_playwright():
+    """Return Playwright's `sync_playwright`, skipping when the package is absent."""
+    return pytest.importorskip("playwright.sync_api").sync_playwright
+
+
+def launch_chromium(playwright):
+    """Launch Chromium, skipping only if the browser itself cannot start.
+
+    Callers' assertions stay outside any try/except so real failures are
+    never reported as skips (see CLAUDE.md, Playwright viewport tests).
+    """
+    try:
+        return playwright.chromium.launch()
+    except Exception as exc:  # browser binary missing / cannot start
+        pytest.skip(f"Playwright browser unavailable: {exc}")
+
+
 def create_project_with_repo(client, allowed_root, repo_name="repo-a", project_name="Proj"):
     """Create a project with one repository under `allowed_root`.
 
