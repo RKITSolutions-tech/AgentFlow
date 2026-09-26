@@ -384,3 +384,35 @@ def test_sidebar_section_links_are_live(world, live_server):
             page.wait_for_url("**/sprints")
         finally:
             browser.close()
+
+
+@pytest.mark.parametrize("device", ["iPhone 13", "Pixel 7"])
+def test_key_pages_work_with_touch_input(world, live_server, device):
+    """Emulated phone (touch events, coarse pointer, mobile viewport): the graph,
+    replay controls, sprint queue and prompt library respond to taps, not clicks."""
+    sync_playwright = require_playwright()
+    with sync_playwright() as p:
+        browser = launch_chromium(p)
+        try:
+            spec = {k: v for k, v in p.devices[device].items() if k not in ("default_browser_type",)}
+            context = browser.new_context(**spec)
+            assert spec["has_touch"] and spec["is_mobile"]
+            page = context.new_page()
+            errors = watch_console(page)
+            for path in (f"/projects/{world.pid}/sprints/{world.sprint}/queue", "/prompts/library", "/prompts/ralph-blocks"):
+                page.goto(live_server + path)
+                page.wait_for_load_state("networkidle")
+                assert_no_horizontal_overflow(page, f"{device} {path}")
+            page.goto(f"{live_server}/projects/{world.pid}/pipelines/executions/{world.eid}")
+            page.wait_for_selector(".pipeline-edges path", state="attached")
+            page.locator('[data-node="unit"]').tap()
+            page.wait_for_selector("[data-inspector] h2:has-text('unit')")
+            page.locator("[data-replay-toggle]").tap()
+            page.wait_for_selector(".replay-event")
+            page.locator(".replay-event", has_text="Step Completed · build").first.tap()
+            page.wait_for_function("document.querySelector('[data-node=build] .node-state').textContent.includes('Passed')")
+            assert_no_horizontal_overflow(page, f"{device} replay")
+            assert errors == []
+            context.close()
+        finally:
+            browser.close()

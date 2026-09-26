@@ -160,4 +160,19 @@ its case skips and WebKit remains unverified.
 | 12 | sidebar drawer (375) | focus | Focus was not moved into / back out of the drawer | low | focus first link on open, toggle on close (enhancement, not a regression) |
 
 The sidebar's Backlog / Sprints / Runs entries, formerly disabled placeholders, now link to the
-project being viewed (else the first project). Not verified: WebKit and a real touch device.
+project being viewed (else the first project). Not verified: WebKit and a physical touch device.
+
+**Task 33 follow-up (assumptions and findings).**
+
+- *WebKit* still cannot launch here. `playwright install-deps` needs sudo (a password is
+  required), and the fallback of `apt-get download`ing the libraries into `LD_LIBRARY_PATH`
+  fails because Playwright's WebKit build wants `libjxl.so.0.8` and `libbacktrace.so.0`,
+  which this OS release does not package (only `libjxl0.7`). So
+  `test_key_pages_work_in_every_engine[webkit]` still skips (only because the browser cannot
+  start). To close it, run `sudo venv/bin/playwright install-deps webkit` on a matching
+  Ubuntu 24.04 host or in CI; no code change is expected to be needed.
+- *Touch*: `test_key_pages_work_with_touch_input` uses the Playwright `iPhone 13` and
+  `Pixel 7` descriptors (`has_touch`, `is_mobile`, coarse pointer, mobile viewport) in
+  Chromium and drives the pipeline graph, replay events, sprint queue and prompt library with
+  `tap()`. It found no defects and no horizontal overflow. Emulation is not a phone: a real
+  device (iOS Safari especially: `100vh`, momentum scrolling, focus zoom) stays a manual check.

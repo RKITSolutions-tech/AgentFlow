@@ -1061,12 +1061,13 @@
         "description": "WebKit cannot launch in this environment and touch behaviour has only been emulated.",
         "details": "Install WebKit system dependencies (playwright install-deps, needs sudo) so test_key_pages_work_in_every_engine[webkit] runs instead of skipping; fix any defects found. Exercise the pipeline graph, replay controls, sprint queue and prompt library on a real phone or a Playwright device descriptor with hasTouch. Record findings in PHASE2_PLANNING §9.",
         "testStrategy": "",
-        "status": "pending",
+        "status": "done",
         "dependencies": [
           "31"
         ],
         "priority": "medium",
-        "subtasks": []
+        "subtasks": [],
+        "updatedAt": "2026-09-26T16:31:29.974Z"
       },
       {
         "id": "34",
@@ -1110,9 +1111,9 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-09-26T16:29:41.265Z",
+      "lastModified": "2026-09-26T16:31:29.974Z",
       "taskCount": 36,
-      "completedCount": 32,
+      "completedCount": 33,
       "tags": [
         "master"
       ]
