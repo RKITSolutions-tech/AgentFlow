@@ -169,3 +169,35 @@ Is a clarifying question a distinct event kind (leaning: yes, see
   AGENT_ADAPTER.md §12)?
 Does G9 belong to UI verification or to the session workspace?
 ```
+
+## 8. Decisions for G8 - G12 (task 16)
+
+Recorded without the owner in the loop; each is a recommendation that can be
+overturned. No follow-up Task Master tasks are created: nothing here is
+accepted for Phase 1.
+
+```text
+G8   Extensibility     DEFER to Phase 2. Read-only MCP visibility rides with
+                       P2.10 (External Rigging). Skills management and
+                       plugins are OUT OF SCOPE until a concrete need appears.
+G9   Embedded browser  Belongs to UI verification (HLD §17, P2.6 Visual
+                       Monitoring / P2.10), not the session workspace.
+                       DEFER to Phase 2; design it there as an agent-callable
+                       browser service, not a workspace tab.
+G10  Task Master tab   Divergence CONFIRMED as intended. TASK_INTELLIGENCE.md
+                       covers the ground; no action.
+G11  Auth              ACCEPT the single-trusted-user model for Phase 1.
+                       Mitigations now in place: loopback bind by default,
+                       AGENTFLOW_ALLOW_UNSAFE_BIND=1 required for anything
+                       else, and a logged warning when it is set. Revisit
+                       trigger: any deployment reachable by more than one
+                       person or beyond the tailnet/LAN. That would need its
+                       own auth task before shipping.
+G12  Polish            Dark mode is DONE (dark default, light override,
+                       toggle in the shell). Installable app (manifest +
+                       service worker) is DEFERRED, low priority.
+```
+
+Resolves the open decision "which gaps are accepted as out of scope for
+Phase 1": G8, G9 and the installable-app half of G12 are deferred; G10 and
+G11 are deliberate divergences.

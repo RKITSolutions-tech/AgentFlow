@@ -242,7 +242,7 @@
           "3",
           "5"
         ],
-        "status": "pending",
+        "status": "done",
         "subtasks": [
           {
             "id": 1,
@@ -250,9 +250,10 @@
             "description": "Create the Run entity, step tracking, and persistence layer following docs/RUN_AND_RALPH.md Phase 1. Design SQLite tables for runs, steps, events, and artifact metadata.",
             "dependencies": [],
             "details": "Create app/runs/models.py with Run, Step, and RunEvent dataclasses. Design SQLite schema to store run ID, status, start/end times, step sequences with status/timing/logs, prompt/reply pairs, and artifact metadata. Define CRUD operations in models.py following the pattern established in app/agents/models.py and app/execution/models.py. Support querying runs by project, filtering by status, and retrieving step history with full event trails.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "Unit tests in tests/test_runs_models.py verify schema creation, basic CRUD operations for runs and steps, and querying runs by status/project. Verify timestamp recording and event ordering.",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2026-09-26T00:25:26.773Z"
           },
           {
             "id": 2,
@@ -262,9 +263,10 @@
               1
             ],
             "details": "Create app/routes/runs.py with endpoints: POST /projects/<id>/runs (create with task/command), GET /projects/<id>/runs (list with pagination), GET /projects/<id>/runs/<run_id> (inspect run and steps), POST /projects/<id>/runs/<run_id>/pause, POST /projects/<id>/runs/<run_id>/stop, POST /projects/<id>/runs/<run_id>/restart. Support AJAX actions in the UI using data-ajax-action pattern. Return JSON for API calls and HTML for web views. Integrate with ExecutionProvider to spawn and manage processes.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "Integration tests in tests/test_runs_routes.py verify endpoint availability, create/list/inspect operations, pause/stop/restart state transitions, AJAX detection and JSON responses, and error handling for missing runs. Mock ExecutionProvider to avoid actual process spawning in tests.",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2026-09-26T00:25:26.782Z"
           },
           {
             "id": 3,
@@ -274,9 +276,10 @@
               1
             ],
             "details": "Create app/runs/artifacts.py with functions for writing artifact content to a project-scoped artifact directory, generating unique artifact paths, storing artifact references in the database, and retrieving artifacts by run/step. Implement a naming scheme (e.g., runs/<run_id>/step_<step_num>/<artifact_type>_<timestamp>) that allows efficient filesystem traversal. Support querying artifact metadata by type (log, output, diff, etc.). Ensure artifacts are validated (no path traversal) and stored securely.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "Unit tests verify artifact write/read operations, correct path generation, metadata storage and retrieval, and path traversal rejection. Integration tests verify artifact persistence survives process restarts and querying works correctly for multi-artifact runs.",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2026-09-26T00:25:26.788Z"
           },
           {
             "id": 4,
@@ -288,9 +291,10 @@
               3
             ],
             "details": "Create app/runs/executor.py with a RunExecutor class that: (1) receives a Run and step list, (2) executes each step via ExecutionProvider, (3) streams events to the database in real-time, (4) captures and persists logs and artifacts, (5) records step status and timing, (6) supports pause (suspend the process group), (7) supports stop (terminate and mark Run stopped), (8) supports restart (check if previous process still exists; if missing, mark Run as blocked; if present, reconnect and resume from last event position). Follow the event-streaming pattern from app/execution/models.py for pause/resume semantics.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "Integration tests in tests/test_runs_executor.py verify: (1) successful step execution and event recording, (2) proper log and artifact capture, (3) pause and resume from same position, (4) stop termination and state transition, (5) restart with missing process detection and blocked state, (6) timing accuracy. Mock ExecutionProvider to control process behavior deterministically.",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2026-09-26T00:25:26.795Z"
           },
           {
             "id": 5,
@@ -302,17 +306,19 @@
               4
             ],
             "details": "Create app/runs/security.py with redaction functions that identify and mask common secret patterns (API keys, tokens, passwords) before persisting prompts, replies, and logs to the database or filesystem. Use a configurable redaction rule list (e.g., regex patterns) and support user-defined patterns via environment config. For binding security: modify app.py to reject FLASK_ENV=production with unsafe bindings (0.0.0.0); add a config option AGENTFLOW_UNSAFE_BIND that must be explicitly set to true to allow binding to non-loopback interfaces. Log a warning when unsafe mode is enabled. Document the security settings in README and CLAUDE.md.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "Unit tests in tests/test_runs_security.py verify redaction logic correctly identifies and masks secrets in various contexts (JSON, log lines, environment variables) while preserving non-secret content. Test that redaction works in persisted prompts/replies/logs. Test that binding rejects 0.0.0.0 unless AGENTFLOW_UNSAFE_BIND=true. Verify warning is logged when unsafe mode is active.",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2026-09-26T00:25:26.801Z"
           }
-        ]
+        ],
+        "updatedAt": "2026-09-26T00:25:26.801Z"
       },
       {
         "id": "7",
         "title": "Review Phase 1 design decisions and consolidate Phase 2 planning",
         "description": "Audit all design documents (AGENT_ADAPTER.md, EXECUTION_PROVIDER.md, HIGH_LEVEL_DESIGN.md, TASK_INTELLIGENCE.md, DOCUMENT_LIFECYCLE.md, and implementation notes) to identify deferred decisions and open questions from Phase 1 work, then consolidate findings into Phase 2 planning artifacts.",
-        "status": "pending",
+        "status": "done",
         "dependencies": [
           "1",
           "2",
@@ -324,7 +330,8 @@
         "priority": "medium",
         "details": "Systematically review:\n\n1. docs/AGENT_ADAPTER.md section 22 and surrounding context regarding project-level context files (analogous to CLAUDE.md), on-demand context file surfacing, and the three open design questions:\n   - Where do project-level context files live and how are they discovered?\n   - How are on-demand context files surfaced to agents?\n   - Should assembly of context be AgentFlow-side or delegated to adapters?\n\n2. docs/EXECUTION_PROVIDER.md for deferred considerations or unresolved architectural points.\n\n3. docs/HIGH_LEVEL_DESIGN.md for deferred features or design uncertainties.\n\n4. docs/TASK_INTELLIGENCE.md, particularly section 9, which lists open questions regarding the Task Master-inspired requirement-elaboration, decomposition, and dependency-provenance design (backlog free text -> AI-elaborated PlanningProposal -> reviewed Task, AI-suggested dependency edges tagged and gated behind review, complexity-driven decomposition folded into Planning Profile selection). Document which open questions from section 9 have been resolved during Phase 1 and which remain for Phase 2.\n\n5. docs/DOCUMENT_LIFECYCLE.md, particularly section 14 Open Questions (STANDARD document versioning, whether review_verdict needs to name specific blocking review_comment rows, doc_read event dedup). Note that section 13 already scopes its own Phase 1 schema slice (documents/document_refs tables, agent_sessions.document_id/reviewed_git_sha columns, review_comment/review_verdict/doc_read agent_events types) into a separate new task rather than this review task. This task's job is only to audit DOCUMENT_LIFECYCLE.md's open questions and confirm nothing else from it is being lost, not to implement it.\n\n6. All update-subtask notes from tasks 1-6 implementation (accessible via task-master show 1.1, 1.2, etc.) to capture any additional points flagged but postponed during Phase 1 work.\n\n7. Consolidate findings into one of the following outcomes:\n   - Update docs/PHASED_DELIVERY_PLAN.md Phase 2 feature list to include newly clarified requirements.\n   - Update docs/TASK_INTELLIGENCE.md with resolved open questions and rationale.\n   - Update docs/DOCUMENT_LIFECYCLE.md with resolved open questions from section 14 and rationale.\n   - Create a dedicated Phase 2 design task if significant unresolved architectural questions warrant focused design work before implementation.\n\nEnsure no raised concerns or deferred decisions from Phase 1 are lost; create a single source of truth for Phase 2 direction.",
         "testStrategy": "Verification involves:\n\n1. Confirm all sections of AGENT_ADAPTER.md, EXECUTION_PROVIDER.md, HIGH_LEVEL_DESIGN.md, TASK_INTELLIGENCE.md, and DOCUMENT_LIFECYCLE.md have been read and reviewed.\n\n2. Verify that section 9 of docs/TASK_INTELLIGENCE.md has been examined and all listed open questions have been addressed (either resolved, incorporated into Phase 2 plans, or explicitly deferred with justification).\n\n3. Verify that section 14 of docs/DOCUMENT_LIFECYCLE.md has been examined and all listed open questions have been addressed (either resolved, incorporated into Phase 2 plans, or explicitly deferred with justification). Confirm that the Phase 1 schema scope in section 13 is being handled separately and not duplicated here.\n\n4. Verify that update-subtask notes from tasks 1-6 subtasks have been examined for deferred points (run task-master show 1.1 through 6.* and review all notes).\n\n5. Ensure docs/PHASED_DELIVERY_PLAN.md Phase 2 section has been updated with newly identified requirements and that docs/TASK_INTELLIGENCE.md and/or docs/DOCUMENT_LIFECYCLE.md have been updated with resolved questions, OR that a new Phase 2 design task has been created with clear design questions.\n\n6. Create a summary document or task describing:\n   - All open questions identified (e.g., the three context file questions from AGENT_ADAPTER.md, those from TASK_INTELLIGENCE.md section 9, and those from DOCUMENT_LIFECYCLE.md section 14).\n   - Which questions have been resolved or incorporated into Phase 2 plans.\n   - Which questions remain open and require design discussion.\n   - Rationale for deferrals to Phase 2 or beyond.\n\n7. Verify the summary is added to the Phase 2 design task or planning document so Phase 2 implementation tasks can reference and resolve them.",
-        "subtasks": []
+        "subtasks": [],
+        "updatedAt": "2026-09-26T00:25:27.432Z"
       },
       {
         "id": "8",
@@ -332,14 +339,15 @@
         "description": "Repair 5 failing Playwright tests that hardcode http://127.0.0.1:5000 and require a manually-started Flask server, causing false failures in pytest runs without external setup. Make them self-contained by either spinning up an ephemeral Flask server fixture or guarding them with a skip check.",
         "details": "Investigate why tests/test_chat_message.py::test_send_and_display_chat_message, tests/test_chat_message.py::test_chat_form_input_and_state, tests/test_codex_chat_response.py::test_codex_message_and_response, tests/test_hello_codex.py::test_send_hello_get_codex_response, and tests/test_hello_message.py::test_send_hello_message_via_ui were written against a live external server instead of using the Flask test client fixture pattern documented in CLAUDE.md.\n\nChoose one of two approaches:\n\n(a) Self-contained server fixture: Create a session-scoped pytest fixture (or conftest helper) that:\n  - Spawns a Flask dev server in a subprocess using multiprocessing or threading\n  - Binds to an ephemeral port (0) and discovers the assigned port\n  - Passes the server URL (e.g., http://127.0.0.1:<dynamic-port>) to Playwright tests via pytest parametrization or indirect fixture injection\n  - Tears down the server after the test session completes\n  - Ensures the server is reachable before tests run (wait with retry/timeout)\n\n(b) Skip guard (if integration with live server is essential):\n  - Add a pytest skip check following the existing shutil.which(...) convention in CLAUDE.md\n  - Create a helper function that attempts to connect to http://127.0.0.1:5000 with a short timeout (e.g., socket or requests.head)\n  - Decorate each test with @pytest.mark.skipif(not is_server_reachable(), reason=\"Flask dev server not running on port 5000\")\n  - Ensure the skip is clean and does not report as a failure\n\nPrefer approach (a) if Playwright automation and end-to-end UI verification are core to the test strategy; use (b) only if there is a genuine reason these tests must exercise a live running server rather than a fixture-managed one.\n\nUpdate the hardcoded base URL references in all 5 tests to use the dynamically assigned URL (via fixture or conftest variable).",
         "testStrategy": "Run pytest from a clean state with no pre-started Flask dev server on port 5000 and verify:\n  1. All 5 tests pass (or skip cleanly if using approach b)\n  2. No timeout errors or Page.wait_for_selector failures for #chatContainer\n  3. Full pytest run reports 0 failures from these test files\n  4. If using approach (a), confirm the ephemeral server is started before tests and cleaned up after\n  5. If using approach (b), confirm tests skip gracefully and pytest exit code is 0\n  6. Run pytest with -v to show each test result and confirm the expected behavior",
-        "status": "pending",
+        "status": "done",
         "dependencies": [
           "3",
           "5",
           "6"
         ],
         "priority": "medium",
-        "subtasks": []
+        "subtasks": [],
+        "updatedAt": "2026-09-26T00:25:27.425Z"
       },
       {
         "id": "9",
@@ -565,17 +573,18 @@
         "description": "Record explicit accept/defer decisions for the remaining CloudCLI gaps.",
         "details": "See docs/CLOUDCLI_GAP_ANALYSIS.md G8-G12: MCP/skills/plugins management, embedded agent browser vs UI verification (HLD 17), Task Master tab divergence, auth revisit if exposed beyond a single trusted user, dark mode and installable app. Output: decisions recorded in the gap doc, follow-up tasks only where accepted.",
         "testStrategy": "",
-        "status": "pending",
+        "status": "done",
         "dependencies": [],
         "priority": "low",
-        "subtasks": []
+        "subtasks": [],
+        "updatedAt": "2026-09-26T00:25:27.439Z"
       }
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-09-25T22:45:36.890Z",
+      "lastModified": "2026-09-26T00:25:27.439Z",
       "taskCount": 16,
-      "completedCount": 12,
+      "completedCount": 16,
       "tags": [
         "master"
       ]
