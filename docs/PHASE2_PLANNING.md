@@ -83,7 +83,7 @@ later items depend on them:
 
 Implementation decisions made without the owner in the loop; recommendations to confirm.
 
-- **Global, not per project.** Fragments, templates and Ralph instruction blocks are shared
+- **Global, with per-project overrides (task 34).** Fragments, templates and Ralph instruction blocks are shared
   by every project (`/prompts/...`, a "Prompts" link in the sidebar). Per-project overrides
   are the obvious next step but nothing needs them yet. Storage is plain `sqlite3`
   (`app/prompts/models.py`); tables `prompt_fragments` (+ `prompt_fragment_versions`),
@@ -129,8 +129,33 @@ Implementation decisions made without the owner in the loop; recommendations to 
   saving (variables to try, optional repository for `@file`), and a Ralph blocks list with
   toggle switches. All mutations are AJAX with JSON replies and non-JS redirects; tables use
   `.table-compact`/`.row-actions`, and controls are 44px on touch.
-- Not done: a project-level context-file setting (`CLAUDE.md`/`AGENTS.md` discovery, §2), a
-  browsable list of recorded prompts, per-template usage counts, import/export.
+- **Task 34 follow-ups (assumptions made without the owner).**
+  - *Context files.* `projects.context_files` holds globs, one per line, relative to the
+    **primary repository** root (validated: no absolute paths or `..`, at most 20). Blank means
+    discovery: `CLAUDE.md`, else `AGENTS.md` (the first that exists, not both, so the same rules
+    are not sent twice). They are appended to every AGENT step prompt and every Ralph
+    iteration prompt as a "Project context files" section, under the same 20-file / 64 KiB
+    limits and path checks as `@mentions`, de-duplicated against files the step already named,
+    and listed in the recorded prompt's `context_files`. A coding agent that also reads
+    `CLAUDE.md` itself will see it twice; that is accepted as harmless.
+  - *Recorded prompts.* Project **Prompts** tab (`/prompts/projects/<id>`) lists the newest 100
+    (filter: pipeline steps / Ralph iterations) with links back to the execution or run;
+    `.../recorded/<id>` shows the full prompt, template, blocks, files and variables. Scoped by
+    joining to the step's execution / the iteration's run, so a prompt is only visible under its own project.
+  - *Overrides.* `project_prompt_overrides` (project, kind, target). A **template** override
+    replaces that template's body for the project (fragments, variables and inheritance still
+    apply; when a child inherits a base's body the override on the base counts too). A **block**
+    override replaces its wording and/or forces it on or off for the project; order stays global.
+    The global rows are never edited; "Remove override" returns to them. Overrides are
+    consulted by the pipeline engine, Ralph and the preview endpoint (`project_id`).
+  - *Usage counts.* Templates show how many recorded prompts used them; blocks how many
+    included them (by name, from `blocks_included`).
+  - *Import / export.* `GET /prompts/export` downloads one JSON file (`format:
+    agentflow-prompt-library`, `version: 1`; fragments, templates, blocks; references by name).
+    `POST /prompts/import` merges it: existing names are skipped unless "Replace items that
+    already exist" is ticked; templates are imported bases-first; a bad item (unknown base or
+    fragment, invalid content) is reported and skipped without aborting the rest. Project
+    overrides, context-file settings and recorded prompts are not exported.
 
 
 ## 9. Phase 2 real-browser verification (task 31)

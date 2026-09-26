@@ -401,6 +401,240 @@ def get_execution_prompt(db, prompt_id: int) -> ExecutionPrompt | None:
     return ExecutionPrompt(**d)
 
 
+# -- per-project overrides -----------------------------------------------------------------------
+
+
+def set_override(db, project_id: int, kind: str, target_id: int, content: str = "", enabled: bool | None = None) -> None:
+    """Override a template body (`kind='template'`, content required) or a Ralph block
+    (`kind='block'`: new content and/or on/off) for one project. The global row is untouched."""
+    content = (content or "").strip()
+    if kind == "template":
+        if get_template(db, target_id) is None:
+            raise LibraryError("Unknown template")
+        if not content:
+            raise LibraryError("An override needs a body; use Remove override to go back to the global text")
+        enabled = None
+    elif kind == "block":
+        if get_block(db, target_id) is None:
+            raise LibraryError("Unknown block")
+        if not content and enabled is None:
+            raise LibraryError("Change the text or switch the block on/off")
+    else:
+        raise LibraryError("Overrides apply to templates and blocks")
+    if len(content) > CONTENT_MAX:
+        raise LibraryError(f"Content is limited to {CONTENT_MAX} characters")
+    db.execute(
+        "INSERT INTO project_prompt_overrides (project_id, kind, target_id, content, enabled, updated_at) "
+        "VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(project_id, kind, target_id) DO UPDATE SET "
+        "content = excluded.content, enabled = excluded.enabled, updated_at = excluded.updated_at",
+        (project_id, kind, target_id, content, None if enabled is None else int(enabled), now()),
+    )
+    db.commit()
+
+
+def clear_override(db, project_id: int, kind: str, target_id: int) -> None:
+    db.execute(
+        "DELETE FROM project_prompt_overrides WHERE project_id = ? AND kind = ? AND target_id = ?",
+        (project_id, kind, target_id),
+    )
+    db.commit()
+
+
+def get_overrides(db, project_id: int, kind: str) -> dict[int, dict]:
+    return {
+        r["target_id"]: {"content": r["content"], "enabled": None if r["enabled"] is None else bool(r["enabled"])}
+        for r in db.execute(
+            "SELECT target_id, content, enabled FROM project_prompt_overrides WHERE project_id = ? AND kind = ?",
+            (project_id, kind),
+        )
+    }
+
+
+def effective_blocks(db, project_id: int | None = None) -> list[RalphInstructionBlock]:
+    """The global blocks with the project's overrides applied (same order)."""
+    blocks = list_blocks(db)
+    if project_id is None:
+        return blocks
+    over = get_overrides(db, project_id, "block")
+    for b in blocks:
+        o = over.get(b.id)
+        if o:
+            b.content = o["content"] or b.content
+            if o["enabled"] is not None:
+                b.enabled = o["enabled"]
+    return blocks
+
+
+# -- usage, recorded-prompt browsing, import / export ---------------------------------------------
+
+
+def template_usage(db) -> dict[int, int]:
+    """How many recorded prompts each template produced."""
+    return {r[0]: r[1] for r in db.execute(
+        "SELECT template_id, COUNT(*) FROM execution_prompts WHERE template_id IS NOT NULL GROUP BY template_id")}
+
+
+def block_usage(db) -> dict[str, int]:
+    """How many recorded prompts included each Ralph block (by name)."""
+    return {r[0]: r[1] for r in db.execute(
+        "SELECT j.value, COUNT(*) FROM execution_prompts ep, json_each(ep.blocks_included) j GROUP BY j.value")}
+
+
+_RECORDED = """
+SELECT ep.id, ep.source_type, ep.source_id, ep.template_name, ep.blocks_included, ep.context_files,
+       ep.redacted, ep.assembled_at, pe.id AS execution_id, se.element_name AS label,
+       NULL AS run_id, NULL AS iteration
+FROM execution_prompts ep
+JOIN step_executions se ON ep.source_type = 'pipeline_step' AND se.id = ep.source_id
+JOIN pipeline_executions pe ON pe.id = se.execution_id
+WHERE pe.project_id = :pid
+UNION ALL
+SELECT ep.id, ep.source_type, ep.source_id, ep.template_name, ep.blocks_included, ep.context_files,
+       ep.redacted, ep.assembled_at, NULL, rr.title, rr.id, ri.number
+FROM execution_prompts ep
+JOIN ralph_iterations ri ON ep.source_type = 'ralph_iteration' AND ri.id = ep.source_id
+JOIN ralph_runs rr ON rr.id = ri.run_id
+WHERE rr.project_id = :pid
+"""
+
+
+def list_recorded(db, project_id: int, source_type: str = "", limit: int = 100) -> list[dict]:
+    """Recorded prompts of a project, newest first, with where each one came from."""
+    rows = db.execute(
+        f"SELECT * FROM ({_RECORDED}) WHERE (:st = '' OR source_type = :st) "
+        "ORDER BY assembled_at DESC, id DESC LIMIT :limit",
+        {"pid": project_id, "st": source_type, "limit": limit},
+    ).fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["blocks_included"] = json.loads(d["blocks_included"])
+        d["context_files"] = json.loads(d["context_files"])
+        out.append(d)
+    return out
+
+
+def get_recorded_for_project(db, project_id: int, prompt_id: int) -> dict | None:
+    """One recorded prompt plus its origin, only if it belongs to the project."""
+    origin = next((r for r in list_recorded(db, project_id, limit=1_000_000) if r["id"] == prompt_id), None)
+    prompt = get_execution_prompt(db, prompt_id)
+    if origin is None or prompt is None:
+        return None
+    return {"prompt": prompt, "origin": origin}
+
+
+def export_library(db) -> dict:
+    """The global library as portable JSON (references by name, not id). Project
+    overrides and recorded prompts are not exported."""
+    names = {f.id: f.name for f in list_fragments(db)}
+    tmpl = {t.id: t.name for t in list_templates(db)}
+    return {
+        "format": "agentflow-prompt-library", "version": 1,
+        "fragments": [
+            {"name": f.name, "category": f.category, "content": f.content, "tags": f.tags}
+            for f in list_fragments(db)
+        ],
+        "templates": [
+            {
+                "name": t.name, "description": t.description, "body": t.body, "variables": t.variables,
+                "fragments": [names[i] for i in t.fragments if i in names],
+                "base": tmpl.get(t.base_template_id),
+            }
+            for t in list_templates(db)
+        ],
+        "blocks": [
+            {"name": b.name, "description": b.description, "content": b.content, "enabled": b.enabled,
+             "applies_to": b.applies_to}
+            for b in list_blocks(db)
+        ],
+    }
+
+
+def import_library(db, data: dict, overwrite: bool = False) -> dict:
+    """Merge an export into the library. Existing names are kept unless `overwrite`
+    (then their content is replaced). Returns counts and a list of per-item errors;
+    a bad item is reported and skipped, it does not abort the rest."""
+    if not isinstance(data, dict) or data.get("format") != "agentflow-prompt-library":
+        raise LibraryError("Not an AgentFlow prompt library export")
+    if data.get("version") != 1:
+        raise LibraryError(f"Unsupported export version {data.get('version')!r}")
+    result = {"created": 0, "updated": 0, "skipped": 0, "errors": []}
+
+    def each(key):
+        items = data.get(key) or []
+        if not isinstance(items, list):
+            raise LibraryError(f"'{key}' must be a list")
+        return [i for i in items if isinstance(i, dict)]
+
+    def attempt(label, fn):
+        try:
+            return fn()
+        except LibraryError as exc:
+            result["errors"].append(f"{label}: {exc}")
+
+    for item in each("fragments"):
+        name = str(item.get("name", "")).strip()
+        existing = get_fragment_by_name(db, name)
+        if existing is None:
+            if attempt(f"fragment {name!r}", lambda: create_fragment(
+                    db, name, item.get("content", ""), item.get("category", "instruction"), item.get("tags"))):
+                result["created"] += 1
+        elif overwrite:
+            if attempt(f"fragment {name!r}", lambda: update_fragment(
+                    db, existing.id, content=item.get("content"), category=item.get("category"), tags=item.get("tags"))):
+                result["updated"] += 1
+        else:
+            result["skipped"] += 1
+
+    pending = each("templates")
+    while pending:  # a base is imported (or already present) before what inherits from it
+        ready = [t for t in pending if not t.get("base") or get_template_by_name(db, t["base"]) is not None]
+        if not ready:
+            for t in pending:
+                result["errors"].append(f"template {t.get('name')!r}: base {t.get('base')!r} is not available")
+            break
+        pending = [t for t in pending if t not in ready]
+        for item in ready:
+            name = str(item.get("name", "")).strip()
+            frag_ids, missing = [], []
+            for fname in item.get("fragments") or []:
+                f = get_fragment_by_name(db, str(fname))
+                (frag_ids if f else missing).append(f.id if f else fname)
+            if missing:
+                result["errors"].append(f"template {name!r}: unknown fragment(s) {', '.join(map(str, missing))}")
+                continue
+            base = get_template_by_name(db, item["base"]).id if item.get("base") else None
+            fields = dict(body=item.get("body", ""), fragments=frag_ids, description=item.get("description", ""),
+                          variables=item.get("variables") if isinstance(item.get("variables"), dict) else {})
+            existing = get_template_by_name(db, name)
+            if existing is None:
+                if attempt(f"template {name!r}", lambda: create_template(db, name, base_template_id=base, **fields)):
+                    result["created"] += 1
+            elif overwrite:
+                if attempt(f"template {name!r}", lambda: update_template(db, existing.id, base_template_id=base, **fields)):
+                    result["updated"] += 1
+            else:
+                result["skipped"] += 1
+
+    for item in each("blocks"):
+        name = str(item.get("name", "")).strip()
+        existing = next((b for b in list_blocks(db) if b.name == name), None)
+        applies = item.get("applies_to")
+        if existing is None:
+            if attempt(f"block {name!r}", lambda: create_block(
+                    db, name, item.get("content", ""), item.get("description", ""),
+                    bool(item.get("enabled", True)), applies)):
+                result["created"] += 1
+        elif overwrite:
+            if attempt(f"block {name!r}", lambda: update_block(
+                    db, existing.id, content=item.get("content"), description=item.get("description"),
+                    enabled=bool(item.get("enabled", True)), applies_to=applies)):
+                result["updated"] += 1
+        else:
+            result["skipped"] += 1
+    return result
+
+
 # -- seeding (migration of the previously hard-coded prompts) ---------------------------------------
 
 

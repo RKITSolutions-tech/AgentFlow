@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% from "_project_tabs.html" import project_tabs %}
+{% block title %}Prompts - {{ project.name }} - AgentFlow{% endblock %}
+{% block content %}
+  {{ project_tabs(project, none, 'prompts') }}
+  <h1>Prompts</h1>
+  <p class="form-hint">Project-level prompt settings. The shared library is at <a href="{{ url_for('prompts.library') }}">Prompt library</a>.</p>
+
+  <h2>Context files</h2>
+  <p class="form-hint">Files from the primary repository added to every AGENT step and Ralph iteration prompt. One pattern per line, relative to the repository root. Leave blank to use <code>CLAUDE.md</code>, else <code>AGENTS.md</code>, when present.</p>
+  <form method="post" action="{{ url_for('prompts.set_context_files', project_id=project.id) }}" class="stacked" data-ajax-form>
+    <label>Context file patterns <textarea name="context_files" rows="3" placeholder="CLAUDE.md&#10;docs/*.md">{{ project.context_files }}</textarea></label>
+    <button type="submit" class="btn-primary">Save</button>
+  </form>
+  <p class="form-hint" data-context-summary>
+    {% if context_files %}{{ 'Discovered' if discovered else 'Resolved' }} now: {{ context_files|join(', ') }}.{% else %}No context file resolves right now.{% endif %}
+    {% for s in context_skipped %}<br>Skipped: {{ s }}{% endfor %}
+  </p>
+
+  <h2>Template overrides</h2>
+  <p class="form-hint">Replace a template's body for this project only; fragments and inheritance still apply.</p>
+  {% for t in templates %}
+    {% set o = template_overrides.get(t.id) %}
+    <details class="prompt-override"{% if o %} open{% endif %}>
+      <summary>{{ t.name }}{% if o %} <span class="form-hint">(overridden)</span>{% endif %}</summary>
+      <form method="post" action="{{ url_for('prompts.set_override', project_id=project.id, kind='template', target_id=t.id) }}" class="stacked" data-ajax-form>
+        <label>Body for this project <textarea name="content" rows="4" required>{{ o.content if o else t.body }}</textarea></label>
+        <div class="row-actions">
+          <button type="submit" class="btn-primary">Save override</button>
+          {% if o %}<button type="button" class="link-danger" data-ajax-action="{{ url_for('prompts.clear_override', project_id=project.id, kind='template', target_id=t.id) }}" data-confirm="Remove the override for {{ t.name }}?">Remove override</button>{% endif %}
+        </div>
+      </form>
+    </details>
+  {% else %}
+    <p class="form-hint">No templates.</p>
+  {% endfor %}
+
+  <h2>Ralph block overrides</h2>
+  <p class="form-hint">Change the wording, or switch a block on or off, for this project only.</p>
+  {% for b in blocks %}
+    {% set o = block_overrides.get(b.id) %}
+    <details class="prompt-override"{% if o %} open{% endif %}>
+      <summary>{{ b.name }}{% if o %} <span class="form-hint">(overridden{% if o.enabled is not none %}, {{ 'on' if o.enabled else 'off' }}{% endif %})</span>{% endif %}</summary>
+      <form method="post" action="{{ url_for('prompts.set_override', project_id=project.id, kind='block', target_id=b.id) }}" class="stacked" data-ajax-form>
+        <label>Instruction <textarea name="content" rows="2">{{ o.content if o and o.content else b.content }}</textarea></label>
+        <label>State for this project
+          <select name="enabled">
+            <option value=""{% if not o or o.enabled is none %} selected{% endif %}>Same as global ({{ 'on' if b.enabled else 'off' }})</option>
+            <option value="1"{% if o and o.enabled is true %} selected{% endif %}>On</option>
+            <option value="0"{% if o and o.enabled is false %} selected{% endif %}>Off</option>
+          </select>
+        </label>
+        <div class="row-actions">
+          <button type="submit" class="btn-primary">Save override</button>
+          {% if o %}<button type="button" class="link-danger" data-ajax-action="{{ url_for('prompts.clear_override', project_id=project.id, kind='block', target_id=b.id) }}" data-confirm="Remove the override for {{ b.name }}?">Remove override</button>{% endif %}
+        </div>
+      </form>
+    </details>
+  {% else %}
+    <p class="form-hint">No blocks.</p>
+  {% endfor %}
+
+  <h2>Recorded prompts</h2>
+  <p class="form-hint">The exact prompt each AGENT step and Ralph iteration sent (newest 100).
+    Show: <a href="{{ url_for('prompts.project_prompts', project_id=project.id) }}">all</a> &middot;
+    <a href="{{ url_for('prompts.project_prompts', project_id=project.id, source='pipeline_step') }}">pipeline steps</a> &middot;
+    <a href="{{ url_for('prompts.project_prompts', project_id=project.id, source='ralph_iteration') }}">Ralph iterations</a></p>
+  <table class="table-compact">
+    <thead><tr><th>When</th><th>From</th><th>Template</th><th>Blocks</th><th></th></tr></thead>
+    <tbody>
+      {% for r in recorded %}
+        <tr>
+          <td>{{ r.assembled_at }}</td>
+          <td class="wrap-cell">
+            {% if r.source_type == 'ralph_iteration' %}<a href="{{ url_for('ralph.view_run', project_id=project.id, run_id=r.run_id) }}">Ralph #{{ r.run_id }} iteration {{ r.iteration }}</a>
+            {% else %}<a href="{{ url_for('pipelines.view_execution', project_id=project.id, execution_id=r.execution_id) }}">Execution #{{ r.execution_id }} &middot; {{ r.label }}</a>{% endif %}
+          </td>
+          <td class="wrap-cell">{{ r.template_name or '—' }}</td>
+          <td class="wrap-cell">{{ r.blocks_included|join(', ') or '—' }}</td>
+          <td class="row-actions"><a href="{{ url_for('prompts.recorded_prompt', project_id=project.id, prompt_id=r.id) }}">View</a></td>
+        </tr>
+      {% else %}
+        <tr><td colspan="5">Nothing recorded yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}

@@ -1,7 +1,9 @@
 """Prompt library UI (fragments, templates, Ralph instruction blocks)."""
 from __future__ import annotations
 
-from flask import Blueprint, abort, current_app, flash, redirect, render_template, request, url_for
+import json
+
+from flask import Blueprint, Response, abort, current_app, flash, redirect, render_template, request, url_for
 
 from app.db import get_db
 from app.projects import models as project_models
@@ -37,7 +39,7 @@ def library():
     db = get_db()
     return render_template(
         "prompts/library.html", fragments=models.list_fragments(db), templates=models.list_templates(db),
-        categories=models.CATEGORIES,
+        categories=models.CATEGORIES, usage=models.template_usage(db),
     )
 
 
@@ -177,11 +179,15 @@ def preview():
                     raise LibraryError(f"Fragment {fid} does not exist")
         blocks_text, blocks = "", []
         if request.form.get("include_ralph") == "on":
-            blocks_text, blocks = assembler.include_ralph_instructions(models.list_blocks(db), request.form.get("agent_type") or None)
+            blocks_text, blocks = assembler.include_ralph_instructions(
+                models.effective_blocks(db, int(project_id) if project_id.isdigit() else None),
+                request.form.get("agent_type") or None,
+            )
         result = assembler.assemble_effective_prompt(
             db, template=template, text=request.form.get("text", ""), variables=variables, root=root,
             allowed_roots=tuple(current_app.config["ALLOWED_PROJECT_ROOTS"]),
             context_globs=[l for l in request.form.get("context_files", "").splitlines() if l.strip()],
+            project_id=int(project_id) if project_id.isdigit() and project_models.get_project(db, int(project_id)) else None,
         )
     except LibraryError as exc:
         return {"error": str(exc)}, 400
@@ -193,7 +199,8 @@ def preview():
 
 @bp.get("/ralph-blocks")
 def ralph_blocks():
-    return render_template("prompts/ralph_blocks.html", blocks=models.list_blocks(get_db()))
+    db = get_db()
+    return render_template("prompts/ralph_blocks.html", blocks=models.list_blocks(db), usage=models.block_usage(db))
 
 
 @bp.post("/ralph-blocks")
@@ -237,3 +244,97 @@ def delete_block(block_id: int):
         abort(404)
     models.delete_block(get_db(), block_id)
     return _reply("Block deleted", True, url_for("prompts.ralph_blocks"))
+
+
+# -- import / export ------------------------------------------------------------------------------
+
+
+@bp.get("/export")
+def export_library():
+    body = json.dumps(models.export_library(get_db()), indent=2)
+    return Response(body, mimetype="application/json", headers={"Content-Disposition": "attachment; filename=prompt-library.json"})
+
+
+@bp.post("/import")
+def import_library():
+    """Merge an export (uploaded `file` or pasted `json`); `overwrite=on` replaces
+    the content of names that already exist."""
+    upload = request.files.get("file")
+    raw = upload.read(2_000_000).decode("utf-8", "replace") if upload and upload.filename else request.form.get("json", "")
+    try:
+        data = json.loads(raw)
+        result = models.import_library(get_db(), data, overwrite=request.form.get("overwrite") == "on")
+    except (json.JSONDecodeError, LibraryError) as exc:
+        return _reply(f"Import failed: {exc}", False, _library())
+    message = f"Imported: {result['created']} created, {result['updated']} updated, {result['skipped']} skipped"
+    if result["errors"]:
+        message += f"; {len(result['errors'])} problem(s): " + "; ".join(result["errors"][:5])
+    return _reply(message, not result["errors"] or bool(result["created"] or result["updated"]), _library(), result=result)
+
+
+# -- per-project prompt settings (context files, overrides, recorded prompts) ----------------------------
+
+
+def _project(project_id: int):
+    project = project_models.get_project(get_db(), project_id)
+    if project is None:
+        abort(404)
+    return project
+
+
+def _project_page(project_id: int) -> str:
+    return url_for("prompts.project_prompts", project_id=project_id)
+
+
+@bp.get("/projects/<int:project_id>")
+def project_prompts(project_id: int):
+    project = _project(project_id)
+    db = get_db()
+    source = request.args.get("source", "")
+    root, files, skipped = assembler.project_context(db, project_id, tuple(current_app.config["ALLOWED_PROJECT_ROOTS"]))
+    return render_template(
+        "prompts/project.html", project=project, templates=models.list_templates(db),
+        blocks=models.list_blocks(db), template_overrides=models.get_overrides(db, project_id, "template"),
+        block_overrides=models.get_overrides(db, project_id, "block"),
+        context_files=files, context_skipped=skipped,
+        discovered=not [l for l in project.context_files.splitlines() if l.strip()],
+        recorded=models.list_recorded(db, project_id, source if source in ("pipeline_step", "ralph_iteration") else ""),
+        source=source,
+    )
+
+
+@bp.post("/projects/<int:project_id>/context")
+def set_context_files(project_id: int):
+    _project(project_id)
+    try:
+        project_models.set_context_files(get_db(), project_id, request.form.get("context_files", ""))
+    except ValueError as exc:
+        return _reply(str(exc), False, _project_page(project_id))
+    return _reply("Context files saved", True, _project_page(project_id))
+
+
+@bp.post("/projects/<int:project_id>/overrides/<kind>/<int:target_id>")
+def set_override(project_id: int, kind: str, target_id: int):
+    _project(project_id)
+    enabled = {"1": True, "0": False}.get(request.form.get("enabled", ""))
+    try:
+        models.set_override(get_db(), project_id, kind, target_id, request.form.get("content", ""), enabled)
+    except LibraryError as exc:
+        return _reply(str(exc), False, _project_page(project_id))
+    return _reply("Override saved", True, _project_page(project_id))
+
+
+@bp.route("/projects/<int:project_id>/overrides/<kind>/<int:target_id>/delete", methods=["POST", "DELETE"])
+def clear_override(project_id: int, kind: str, target_id: int):
+    _project(project_id)
+    models.clear_override(get_db(), project_id, kind, target_id)
+    return _reply("Override removed", True, _project_page(project_id))
+
+
+@bp.get("/projects/<int:project_id>/recorded/<int:prompt_id>")
+def recorded_prompt(project_id: int, prompt_id: int):
+    project = _project(project_id)
+    found = models.get_recorded_for_project(get_db(), project_id, prompt_id)
+    if found is None:
+        abort(404)
+    return render_template("prompts/recorded.html", project=project, **found)

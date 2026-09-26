@@ -113,6 +113,7 @@ def _pages(w):
         "prompt library": "/prompts/library",
         "prompt blocks": "/prompts/ralph-blocks",
         "prompt template": "/prompts/templates",
+        "project prompts": f"/prompts/projects/{w.pid}",
     }
     if w.artifact:
         pages["artifact"] = f"{p}/artifacts/{w.artifact}"

@@ -30,6 +30,7 @@ class Project:
     status: str
     repositories: list[Repository]
     starred: bool = False
+    context_files: str = ""  # newline-separated globs; blank = discover CLAUDE.md / AGENTS.md
 
     @property
     def archived(self) -> bool:
@@ -121,6 +122,21 @@ def set_starred(db: sqlite3.Connection, project_id: int, starred: bool) -> None:
     db.commit()
 
 
+def set_context_files(db: sqlite3.Connection, project_id: int, text: str) -> str:
+    """Store the project's prompt context-file globs (one per line, relative to the
+    primary repository). Blank turns on CLAUDE.md / AGENTS.md discovery."""
+    lines = [l.strip() for l in (text or "").splitlines() if l.strip()]
+    if len(lines) > 20 or any(len(l) > 200 for l in lines):
+        raise ValueError("Use at most 20 patterns of 200 characters")
+    bad = [l for l in lines if l.startswith(("/", "\\")) or ".." in l.replace("\\", "/").split("/")]
+    if bad:
+        raise ValueError("Patterns must be relative to the repository: " + ", ".join(bad))
+    value = "\n".join(lines)
+    db.execute("UPDATE projects SET context_files = ?, updated_at = datetime('now') WHERE id = ?", (value, project_id))
+    db.commit()
+    return value
+
+
 def set_archived(db: sqlite3.Connection, project_id: int, archived: bool) -> None:
     db.execute(
         "UPDATE projects SET status = ?, updated_at = datetime('now') WHERE id = ?",
@@ -210,4 +226,5 @@ def _hydrate_project(db: sqlite3.Connection, row: sqlite3.Row) -> Project:
         status=row["status"],
         repositories=repositories,
         starred=bool(row["starred"]),
+        context_files=row["context_files"],
     )

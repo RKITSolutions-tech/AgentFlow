@@ -168,6 +168,7 @@ class RalphOrchestrator:
         iteration_id = models.add_iteration(db, run.id, number, clean_prompt, redacted)
         models.update_iteration(db, iteration_id, execution_prompt_id=prompt_models.record_prompt(
             db, "ralph_iteration", iteration_id, clean_prompt, blocks_included=self._blocks_used,
+            context_files=self._context_used,
             variables_used={"run": run.id, "iteration": number}, redacted=redacted,
         ))
         models.update_run(db, run.id, current_iteration=number)
@@ -233,11 +234,11 @@ class RalphOrchestrator:
             self._agent_type_cache = name.replace("AgentAdapter", "").replace("Adapter", "").lower()
         return self._agent_type_cache
 
-    def _instructions(self) -> tuple[str, list[str]]:
+    def _instructions(self, project_id: int | None = None) -> tuple[str, list[str]]:
         """Enabled library blocks, in order. A library that was never seeded (no
         blocks at all) falls back to the shipped defaults; a library where every
         block is disabled really does send none."""
-        blocks = prompt_models.list_blocks(self._db)
+        blocks = prompt_models.effective_blocks(self._db, project_id)
         if not blocks:
             return "Instructions:\n" + "\n".join(f"- {i}" for i in STANDARD_INSTRUCTIONS), [n for n, _ in DEFAULT_INSTRUCTIONS]
         return assembler.include_ralph_instructions(blocks, self._agent_type())
@@ -246,7 +247,10 @@ class RalphOrchestrator:
         parts = [f"Task: {run.title}", run.task_text.strip()]
         if run.acceptance:
             parts.append("Acceptance criteria:\n" + "\n".join(f"- {c}" for c in run.acceptance))
-        instructions, self._blocks_used = self._instructions()
+        context_root, self._context_used, _ = assembler.project_context(self._db, run.project_id)
+        if self._context_used:
+            parts.append(assembler.context_section(context_root, self._context_used))
+        instructions, self._blocks_used = self._instructions(run.project_id)
         parts.append(instructions)
         if steering:
             parts.append("Steering from the user (follow these):\n" + "\n".join(f"- {s.message}" for s in steering))

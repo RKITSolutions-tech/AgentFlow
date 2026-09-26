@@ -696,7 +696,7 @@ class PipelineEngine:
                     raise ValueError(f"Unknown prompt template {name!r}")
         return assembler.assemble_effective_prompt(
             self._db, template=template, text=text, root=self._workdir(ex),
-            context_globs=list(config.get("context_files") or []),
+            context_globs=list(config.get("context_files") or []), project_id=ex.project_id,
             resolver=lambda ref: self._resolve(ex, ref),
         )
 

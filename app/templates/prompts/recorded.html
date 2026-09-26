@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% from "_project_tabs.html" import project_tabs %}
+{% block title %}Recorded prompt #{{ prompt.id }} - AgentFlow{% endblock %}
+{% block content %}
+  {{ project_tabs(project, none, 'prompts') }}
+  <p><a href="{{ url_for('prompts.project_prompts', project_id=project.id) }}">&larr; Prompts</a></p>
+  <h1>Recorded prompt #{{ prompt.id }}</h1>
+  <dl class="run-meta">
+    <dt>From</dt>
+    <dd>{% if origin.source_type == 'ralph_iteration' %}<a href="{{ url_for('ralph.view_run', project_id=project.id, run_id=origin.run_id) }}">Ralph run #{{ origin.run_id }}, iteration {{ origin.iteration }}</a>
+      {% else %}<a href="{{ url_for('pipelines.view_execution', project_id=project.id, execution_id=origin.execution_id) }}">Execution #{{ origin.execution_id }}, step {{ origin.label }}</a>{% endif %}</dd>
+    <dt>Assembled</dt><dd>{{ prompt.assembled_at }}{% if prompt.redacted %} (secrets redacted){% endif %}</dd>
+    <dt>Template</dt>
+    <dd>{% if prompt.template_id %}<a href="{{ url_for('prompts.edit_template', template_id=prompt.template_id) }}">{{ prompt.template_name }}</a>{% else %}{{ prompt.template_name or 'none (literal prompt)' }}{% endif %}</dd>
+    <dt>Blocks</dt><dd class="wrap-cell">{{ prompt.blocks_included|join(', ') or 'none' }}</dd>
+    <dt>Context files</dt><dd class="wrap-cell">{{ prompt.context_files|join(', ') or 'none' }}</dd>
+    <dt>Variables</dt><dd class="wrap-cell">{% for k, v in prompt.variables_used.items() %}{{ k }}={{ v }}{% if not loop.last %}, {% endif %}{% else %}none{% endfor %}</dd>
+  </dl>
+  <pre class="run-log">{{ prompt.effective_prompt }}</pre>
+{% endblock %}

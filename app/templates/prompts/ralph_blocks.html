@@ -12,7 +12,7 @@
           <button type="submit" role="switch" aria-checked="{{ 'true' if b.enabled else 'false' }}">{{ 'On' if b.enabled else 'Off' }}</button>
         </form>
         <div class="block-text">
-          <strong>{{ b.name }}</strong> <span class="form-hint">v{{ b.version }}{% if b.applies_to %} &middot; only {{ b.applies_to|join(', ') }}{% endif %}</span>
+          <strong>{{ b.name }}</strong> <span class="form-hint">v{{ b.version }} &middot; used {{ usage.get(b.name, 0) }}&times;{% if b.applies_to %} &middot; only {{ b.applies_to|join(', ') }}{% endif %}</span>
           <p class="wrap-cell{% if not b.enabled %} block-off{% endif %}">{{ b.content }}</p>
         </div>
         <div class="row-actions">

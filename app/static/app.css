@@ -948,3 +948,9 @@ fieldset { min-width: 0; }
   main .row-actions a, main .btn-primary { display: inline-flex; align-items: center; }
 }
 .queue-waiting { display: block; }
+
+/* Collapsible override editors (project prompts page) */
+.prompt-override > summary { cursor: pointer; padding: 0.5rem 0; }
+@media (max-width: 860px), (pointer: coarse) {
+  .prompt-override > summary { display: flex; align-items: center; min-height: var(--tap); }
+}

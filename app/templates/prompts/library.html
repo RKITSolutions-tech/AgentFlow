@@ -5,20 +5,30 @@
   <p class="form-hint">Fragments and templates build the prompts AGENT steps send; Ralph's standing instructions are
     <a href="{{ url_for('prompts.ralph_blocks') }}">blocks you can switch on and off</a>.</p>
 
+  <h2>Import / export</h2>
+  <p class="form-hint">Templates, fragments and Ralph blocks travel as one JSON file (references by name). Project overrides are not included.</p>
+  <p><a class="btn-primary" href="{{ url_for('prompts.export_library') }}">Export library</a></p>
+  <form method="post" action="{{ url_for('prompts.import_library') }}" class="stacked" enctype="multipart/form-data" data-ajax-form>
+    <label>Import file <input type="file" name="file" accept="application/json,.json"></label>
+    <label class="backlog-select"><input type="checkbox" name="overwrite"> Replace items that already exist</label>
+    <button type="submit">Import</button>
+  </form>
+
   <h2>Templates</h2>
   <p><a class="btn-primary" href="{{ url_for('prompts.templates') }}">New template</a></p>
   <table class="table-compact">
-    <thead><tr><th>Name</th><th>Description</th><th>Fragments</th><th></th></tr></thead>
+    <thead><tr><th>Name</th><th>Description</th><th>Fragments</th><th>Used</th><th></th></tr></thead>
     <tbody>
       {% for t in templates %}
         <tr data-row>
           <td class="wrap-cell"><a href="{{ url_for('prompts.edit_template', template_id=t.id) }}">{{ t.name }}</a></td>
           <td class="wrap-cell">{{ t.description }}</td>
           <td>{{ t.fragments|length }}</td>
+          <td>{{ usage.get(t.id, 0) }}</td>
           <td class="row-actions"><button type="button" class="link-danger" data-ajax-action="{{ url_for('prompts.delete_template', template_id=t.id) }}" data-confirm="Delete template {{ t.name }}?">Delete</button></td>
         </tr>
       {% else %}
-        <tr><td colspan="4">No templates.</td></tr>
+        <tr><td colspan="5">No templates.</td></tr>
       {% endfor %}
     </tbody>
   </table>

@@ -1075,12 +1075,13 @@
         "description": "Items deferred from task 30 (PHASE2_PLANNING §8).",
         "details": "1) Project setting naming context-file paths with CLAUDE.md then AGENTS.md discovery at the primary repository root, injected into assembled prompts. 2) A page listing and viewing execution_prompts per step/iteration, with template and blocks used. 3) Per-project overrides of templates and Ralph blocks, plus usage counts and import/export. Tests for each; keep mobile and desktop layouts.",
         "testStrategy": "",
-        "status": "pending",
+        "status": "done",
         "dependencies": [
           "31"
         ],
         "priority": "low",
-        "subtasks": []
+        "subtasks": [],
+        "updatedAt": "2026-09-26T16:42:48.035Z"
       },
       {
         "id": "35",
@@ -1111,9 +1112,9 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-09-26T16:31:29.974Z",
+      "lastModified": "2026-09-26T16:42:48.035Z",
       "taskCount": 36,
-      "completedCount": 33,
+      "completedCount": 34,
       "tags": [
         "master"
       ]

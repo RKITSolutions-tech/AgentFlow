@@ -434,6 +434,18 @@ CREATE TABLE IF NOT EXISTS execution_prompts (
     assembled_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_execution_prompts_source ON execution_prompts(source_type, source_id);
+-- Per-project overrides of a library template body or a Ralph block (content and/or
+-- on/off). No override row = the global text applies.
+CREATE TABLE IF NOT EXISTS project_prompt_overrides (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL CHECK(kind IN ('template', 'block')),
+    target_id INTEGER NOT NULL,
+    content TEXT NOT NULL DEFAULT '',
+    enabled INTEGER,
+    updated_at TEXT NOT NULL,
+    UNIQUE(project_id, kind, target_id)
+);
 
 CREATE TABLE IF NOT EXISTS pipelines (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -706,6 +718,7 @@ def _seed_model_catalog(db: sqlite3.Connection) -> None:
 # an existing table untouched, so databases created earlier get them here.
 _ADDED_COLUMNS = (
     ("projects", "starred", "INTEGER NOT NULL DEFAULT 0"),
+    ("projects", "context_files", "TEXT NOT NULL DEFAULT ''"),
     ("ralph_runs", "awaiting_acceptance", "INTEGER NOT NULL DEFAULT 0"),
     ("step_executions", "execution_prompt_id", "INTEGER"),
     ("ralph_iterations", "execution_prompt_id", "INTEGER"),

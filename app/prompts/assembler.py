@@ -16,10 +16,12 @@ import re
 from dataclasses import dataclass, field
 from typing import Callable
 
+from app.projects import models as project_models
 from app.prompts import models
 from app.prompts.models import LibraryError
 
 MAX_CONTEXT_FILES = 20
+DISCOVERED_CONTEXT_FILES = ("CLAUDE.md", "AGENTS.md")
 MAX_FILE_BYTES = 64 * 1024
 _VARIABLE = re.compile(r"\$\{([^}]+)\}")
 # `@src/app.py` but not `user@example.com` (a word character before the @).
@@ -59,15 +61,17 @@ def template_chain(db, template: models.PromptTemplate) -> list[models.PromptTem
     return list(reversed(chain))
 
 
-def flatten_template(db, template: models.PromptTemplate) -> tuple[str, list[models.PromptFragment]]:
+def flatten_template(db, template: models.PromptTemplate, project_id: int | None = None) -> tuple[str, list[models.PromptFragment]]:
     """Inheritance: the most-derived non-empty body wins; fragments accumulate
     base-first. Fragment names are unique, so "same name" means the same
     fragment: one already contributed by a base keeps its base position and is
     not repeated; anything new is appended."""
     body, ordered = "", []
+    overrides = models.get_overrides(db, project_id, "template") if project_id else {}
     for t in template_chain(db, template):
-        if t.body.strip():
-            body = t.body
+        text = overrides.get(t.id, {}).get("content") or t.body  # a project's own body wins
+        if text.strip():
+            body = text
         for fid in t.fragments:
             fragment = models.get_fragment(db, fid)
             if fragment is None:
@@ -148,6 +152,28 @@ def _file_block(root: str, rel: str) -> str:
     return f"File: {rel}{' (truncated)' if truncated else ''}\n```\n{text.rstrip()}\n```"
 
 
+def project_context(db, project_id: int, allowed_roots: tuple[str, ...] = ()) -> tuple[str | None, list[str], list[str]]:
+    """(root, files, skipped) for the project's context files, resolved at its primary
+    repository root. The `context_files` setting (one glob per line) wins; blank means
+    discovery: `CLAUDE.md`, else `AGENTS.md`, if present."""
+    project = project_models.get_project(db, project_id)
+    repo = None
+    if project is not None:
+        repo = next((r for r in project.repositories if r.is_primary), None) or (
+            project.repositories[0] if project.repositories else None)
+    if repo is None or not os.path.isdir(repo.path):
+        return None, [], []
+    globs = [g.strip() for g in project.context_files.splitlines() if g.strip()]
+    if not globs:
+        globs = next(([n] for n in DISCOVERED_CONTEXT_FILES if os.path.isfile(os.path.join(repo.path, n))), [])
+    files, skipped = resolve_context_files(globs, repo.path, allowed_roots) if globs else ([], [])
+    return repo.path, files, skipped
+
+
+def context_section(root: str, files: list[str], heading: str = "Project context files") -> str:
+    return f"{heading}:\n\n" + "\n\n".join(_file_block(root, rel) for rel in files) if files else ""
+
+
 def include_ralph_instructions(blocks: list[models.RalphInstructionBlock], agent_type: str | None = None) -> tuple[str, list[str]]:
     """Enabled blocks in position order, restricted to `applies_to` when a block
     names agent types (empty = every agent)."""
@@ -163,6 +189,7 @@ def assemble_effective_prompt(
     db, template: models.PromptTemplate | str | int | None = None, text: str = "",
     variables: dict | None = None, root: str | None = None, allowed_roots: tuple[str, ...] = (),
     context_globs: list[str] | None = None, resolver: Callable[[str], str] | None = None,
+    project_id: int | None = None,
 ) -> Assembled:
     """Build the prompt. `template` may be a row, an id or a name; `text` is a
     literal prompt used when there is no template (or appended to one)."""
@@ -173,7 +200,7 @@ def assemble_effective_prompt(
         template = found
     parts, fragments = [], []
     if template is not None:
-        body, fragments = flatten_template(db, template)
+        body, fragments = flatten_template(db, template, project_id)
         if body.strip():
             parts.append(body.strip())
         parts.extend(f.content.strip() for f in fragments)
@@ -199,6 +226,14 @@ def assemble_effective_prompt(
         files = files[:MAX_CONTEXT_FILES]
         if files:
             merged += "\n\nContext files:\n\n" + "\n\n".join(_file_block(root, rel) for rel in files)
+    if project_id is not None:
+        proot, pfiles, pskipped = project_context(db, project_id, allowed_roots)
+        already = {os.path.realpath(os.path.join(root, f)) for f in files} if root else set()
+        pfiles = [f for f in pfiles if os.path.realpath(os.path.join(proot, f)) not in already]
+        if pfiles:
+            merged += "\n\n" + context_section(proot, pfiles)
+        files = files + [f for f in pfiles if f not in files]
+        skipped = skipped + pskipped
     return Assembled(
         text=merged, template_id=template.id if template else None, template_name=template.name if template else "",
         resolved_files=files, fragments_included=[f.name for f in fragments],
