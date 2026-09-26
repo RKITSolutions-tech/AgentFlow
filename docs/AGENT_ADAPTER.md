@@ -474,3 +474,27 @@ Decided in discussion; not yet built. A `RESEARCH` role is added to the session 
 - **Limits.** Time and cost limits, like Ralph's iteration and runtime limits.
 - **Locking.** Research holds no exclusive project lock (RUN_AND_RALPH §22), so it can run alongside other work.
 - **Advisory output.** A person accepts findings before they change a plan or acceptance criteria.
+
+### 23.1 Knowledge base indexing (wiki-style; proposed)
+
+The shared knowledge base must be quick to search and easy to browse, for agents and for people. Assumptions:
+
+- **Wiki pages.** Every entry has a stable `slug`, a title, aliases (`py`, `python3`), tags, a one-paragraph
+  `summary` written for scanning, and a body. Entries link to each other with `[[slug]]`; links are parsed on save
+  into a link table, giving backlinks and a "related" list. Renames keep the old slug as an alias.
+- **Progressive disclosure.** An agent should not load whole pages to find one. It reads in three steps, cheapest
+  first: (1) the *index*, a compact generated table of contents by topic, language and library (one line per
+  entry: slug, title, summary); (2) the entry's summary and headings; (3) the full body or a single section.
+- **Search.** SQLite full-text search (FTS5) over title, aliases, tags, summary and body, ranked, with filters
+  for kind (`note` / `web_cache`), language, library, version, confidence, freshness and scope. Results return slug,
+  title, summary and snippet, never whole bodies. Exact slug and alias hits rank first.
+- **One interface for agents.** `search(query, filters)`, `get(slug, section?)`, `list_topics()`, `related(slug)`
+  and `propose(note)`. Exposed to the CLI agents as a skill-style bundle (a generated `SKILL.md` describing the
+  commands plus the current index file) and, where an adapter supports it, as tools. Reads are logged so use counts
+  and "what was consulted" appear in the report; unused, stale or duplicate entries surface for tidy-up.
+- **Freshness in the index.** Each index line and result shows fetched-at / reviewed-at and expired or stale
+  marks, so an agent can tell a current fact from an old one before relying on it.
+- **Scope-aware.** The index and search only return `global` entries and those of the current project
+  (see sharing rules above).
+- **For people.** The same index is browsable in the UI as a wiki: topic tree, page view with backlinks, search box,
+  recent and most-used lists, and a "needs review / stale" queue.
