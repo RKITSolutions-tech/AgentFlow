@@ -336,6 +336,9 @@ CREATE TABLE IF NOT EXISTS planned_work_items (
     acceptance TEXT NOT NULL DEFAULT '[]',
     estimate TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT 'SUGGESTED' CHECK(status IN ('SUGGESTED', 'REVIEWED', 'APPROVED', 'REJECTED')),
+    task_state TEXT NOT NULL DEFAULT 'DRAFT',
+    released_at TEXT,
+    verification_pipeline TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -633,6 +636,9 @@ def _seed_model_catalog(db: sqlite3.Connection) -> None:
 _ADDED_COLUMNS = (
     ("projects", "starred", "INTEGER NOT NULL DEFAULT 0"),
     ("ralph_runs", "awaiting_acceptance", "INTEGER NOT NULL DEFAULT 0"),
+    ("planned_work_items", "task_state", "TEXT NOT NULL DEFAULT 'DRAFT'"),
+    ("planned_work_items", "released_at", "TEXT"),
+    ("planned_work_items", "verification_pipeline", "TEXT NOT NULL DEFAULT ''"),
 )
 
 

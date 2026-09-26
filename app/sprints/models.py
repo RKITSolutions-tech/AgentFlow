@@ -37,6 +37,29 @@ SPRINT_TRANSITIONS: dict[str, tuple[str, ...]] = {
 }
 
 
+# Canonical Task states (§27). `PlannedWorkItem.status` is the *proposal*
+# state; `task_state` is where the approved Task is in the execution queue.
+TASK_STATES = (
+    "DRAFT", "READY_FOR_REVIEW", "READY", "RELEASED", "IN_PROGRESS",
+    "BLOCKED", "FAILED", "COMPLETE", "CANCELLED",
+)
+TASK_TRANSITIONS: dict[str, tuple[str, ...]] = {
+    "DRAFT": ("READY_FOR_REVIEW", "READY", "CANCELLED"),
+    "READY_FOR_REVIEW": ("DRAFT", "READY", "CANCELLED"),
+    "READY": ("DRAFT", "RELEASED", "CANCELLED"),
+    "RELEASED": ("READY", "IN_PROGRESS", "CANCELLED"),
+    "IN_PROGRESS": ("COMPLETE", "BLOCKED", "FAILED", "RELEASED", "CANCELLED"),
+    "BLOCKED": ("RELEASED", "IN_PROGRESS", "FAILED", "CANCELLED"),
+    "FAILED": ("RELEASED", "CANCELLED"),
+    "COMPLETE": (),
+    "CANCELLED": (),
+}
+
+
+class InvalidTaskTransitionError(ValueError):
+    """Raised when a Task state change is not permitted by TASK_TRANSITIONS."""
+
+
 class InvalidSprintTransitionError(ValueError):
     """Raised when a Sprint status change is not permitted by SPRINT_TRANSITIONS."""
 
@@ -84,6 +107,9 @@ class PlannedWorkItem:
     acceptance: list[str]
     estimate: str
     status: str
+    task_state: str = "DRAFT"
+    released_at: str | None = None
+    verification_pipeline: str = ""
     depends_on: list[int] = field(default_factory=list)
     backlog_item_ids: list[int] = field(default_factory=list)
     created_at: str = ""

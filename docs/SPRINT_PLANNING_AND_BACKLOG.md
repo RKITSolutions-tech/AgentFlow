@@ -1103,3 +1103,43 @@ These were made without the owner in the loop while building Phase 2 (tasks
   exactly as before.
 - Routes are project-scoped (`/projects/<id>/acceptance/...`) rather than
   `/tasks/<id>/criteria`; the list takes `?work_item=` and `?run=` filters.
+
+### Sprint execution queue (task 27)
+
+- **The Task is the planned work item.** There is no separate `tasks` table:
+  `planned_work_items` gained `task_state` (the §27 canonical states, default
+  `DRAFT`), `released_at` and `verification_pipeline`. `ralph_runs.work_item_id`
+  *is* the task FK the design calls `task_id`; it was not renamed. A "SprintBacklogLink"
+  is not extended either, because state belongs to the Task, not the backlog link.
+- `app/sprints/models.py` holds `TASK_STATES` and `TASK_TRANSITIONS`; `queue.set_state`
+  is the only writer and rejects other moves (`InvalidTaskTransitionError`).
+
+```text
+DRAFT/READY_FOR_REVIEW -> READY -> RELEASED -> IN_PROGRESS -> COMPLETE
+                                      ^            |-> BLOCKED -> RELEASED | IN_PROGRESS
+                                      |            |-> FAILED  -> RELEASED
+                                      +------------+ (run cancelled)
+```
+
+- **Approval makes tasks READY; revoke returns them to DRAFT.** Release is manual:
+  "Release all ready tasks" (`POST .../release`) or one task at a time
+  (`.../tasks/<id>/release`); releasing moves the Sprint `READY -> EXECUTING`, after
+  which approval can no longer be revoked.
+- **Eligibility** (`queue.eligible_task`): Sprint `EXECUTING`, task `RELEASED`, every
+  dependency `COMPLETE`, first in plan order. A blocked or failed task only holds back
+  its own dependants. "Project lock available" is `queue.project_busy` (any Ralph run
+  in the project that is created/running/verifying/paused/waiting); task 28 replaces it
+  with the real lock.
+- **Promotion is manual per task** (`POST .../next-task`, "Run next task"): the initial
+  release mode is manual release, and automatic linear execution is deferred. It builds
+  the Ralph run from the task (title + description, acceptance lines, `work_item_id`,
+  `sprint_id`), using the pipeline chosen in the form, else the task's
+  `verification_pipeline`, else the project's first enabled pipeline (an error if none),
+  and the primary repository.
+- **Task state follows the run.** `queue.sync_from_run` runs whenever a Ralph run's
+  status changes: running/paused -> `IN_PROGRESS`; blocked or waiting for sign-off ->
+  `BLOCKED`; completed -> `COMPLETE`; failed/timed out -> `FAILED`; cancelled ->
+  `RELEASED` (so it can be picked up again). When every non-rejected task is `COMPLETE`
+  the Sprint moves to `VERIFYING`; closing it to `COMPLETE` stays a human action.
+- The queue page (`/projects/<id>/sprints/<id>/queue`) shows the §29 progress counts,
+  each task's state, what it is waiting on, and the linked run.

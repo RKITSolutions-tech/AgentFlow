@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% from "_project_tabs.html" import project_tabs %}
+{% from "sprints/_helpers.html" import sprint_badge %}
+{% block title %}Queue - {{ sprint.name }} - AgentFlow{% endblock %}
+{% block content %}
+  {{ project_tabs(project, none, 'sprints') }}
+  <h1>{{ sprint.name }} {{ sprint_badge(sprint.status) }}</h1>
+  <p><a href="{{ url_for('sprints.view_sprint', project_id=project.id, sprint_id=sprint.id) }}">&larr; Sprint</a></p>
+
+  <ul class="queue-progress">
+    {% for label, count in progress %}<li><strong>{{ count }}</strong> {{ label }}</li>{% endfor %}
+  </ul>
+
+  {% if busy %}<p class="form-hint">Project busy: {{ busy }}. The next task waits for it.</p>{% endif %}
+
+  {% if sprint.status in ('READY', 'EXECUTING') %}
+    <div class="queue-actions">
+      <form method="post" action="{{ url_for('sprints.release', project_id=project.id, sprint_id=sprint.id) }}" data-ajax-form>
+        <button type="submit">Release all ready tasks</button>
+      </form>
+      {% if sprint.status == 'EXECUTING' %}
+        <form method="post" action="{{ url_for('sprints.next_task', project_id=project.id, sprint_id=sprint.id) }}" class="stacked" data-ajax-form>
+          <label>Verification pipeline
+            <select name="verification_pipeline">{% for p in pipelines %}<option value="{{ p.name }}">{{ p.name }}</option>{% endfor %}</select>
+          </label>
+          <label>Repository
+            <select name="repository_id">{% for r in repositories %}<option value="{{ r.id }}"{% if r.is_primary %} selected{% endif %}>{{ r.name }}</option>{% endfor %}</select>
+          </label>
+          <button type="submit" class="btn-primary"{% if not pipelines %} disabled{% endif %}>Run next task</button>
+        </form>
+      {% endif %}
+    </div>
+  {% endif %}
+
+  <table class="table-compact queue-table">
+    <thead><tr><th>#</th><th>Task</th><th>State</th><th>Waiting on</th><th></th></tr></thead>
+    <tbody>
+      {% for row in rows %}
+        {% set w = row.work %}
+        <tr data-row{% if row.next %} class="queue-next"{% endif %}>
+          <td>{{ w.seq }}</td>
+          <td class="wrap-cell">{{ w.title }}{% if row.next %} <span class="form-hint">(next)</span>{% endif %}</td>
+          <td><span class="run-status run-status-{{ {'COMPLETE': 'completed', 'IN_PROGRESS': 'running', 'BLOCKED': 'blocked', 'FAILED': 'failed', 'RELEASED': 'paused'}.get(w.task_state, 'created') }}">{{ w.task_state|replace('_', ' ')|capitalize }}</span></td>
+          <td class="wrap-cell">{% for d in row.waiting_on %}#{{ d }} {% endfor %}</td>
+          <td class="row-actions">
+            {% if w.task_state == 'READY' and sprint.status in ('READY', 'EXECUTING') %}
+              <form method="post" action="{{ url_for('sprints.release_one', project_id=project.id, sprint_id=sprint.id, work_id=w.id) }}" data-ajax-form><button type="submit">Release</button></form>
+            {% endif %}
+            {% if row.run_id %}<a href="{{ url_for('ralph.view_run', project_id=project.id, run_id=row.run_id) }}">Run #{{ row.run_id }}</a>{% endif %}
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="5">No tasks.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}

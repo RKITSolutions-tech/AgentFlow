@@ -6,7 +6,7 @@ import sqlite3
 from app.backlog import persistence as backlog
 from app.backlog.models import InvalidTransitionError
 from app.sprints import persistence as sprints
-from app.sprints import readiness
+from app.sprints import queue, readiness
 from app.sprints.models import NotReadyError, Sprint
 from app.sprints.planning_agent import PlanningAgent
 
@@ -143,6 +143,7 @@ def approve(db: sqlite3.Connection, sprint_id: int, approved_by: str, comment: s
     for work in sprints.list_work_items(db, sprint_id):
         if work.status != "REJECTED":
             sprints.update_work_item(db, work.id, status="APPROVED")
+            queue.set_state(db, work.id, "READY")
     sprints.record_approval(db, sprint_id, "APPROVED", approved_by, comment)
     from app.acceptance import service as acceptance
 
@@ -162,5 +163,6 @@ def revoke(db: sqlite3.Connection, sprint_id: int, revoked_by: str, comment: str
     for work in sprints.list_work_items(db, sprint_id):
         if work.status == "APPROVED":
             sprints.update_work_item(db, work.id, status="REVIEWED")
+            queue.set_state(db, work.id, "DRAFT")
     _move_items(db, sprint, "READY", "PLANNED", f"approval revoked by {revoked_by.strip()}")
     check(db, sprint_id)

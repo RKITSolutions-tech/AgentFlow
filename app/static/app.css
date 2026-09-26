@@ -894,3 +894,9 @@ fieldset { min-width: 0; }
 .diff-view .diff-add { color: var(--success); }
 .diff-view .diff-del { color: var(--danger); }
 .artifact-filters fieldset { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; }
+
+/* Sprint execution queue */
+.queue-progress { display: flex; flex-wrap: wrap; gap: var(--space-3, 0.75rem); list-style: none; padding: 0; }
+.queue-actions { display: flex; flex-wrap: wrap; gap: var(--space-3, 0.75rem); align-items: flex-end; }
+.queue-actions form { margin: 0; }
+.queue-table tr.queue-next td { background: var(--accent-soft); }

@@ -24,6 +24,7 @@ from app.projects import models as project_models
 from app.ralph import models
 from app.runs.models import now
 from app.runs.security import redact
+from app.sprints import queue
 
 STANDARD_INSTRUCTIONS = (
     "Work only on the task below and keep changes minimal.",
@@ -84,6 +85,7 @@ class RalphOrchestrator:
             self._db, run_id, pause_requested=0, needs_attention=0, awaiting_acceptance=0,
             status="CREATED", reason="",
         )
+        queue.sync_from_run(self._db, run_id)
 
     # -- main loop ------------------------------------------------------------------------
 
@@ -149,6 +151,7 @@ class RalphOrchestrator:
         if status in models.RUN_TERMINAL:
             fields["completed_at"] = now()
         models.update_run(self._db, run_id, **fields)
+        queue.sync_from_run(self._db, run_id)
         return self._require(run_id)
 
     # -- one iteration ----------------------------------------------------------------------

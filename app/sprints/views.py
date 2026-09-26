@@ -14,7 +14,9 @@ from flask import (
 from app.backlog import persistence as backlog
 from app.db import get_db
 from app.projects import models as project_models
+from app.pipelines import persistence as pipeline_store
 from app.sprints import persistence as sprints
+from app.sprints import queue
 from app.sprints import workflow
 from app.sprints.models import PLANNING_PROFILES, NotReadyError, InvalidSprintTransitionError
 from app.sprints.planning_agent import build_context, build_planning_agent
@@ -374,3 +376,66 @@ def cancel(project_id: int, sprint_id: int):
     back = _detail_url(project_id, sprint_id)
     _, failed = _guard(lambda: sprints.set_status(get_db(), sprint_id, "CANCELLED"), back)
     return failed or _reply("Sprint cancelled", True, back)
+
+
+@bp.post("/<int:sprint_id>/release")
+def release(project_id: int, sprint_id: int):
+    """Manual release: every READY task becomes RELEASED and the Sprint starts executing."""
+    _project(project_id)
+    _sprint(project_id, sprint_id)
+    back = url_for("sprints.queue_view", project_id=project_id, sprint_id=sprint_id)
+    count, failed = _guard(lambda: queue.release_sprint(get_db(), sprint_id), back)
+    return failed or _reply(f"{count} task(s) released", True, back, count=count)
+
+
+@bp.post("/<int:sprint_id>/tasks/<int:work_id>/release")
+def release_one(project_id: int, sprint_id: int, work_id: int):
+    _project(project_id)
+    _sprint(project_id, sprint_id)
+    work = sprints.get_work_item(get_db(), work_id)
+    if work is None or work.sprint_id != sprint_id:
+        abort(404)
+    back = url_for("sprints.queue_view", project_id=project_id, sprint_id=sprint_id)
+    if sprints.get_sprint(get_db(), sprint_id).status not in ("READY", "EXECUTING"):
+        return _reply("Only an approved sprint can release tasks", False, back, 409)
+    _, failed = _guard(lambda: queue.release_task(get_db(), work_id), back)
+    if failed:
+        return failed
+    if sprints.get_sprint(get_db(), sprint_id).status == "READY":
+        sprints.set_status(get_db(), sprint_id, "EXECUTING")
+    return _reply("Task released", True, back)
+
+
+@bp.get("/<int:sprint_id>/queue")
+def queue_view(project_id: int, sprint_id: int):
+    project = _project(project_id)
+    sprint = _sprint(project_id, sprint_id)
+    db = get_db()
+    return render_template(
+        "sprints/queue.html", project=project, sprint=sprint,
+        rows=queue.describe(db, sprint_id), progress=queue.progress(db, sprint_id),
+        busy=queue.project_busy(db, project_id),
+        pipelines=[p for p in pipeline_store.list_pipelines(db, project_id) if p.enabled],
+        repositories=project.repositories,
+    )
+
+
+@bp.post("/<int:sprint_id>/next-task")
+def next_task(project_id: int, sprint_id: int):
+    """Start Ralph on the next eligible released task."""
+    _project(project_id)
+    _sprint(project_id, sprint_id)
+    back = url_for("sprints.queue_view", project_id=project_id, sprint_id=sprint_id)
+    repo = request.form.get("repository_id", "")
+    result, failed = _guard(
+        lambda: queue.promote_next(
+            get_db(), sprint_id, int(repo) if repo.isdigit() else None, request.form.get("verification_pipeline", "")
+        ),
+        back,
+    )
+    if failed:
+        return failed
+    work_id, run_id = result
+    current_app.extensions["ralph_manager"].start(run_id)
+    target = url_for("ralph.view_run", project_id=project_id, run_id=run_id)
+    return _reply("Ralph started on the next task", True, target, run_id=run_id, work_item_id=work_id, redirect=target)

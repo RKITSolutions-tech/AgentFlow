@@ -9,6 +9,7 @@ from app.pipelines.engine import PipelineEngine
 from app.pipelines.manager import PipelineManager
 from app.ralph import models
 from app.ralph.orchestrator import RalphOrchestrator
+from app.sprints import queue
 
 
 class RalphManager:
@@ -72,6 +73,7 @@ class RalphManager:
                 run = models.get_run(db, run_id)
                 if run.status not in models.RUN_TERMINAL:
                     models.update_run(db, run_id, status="CANCELLED", reason="Stopped by user", completed_at=_now())
+                    queue.sync_from_run(db, run_id)
             finally:
                 db.close()
 
