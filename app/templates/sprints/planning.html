@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% from "_project_tabs.html" import project_tabs %}
+{% block title %}New sprint - {{ project.name }} - AgentFlow{% endblock %}
+{% block content %}
+  {{ project_tabs(project, none, 'sprints') }}
+  <h1>New sprint</h1>
+  <form method="post" action="{{ url_for('sprints.create_sprint', project_id=project.id) }}" class="stacked" data-ajax-form>
+    <label>Name <input name="name" required maxlength="120"></label>
+    <label>Goal (becomes planning context)
+      <textarea name="goal" rows="2" required></textarea>
+    </label>
+    <label>Description <textarea name="description" rows="2"></textarea></label>
+    <div class="run-form-row">
+      <label>Planning profile
+        <select name="planning_profile">
+          {% for p in profiles %}<option value="{{ p }}"{% if p == 'STANDARD_FEATURE' %} selected{% endif %}>{{ p|replace('_', ' ')|capitalize }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>Start <input type="date" name="start_date"></label>
+      <label>Target <input type="date" name="target_date"></label>
+    </div>
+    <fieldset>
+      <legend>Backlog items</legend>
+      {% for item in candidates %}
+        <label class="backlog-select"><input type="checkbox" name="item_ids" value="{{ item.id }}"> #{{ item.id }} {{ item.title or item.text[:80] or 'Attachment only' }}</label>
+      {% else %}
+        <p class="form-hint">No unassigned backlog items. Capture some in the <a href="{{ url_for('backlog.inbox', project_id=project.id) }}">backlog</a> first.</p>
+      {% endfor %}
+    </fieldset>
+    <label>Documentation, one path or URL per line
+      <textarea name="documents" rows="2" placeholder="docs/architecture.md"></textarea>
+    </label>
+    <button type="submit" class="btn-primary">Create sprint</button>
+  </form>
+{% endblock %}

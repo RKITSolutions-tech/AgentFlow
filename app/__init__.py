@@ -30,6 +30,14 @@ def create_app(config: Config | None = None) -> Flask:
 
     app.extensions["run_manager"] = RunManager(app.config)
     app.register_blueprint(runs_bp)
+
+    from app.backlog.views import bp as backlog_bp
+
+    app.register_blueprint(backlog_bp)
+
+    from app.sprints.views import bp as sprints_bp
+
+    app.register_blueprint(sprints_bp)
     app.extensions["run_manager"].reconcile()
 
     from app.shell import init_shell

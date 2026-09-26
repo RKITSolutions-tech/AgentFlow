@@ -53,6 +53,15 @@ Key modules:
   `<artifact root>/backlog/<project>/<item>/`, filenames sanitised and paths
   re-checked with the same helpers as Run artifacts). `sprint_id` has no FK
   until the Sprints table exists.
+  `views.py` is the Backlog UI (inbox, triage, sprint items, item page; AJAX
+  via the shared `data-ajax-*` handlers in `app.js`).
+- `app/sprints/` — Phase 2 Sprints (docs/SPRINT_PLANNING_AND_BACKLOG.md §49):
+  `persistence.py` (sprints, planned tasks + dependencies, readiness rows,
+  approval history), `workflow.py` (keeps Sprint and Backlog statuses in step;
+  select → plan → review → approve), `planning_agent.py` (a PLANNING-role
+  `AgentAdapter` session whose JSON reply becomes SUGGESTED tasks;
+  `AGENTFLOW_PLANNING_AGENT=fake` for deterministic runs), `readiness.py`
+  (explicit pass/fail/warn checks).
 - `app/projects/` — Project and repository records; `app/security.py`
   validates repository paths against `ALLOWED_PROJECT_ROOTS`.
 

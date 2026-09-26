@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% from "_project_tabs.html" import project_tabs %}
+{% from "backlog/_helpers.html" import backlog_nav, priority_label, file_list %}
+{% block title %}{{ project.name }} - Backlog - AgentFlow{% endblock %}
+{% block content %}
+  {{ project_tabs(project, none, 'backlog') }}
+  <h1>{{ project.name }} - Backlog</h1>
+  {{ backlog_nav(project, 'inbox', counts) }}
+
+  <form method="post" action="{{ url_for('backlog.create_item', project_id=project.id) }}" enctype="multipart/form-data" class="stacked backlog-form" data-ajax-form>
+    <label>Describe the idea or problem
+      <textarea name="text" rows="3" placeholder="What did you notice?"></textarea>
+    </label>
+    <label>Attachments (images, logs, files)
+      <input type="file" name="files" multiple>
+    </label>
+    <details>
+      <summary>More options</summary>
+      <label>Title <input name="title" maxlength="120"></label>
+      <label>Priority
+        <select name="priority"><option value="">None</option>{% for p in priorities %}<option value="{{ p }}">{{ p|capitalize }}</option>{% endfor %}</select>
+      </label>
+      <label>Source URL or reference <input name="source" maxlength="500"></label>
+    </details>
+    <button type="submit" class="btn-primary">Add</button>
+  </form>
+
+  <form class="inline-filter" method="get">
+    <label>Show
+      <select data-nav-select>
+        {% for s in filters %}<option value="{{ url_for('backlog.inbox', project_id=project.id, status=s) }}"{% if s == status %} selected{% endif %}>{{ s|capitalize }} ({{ counts.get(s, 0) }})</option>{% endfor %}
+      </select>
+    </label>
+  </form>
+
+  <ul class="backlog-cards">
+    {% for item in items %}
+      <li class="backlog-card" data-row data-id="{{ item.id }}">
+        <h3><a href="{{ url_for('backlog.view_item', project_id=project.id, item_id=item.id) }}">#{{ item.id }} {{ item.title or (item.text[:60] if item.text else 'Attachment only') }}</a></h3>
+        {% if item.title and item.text %}<p>{{ item.text }}</p>{% endif %}
+        {{ file_list(project, item, files[item.id]) }}
+        <div>{{ priority_label(item.priority) }} &middot; <span class="form-hint">{{ item.created_at }}</span></div>
+        <div class="row-actions">
+          {% if item.status in ('INBOX', 'TRIAGED') %}
+            <button type="button" data-ajax-action="{{ url_for('backlog.update_item', project_id=project.id, item_id=item.id, status='SELECTED') }}">Add to sprint</button>
+            <button type="button" class="link-danger" data-ajax-action="{{ url_for('backlog.archive_item', project_id=project.id, item_id=item.id) }}" data-method="DELETE" data-confirm="Archive this item?">Archive</button>
+          {% endif %}
+        </div>
+      </li>
+    {% else %}
+      <li class="form-hint">Nothing here yet.</li>
+    {% endfor %}
+  </ul>
+
+  {% if pages > 1 %}
+    <nav class="pager" aria-label="Pages">
+      {% if page > 1 %}<a href="{{ url_for('backlog.inbox', project_id=project.id, page=page - 1, status=status) }}">Newer</a>{% endif %}
+      <span>Page {{ page }} of {{ pages }}</span>
+      {% if page < pages %}<a href="{{ url_for('backlog.inbox', project_id=project.id, page=page + 1, status=status) }}">Older</a>{% endif %}
+    </nav>
+  {% endif %}
+{% endblock %}

@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% from "_project_tabs.html" import project_tabs %}
+{% from "backlog/_helpers.html" import file_list %}
+{% block title %}Backlog #{{ item.id }} - {{ project.name }} - AgentFlow{% endblock %}
+{% block content %}
+  {{ project_tabs(project, none, 'backlog') }}
+  <h1>Backlog #{{ item.id }} <span class="run-status">{{ item.status|capitalize }}</span></h1>
+  <form method="post" action="{{ url_for('backlog.update_item', project_id=project.id, item_id=item.id) }}" class="stacked backlog-form" data-ajax-form>
+    <label>Title <input name="title" maxlength="120" value="{{ item.title }}"></label>
+    <label>Text <textarea name="text" rows="5">{{ item.text }}</textarea></label>
+    <div class="run-form-row">
+      <label>Priority
+        <select name="priority"><option value="">None</option>{% for p in priorities %}<option value="{{ p }}"{% if p == item.priority %} selected{% endif %}>{{ p|capitalize }}</option>{% endfor %}</select>
+      </label>
+      <label>Status
+        <select name="status">
+          <option value="{{ item.status }}" selected>{{ item.status|capitalize }} (current)</option>
+          {% for s in next_statuses %}<option value="{{ s }}">{{ s|capitalize }}</option>{% endfor %}
+        </select>
+      </label>
+    </div>
+    <label>Triage notes <input name="notes" maxlength="500"></label>
+    <button type="submit" class="btn-primary">Save</button>
+  </form>
+  {% if item.source_reference %}<p class="wrap-cell">Source: {{ item.source_reference }}</p>{% endif %}
+  <h2>Attachments</h2>
+  {{ file_list(project, item, files) }}
+  {% if not files %}<p class="form-hint">None.</p>{% endif %}
+  <h2>History</h2>
+  <table class="table-compact">
+    <thead><tr><th>When</th><th>Change</th><th>Notes</th></tr></thead>
+    <tbody>
+      {% for h in history %}
+        <tr><td>{{ h.changed_at }}</td><td>{{ h.old_status or 'new' }} &rarr; {{ h.new_status }}</td><td class="wrap-cell">{{ h.notes }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}

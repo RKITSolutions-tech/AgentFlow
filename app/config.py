@@ -27,6 +27,9 @@ class Config:
     # Where Run artifact content and large logs live; defaults to
     # `artifacts/` beside the database.
     ARTIFACT_DIR: str = ""
+    # Agent used for sprint planning: "codex" (real) or "fake" (deterministic,
+    # one task per backlog item; AGENTFLOW_PLANNING_AGENT).
+    PLANNING_AGENT: str = "codex"
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -66,4 +69,5 @@ class Config:
             ALLOWED_PROJECT_ROOTS=roots,
             REDACT_PATTERNS=extra_patterns_from_env(),
             ARTIFACT_DIR=os.environ.get("AGENTFLOW_ARTIFACT_DIR", ""),
+            PLANNING_AGENT=os.environ.get("AGENTFLOW_PLANNING_AGENT", "codex").lower(),
         )

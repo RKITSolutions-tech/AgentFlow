@@ -578,13 +578,376 @@
         "priority": "low",
         "subtasks": [],
         "updatedAt": "2026-09-26T00:25:27.439Z"
+      },
+      {
+        "id": "17",
+        "title": "Design and implement Backlog data model and database schema",
+        "description": "Create the foundational data structures for backlog management including BacklogItem, Triage state, priority levels, and metadata storage. Establish SQLite schema for persistence of backlog items with file/image associations.",
+        "details": "Create app/backlog/models.py with SQLAlchemy ORM models:\n- BacklogItem: id, title, description, content, status (inbox/triaged/selected/archived), priority (low/medium/high), created_at, updated_at, sprint_id (nullable)\n- BacklogAttachment: id, backlog_item_id, file_path, file_type (image/file/link), uploaded_at\n- TriageHistory: id, backlog_item_id, old_status, new_status, notes, changed_by, changed_at\n\nCreate SQLite migrations in alembic/versions/. Ensure BacklogItem references existing Project. Implement CRUD operations in app/backlog/persistence.py. Add path traversal validation for file uploads using existing app/security.py patterns. Store attachments in AGENTFLOW_ARTIFACT_DIR/backlog/<project_id>/<item_id>/. Include indexes on status, priority, sprint_id for query performance.",
+        "testStrategy": "Unit tests in tests/backlog/test_models.py: test CRUD operations, test status transitions, test attachment storage and retrieval. Test path traversal protection on file uploads. Integration test creating a backlog item with attachments across database transactions. Verify migrations run cleanly on fresh database.",
+        "priority": "high",
+        "dependencies": [],
+        "status": "done",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Create SQLAlchemy ORM models for backlog entities",
+            "description": "Implement the core ORM models for backlog management including BacklogItem, BacklogAttachment, and TriageHistory with proper relationships and field definitions.",
+            "dependencies": [],
+            "details": "Create app/backlog/models.py with three SQLAlchemy models:\n\n1. BacklogItem: Define fields for id (primary key), title, description, content, status (enum: inbox/triaged/selected/archived), priority (enum: low/medium/high), created_at, updated_at, sprint_id (nullable foreign key to Sprint), project_id (foreign key). Add relationships to BacklogAttachment and TriageHistory.\n\n2. BacklogAttachment: Define id (primary key), backlog_item_id (foreign key), file_path, file_type (enum: image/file/link), uploaded_at timestamp. Add relationship back to BacklogItem.\n\n3. TriageHistory: Define id (primary key), backlog_item_id (foreign key), old_status, new_status, notes, changed_by, changed_at timestamp. Add relationship to BacklogItem.\n\nEnsure proper cascade delete behavior. Use existing Project model for project_id foreign key reference. Follow existing app/agents/models.py patterns for timestamp and enum handling.",
+            "status": "pending",
+            "testStrategy": "Unit tests in tests/backlog/test_models.py: verify model instantiation, test field constraints (status/priority enums), test relationship integrity, verify timestamp auto-generation, test enum value validation.",
+            "parentId": "undefined"
+          },
+          {
+            "id": 2,
+            "title": "Create Alembic database migrations",
+            "description": "Generate SQLite migration files that create the backlog tables with proper schema, indexes, and foreign key constraints.",
+            "dependencies": [
+              1
+            ],
+            "details": "Create Alembic migration script in alembic/versions/ that:\n\n1. Creates backlog_item table with columns for id, project_id, title, description, content, status, priority, created_at, updated_at, sprint_id.\n\n2. Creates backlog_attachment table with columns for id, backlog_item_id, file_path, file_type, uploaded_at.\n\n3. Creates triage_history table with columns for id, backlog_item_id, old_status, new_status, notes, changed_by, changed_at.\n\n4. Add indexes on: backlog_item(project_id), backlog_item(status), backlog_item(priority), backlog_item(sprint_id), backlog_attachment(backlog_item_id), triage_history(backlog_item_id).\n\n5. Configure foreign key constraints with appropriate cascade behavior. Test that migration runs cleanly in both upgrade and downgrade directions.",
+            "status": "pending",
+            "testStrategy": "Integration test: run alembic upgrade and verify all tables exist with correct schema. Test alembic downgrade and verify tables are removed. Verify indexes are created. Test with fresh SQLite database to ensure migration is self-contained.",
+            "parentId": "undefined"
+          },
+          {
+            "id": 3,
+            "title": "Implement CRUD operations in persistence module",
+            "description": "Build the persistence layer with create, read, update, and delete operations for BacklogItem and related entities.",
+            "dependencies": [
+              1,
+              2
+            ],
+            "details": "Create app/backlog/persistence.py with functions for:\n\n1. create_backlog_item(project_id, title, description, content, priority) -> BacklogItem\n2. get_backlog_item(item_id) -> BacklogItem or None\n3. get_project_backlog(project_id, status=None, priority=None) -> list[BacklogItem]\n4. update_backlog_item(item_id, **updates) -> BacklogItem\n5. delete_backlog_item(item_id) -> bool\n6. change_item_status(item_id, new_status, changed_by, notes) -> creates TriageHistory record\n7. add_attachment(item_id, file_path, file_type) -> BacklogAttachment\n8. get_item_attachments(item_id) -> list[BacklogAttachment]\n9. delete_attachment(attachment_id) -> bool\n10. get_triage_history(item_id) -> list[TriageHistory]\n\nUse Flask-SQLAlchemy session management. Follow existing app/agents/models.py persistence patterns. Include transaction handling for multi-step operations.",
+            "status": "pending",
+            "testStrategy": "Unit tests in tests/backlog/test_persistence.py: test each CRUD operation, test status transition tracking in TriageHistory, test attachment lifecycle (add/retrieve/delete), test filtering by status/priority, test transaction rollback on error.",
+            "parentId": "undefined"
+          },
+          {
+            "id": 4,
+            "title": "Implement file upload security and attachment storage",
+            "description": "Add path traversal validation for file uploads and establish secure storage directory structure using existing security patterns.",
+            "dependencies": [
+              3
+            ],
+            "details": "In app/backlog/persistence.py, implement secure attachment handling:\n\n1. Create validate_attachment_path() function using existing app/security.py patterns (similar to repository path validation).\n\n2. Implement ensure_attachment_directory(project_id, item_id) to create: AGENTFLOW_ARTIFACT_DIR/backlog/<project_id>/<item_id>/ directories with proper permissions.\n\n3. Add store_attachment(item_id, uploaded_file, file_type) function that:\n   - Validates source file path for traversal attacks\n   - Sanitizes filename\n   - Copies to storage directory\n   - Creates BacklogAttachment record with validated path\n   - Returns BacklogAttachment or raises ValidationError\n\n4. Add get_attachment_content(attachment_id) that validates and retrieves file from storage.\n\n5. Add delete_attachment(attachment_id) that removes file from disk and database record.\n\nFollow AGENTFLOW_ARTIFACT_DIR usage from app/runs/artifacts.py as reference. Use os.path.realpath() to detect traversal attempts.",
+            "status": "pending",
+            "testStrategy": "Unit tests in tests/backlog/test_attachment_security.py: test path traversal prevention with ../ attempts, test filename sanitization, test directory creation, test file storage and retrieval, test permission handling, verify real paths resolve correctly.",
+            "parentId": "undefined"
+          },
+          {
+            "id": 5,
+            "title": "Write comprehensive model and integration tests",
+            "description": "Create full test suite covering model validation, CRUD operations, attachment handling, status transitions, and migration integrity.",
+            "dependencies": [
+              2,
+              3,
+              4
+            ],
+            "details": "Create tests/backlog/test_models.py and tests/backlog/test_integration.py:\n\ntest_models.py:\n- Test BacklogItem creation with valid/invalid status/priority values\n- Test timestamp auto-population\n- Test BacklogAttachment relationship cascade behavior\n- Test TriageHistory record creation\n- Test field validation and constraints\n- Test enum validation\n\ntest_integration.py:\n- Test creating a backlog item with multiple attachments across database transactions\n- Test status transitions from inbox -> triaged -> selected -> archived\n- Test triage history tracking of all transitions\n- Test attachment storage in correct directory structure\n- Test path traversal protection with malicious filenames\n- Test filtering backlog by project, status, priority\n- Test pagination for large backlogs\n- Test concurrent access and transaction isolation\n- Test database migration and schema integrity\n\nUse existing fixtures from tests/conftest.py (app, client). Create temporary project fixtures for isolation.",
+            "status": "pending",
+            "testStrategy": "Run pytest with coverage on tests/backlog/. Target 90%+ code coverage for models.py and persistence.py. Run migrations in test setup/teardown. Verify no orphaned attachments on failed operations. Test with SQLite in-memory database for speed.",
+            "parentId": "undefined"
+          }
+        ],
+        "complexity": 4,
+        "recommendedSubtasks": 4,
+        "expansionPrompt": "Break down the backlog data model implementation into focused subtasks: (1) Create SQLAlchemy ORM models for BacklogItem, BacklogAttachment, and TriageHistory with relationships and field definitions; (2) Design and implement Alembic migrations for schema creation and ensure migration compatibility; (3) Implement CRUD operations and query methods in persistence.py with proper indexing strategy; (4) Implement file upload path traversal validation and artifact storage logic following existing security patterns, with comprehensive unit tests for all components.",
+        "updatedAt": "2026-09-26T09:12:01.945Z"
+      },
+      {
+        "id": "18",
+        "title": "Implement Backlog UI pages (inbox, triage, sprint selection)",
+        "description": "Build web interface for capturing, viewing, and triaging backlog items. Create pages for inbox view, triage workflow, and sprint selection with rich content support and file uploads.",
+        "details": "Create templates in app/templates/backlog/:\n- inbox.html: List inbox items, quick-add form for text capture with file upload widget, filter by status\n- triage.html: Card-based view of items awaiting triage, inline status/priority/category editing, notes field, bulk operations (mark triaged, assign to sprint)\n- sprint_items.html: Items selected for current sprint, drag-to-reorder, link to sprint planning\n\nImplement routes in app/backlog/views.py:\n- GET /projects/<id>/backlog/inbox - list inbox items with counts\n- POST /projects/<id>/backlog/items - create new backlog item with file uploads\n- PUT /projects/<id>/backlog/items/<id> - update triage status/priority\n- GET /projects/<id>/backlog/items/<id> - view item details\n- DELETE /projects/<id>/backlog/items/<id> - archive item\n\nUse existing app.css design tokens. Implement AJAX endpoints (detect X-Requested-With header) returning JSON for in-place updates. Mobile-responsive: stack cards vertically below 860px, ensure 44px touch targets. Wrap file paths/descriptions. Include data-ajax-action handlers for bulk operations.",
+        "testStrategy": "Playwright tests in tests/backlog/test_views.py: test inbox renders with items, test quick-add creates items, test triage workflow state transitions, test file upload stores attachments, test mobile viewport wraps correctly, test AJAX responses return JSON. Test bulk operations mark multiple items. Verify permissions: non-project members cannot access.",
+        "priority": "high",
+        "dependencies": [
+          "17"
+        ],
+        "status": "done",
+        "subtasks": [],
+        "complexity": 5,
+        "recommendedSubtasks": 5,
+        "expansionPrompt": "Decompose the backlog UI implementation into focused frontend tasks: (1) Create inbox.html template with item list, quick-add form, and file upload widget following app.css design tokens and mobile responsiveness guidelines; (2) Implement triage.html with card-based layout, inline editing (status/priority), and bulk operations UI; (3) Implement Flask routes (GET/POST/PUT/DELETE endpoints) with proper JSON response handling for AJAX calls; (4) Implement AJAX handlers in app.js for in-place updates (status changes, bulk operations) with proper error handling; (5) Write comprehensive Playwright tests covering inbox/triage workflows, file uploads, mobile viewport behavior, and permission validation across both viewports.",
+        "updatedAt": "2026-09-26T11:03:32.408Z"
+      },
+      {
+        "id": "19",
+        "title": "Design and implement Sprint data model and planning workflow",
+        "description": "Create Sprint entity with goals, documentation references, task proposal generation, and dependency tracking. Establish workflow from sprint planning through readiness review to approval.",
+        "details": "Create app/sprints/models.py with SQLAlchemy models:\n- Sprint: id, project_id, name, goal, status (planning/ready/active/completed), planned_start, planned_end, created_at, approved_at, approved_by\n- SprintBacklogLink: id, sprint_id, backlog_item_id, added_at (track items selected for sprint)\n- SprintDependency: id, sprint_id, depends_on_sprint_id (track cross-sprint dependencies)\n- SprintReadinessCheck: id, sprint_id, check_name, status (pass/fail/pending), details, checked_at\n\nImplement PlanningAgent in app/sprints/planning_agent.py:\n- Accepts Sprint and selected BacklogItems\n- Uses existing AgentAdapter abstraction to invoke AI planning (Codex/Claude)\n- Generates task graph with proposed breakdown, acceptance criteria, and resource estimates\n- Returns TaskProposal objects with suggestions for refinement\n\nImplement readiness checks: verify dependencies are met, minimum items selected, sprint goal defined, no resource conflicts. Store readiness results in SprintReadinessCheck. Implement approval workflow with approval history.",
+        "testStrategy": "Unit tests in tests/sprints/test_models.py: test sprint creation and status transitions, test readiness checks pass/fail correctly, test approval recording with timestamp. Integration tests with FakeAgentAdapter: test planning agent generates task graph from items. Test cross-sprint dependencies prevent closure. Mock AgentAdapter response for deterministic testing.",
+        "priority": "high",
+        "dependencies": [
+          "17"
+        ],
+        "status": "done",
+        "subtasks": [],
+        "complexity": 6,
+        "recommendedSubtasks": 5,
+        "expansionPrompt": "Break down sprint data model and planning workflow into: (1) Create SQLAlchemy models (Sprint, SprintBacklogLink, SprintDependency, SprintReadinessCheck) with proper relationships and status enums; (2) Implement PlanningAgent class that accepts Sprint and BacklogItems, wraps AgentAdapter abstraction, and generates TaskProposal objects; (3) Implement readiness check system with pass/fail logic for dependencies, minimum items, goal definition, and resource conflicts; (4) Implement approval workflow with approval history tracking, timestamps, and approver identity; (5) Write unit and integration tests using FakeAgentAdapter for deterministic planning agent testing, and tests for readiness checks and approval workflows.",
+        "updatedAt": "2026-09-26T11:03:36.266Z"
+      },
+      {
+        "id": "20",
+        "title": "Implement Sprint planning UI and approval workflow interface",
+        "description": "Build web interface for sprint planning, viewing proposed task breakdown, defining acceptance criteria, and approval workflow.",
+        "details": "Create templates in app/templates/sprints/:\n- planning.html: Form to create sprint, select items from backlog (with checkboxes), set goal, add documentation links, trigger planning agent, display proposed task graph\n- tasks_review.html: Display AI-generated task proposals with acceptance criteria, allow inline editing, show dependencies, resource estimates\n- readiness_review.html: Display readiness checks (pass/fail), prompt for approval with signature/comment field\n- sprint_detail.html: View active/completed sprint, show linked backlog items, task breakdown, readiness status, approval info\n\nImplement routes in app/sprints/views.py:\n- GET /projects/<id>/sprints/new - show sprint planning form\n- POST /projects/<id>/sprints - create sprint and trigger planning\n- GET /projects/<id>/sprints/<id>/tasks - show proposed tasks (calls PlanningAgent)\n- PUT /projects/<id>/sprints/<id>/tasks/<id> - edit proposed task acceptance criteria\n- POST /projects/<id>/sprints/<id>/approve - record approval, transition to ready status\n- GET /projects/<id>/sprints - list sprints with status\n\nUse existing project_tabs navigation. Implement async job tracking for planning agent (store Agent session ID, poll for results). Display task graph in left-to-right format on desktop, top-to-bottom on mobile. Show dependencies visually.",
+        "testStrategy": "Playwright tests in tests/sprints/test_views.py: test sprint creation and planning trigger, test proposed tasks display, test approval flow with signature capture, test mobile graph orientation. Test async planning job polling returns updates. Test non-project-leads cannot approve. Test backlog item selection validation (minimum items required).",
+        "priority": "high",
+        "dependencies": [
+          "18",
+          "19"
+        ],
+        "status": "done",
+        "subtasks": [],
+        "complexity": 6,
+        "recommendedSubtasks": 5,
+        "expansionPrompt": "Decompose sprint planning UI and approval interface into focused tasks: (1) Create planning.html template with sprint creation form, backlog item selection (checkboxes), goal and documentation link fields, trigger button, and async job tracking display; (2) Create tasks_review.html for displaying AI-generated task proposals with acceptance criteria, inline editing capability, dependency visualization, and resource estimates; (3) Create readiness_review.html showing readiness check results and approval form with signature/comment fields; (4) Implement Flask routes (GET /sprints/new, POST /sprints, GET /sprints/<id>/tasks, PUT /sprints/<id>/tasks/<id>, POST /sprints/<id>/approve) with async job polling and proper status transitions; (5) Write Playwright tests covering sprint creation, planning trigger, async polling, approval flow, mobile graph rendering, and permission validation (non-leads cannot approve).",
+        "updatedAt": "2026-09-26T11:08:30.677Z"
+      },
+      {
+        "id": "21",
+        "title": "Define and implement Pipeline data model and YAML/JSON pipeline format",
+        "description": "Create Pipeline entity and reusable pipeline definition format supporting deterministic execution, substeps, rigging steps, and manual approval gates. Establish validation and composition rules.",
+        "details": "Create app/pipelines/models.py with SQLAlchemy models:\n- Pipeline: id, name, version, format (yaml/json), definition (text), created_at, created_by, description\n- PipelineRun: id, pipeline_id, sprint_id, status (scheduled/running/paused/success/failed), started_at, completed_at, current_step_id, iteration_count\n- PipelineStep: id, run_id, step_name, step_type (task/subtask/approval/rigging/compensation), config (JSON), status (pending/running/success/failed/skipped), started_at, completed_at, output, error_message\n- SubPipeline: id, name, steps (JSON array), reusable (boolean)\n\nDefine YAML schema in app/pipelines/schema.py:\n```yaml\npipeline:\n  name: string\n  version: string\n  rigging:\n    setup: [steps]\n    teardown: [steps]\n  steps:\n    - name: string\n      type: task | approval | subprocess | rigging\n      config:\n        if_type_task:\n          task_id: string\n          timeout: seconds\n        if_type_approval:\n          prompt: string\n          required_approvers: [user_ids]\n        if_type_subprocess:\n          pipeline_ref: string\n          params: {key: value}\n      compensation:\n        on_failure: retry | skip | abort | manual_review\n        retry_count: integer\n        retry_delay: seconds\n    - name: string\n      depends_on: [step_names] (optional)\n```\n\nImplement PipelineValidator to check: step references exist, dependencies form DAG, all required fields present. Implement PipelineComposer for SubPipeline composition. Store pipeline definitions in app/pipelines/definitions/ directory.",
+        "testStrategy": "Unit tests in tests/pipelines/test_models.py: test pipeline creation and versioning, test step validation rejects invalid references, test DAG validation detects cycles, test SubPipeline composition expands correctly. Test YAML/JSON parsing and validation. Test compensation config is preserved. Use example pipelines from existing runs.",
+        "priority": "high",
+        "dependencies": [
+          "19"
+        ],
+        "status": "pending",
+        "subtasks": [],
+        "complexity": 6,
+        "recommendedSubtasks": 5,
+        "expansionPrompt": "Break down pipeline data model and format implementation into: (1) Define YAML/JSON schema in app/pipelines/schema.py with clear structure for steps, dependencies, compensation strategies, and rigging setup/teardown; (2) Create SQLAlchemy models (Pipeline, PipelineRun, PipelineStep, SubPipeline) with proper relationships, status enums, and JSON configuration storage; (3) Implement PipelineValidator to check step references, detect dependency cycles (DAG validation), validate required fields, and enforce schema constraints; (4) Implement PipelineComposer for SubPipeline expansion and composition into executable steps; (5) Write comprehensive unit tests covering schema validation, pipeline parsing (YAML/JSON), DAG cycle detection, SubPipeline composition, and compensation config preservation."
+      },
+      {
+        "id": "22",
+        "title": "Implement deterministic pipeline execution engine",
+        "description": "Build the core pipeline execution system supporting step sequencing, dependency resolution, rigging steps, approval gates, and compensation strategies. Integrate with existing ExecutionProvider for command execution.",
+        "details": "Create app/pipelines/executor.py with PipelineExecutor class:\n- Accepts PipelineRun and ExecutionProvider\n- Maintains execution state (current_step_id, step_results dictionary)\n- Resolves step dependencies using topological sort\n- Executes steps sequentially or in parallel (with dependency constraints)\n- Handles rigging steps: setup runs before first step, teardown runs on completion/error\n- Supports manual approval steps (pause execution, wait for approval via UI)\n- Implements compensation: retry logic with exponential backoff, skip failures, abort on critical errors\n- Records all step output/errors to PipelineStep records in database\n- Detects step timeouts using threading/asyncio\n\nImplement StepExecutor subclasses:\n- TaskStepExecutor: invokes existing Task through AgentAdapter (reuse Codex/Claude integration)\n- CommandStepExecutor: executes shell commands through ExecutionProvider\n- ApprovalStepExecutor: pauses and polls for approval\n- SubPipelineExecutor: recursively executes referenced pipeline\n\nImplement pause/resume using transaction checkpoints: persist current_step_id and step results, allow resuming from saved state. Implement no-progress detection: if step doesn't complete within timeout and shows no new output, trigger manual review or compensation strategy.",
+        "testStrategy": "Unit tests in tests/pipelines/test_executor.py: test step sequencing respects dependencies, test rigging setup/teardown execute, test approval gate pauses execution, test compensation retry logic with backoff, test timeout detection. Integration test with FakeAgentAdapter: execute multi-step pipeline with mixed task/command/approval steps. Test pause/resume restores state correctly. Test step output is persisted.",
+        "priority": "high",
+        "dependencies": [
+          "21"
+        ],
+        "status": "pending",
+        "subtasks": [],
+        "complexity": 8,
+        "recommendedSubtasks": 6,
+        "expansionPrompt": "Break down pipeline execution engine into focused implementation tasks: (1) Design and implement PipelineExecutor class with state management (current_step_id, step_results), dependency resolution using topological sort, and step sequencing logic (sequential/parallel with constraints); (2) Implement rigging support: execute setup steps before first step, teardown on completion/error, with proper error handling; (3) Create StepExecutor subclasses (TaskStepExecutor, CommandStepExecutor, ApprovalStepExecutor, SubPipelineExecutor) with appropriate execution logic and output capture; (4) Implement approval gate pausing/resuming: persist execution state, allow operator approval via UI, resume from checkpoint; (5) Implement compensation strategies: retry with exponential backoff, skip failures, abort on critical errors, timeout detection with no-progress monitoring; (6) Write comprehensive unit tests for step sequencing, rigging, approval gates, compensation retry logic, timeout handling, and integration tests with FakeAgentAdapter and state restoration testing."
+      },
+      {
+        "id": "23",
+        "title": "Implement Ralph orchestration agent with failure feedback and iteration",
+        "description": "Build Ralph autonomous agent orchestration layer supporting multiple iterations, failure detection, steering feedback, and automatic commit on success. Integrate with pipeline executor and task framework.",
+        "details": "Create app/ralph/orchestrator.py with RalphOrchestrator class:\n- Wraps PipelineExecutor with iteration loop logic\n- Iteration structure: execute pipeline step → collect output → analyze results → check for success/failure\n- IterationHistory model: id, run_id, iteration_number, status (in_progress/success/failed), started_at, completed_at, analysis, next_action\n\nImplement failure detection:\n- Parse task output and test results for failure indicators (exit codes, test failures, assertions)\n- Use AgentAdapter feedback mechanism (existing agent session can provide result status)\n- Track consecutive failures per step\n\nImplement steering feedback:\n- After failure, compose steering prompt: show failure details, step context, previous attempts, request corrective action\n- Send to same agent session (resume with feedback)\n- Store steering prompts and responses in IterationHistory for inspection\n\nImplement no-progress detection:\n- Compare consecutive iteration outputs (diff)\n- If outputs identical for 2+ iterations and not yet successful, trigger manual review\n- Set status to blocked_no_progress, notify operator\n\nImplement automatic commit on success:\n- After final iteration succeeds, invoke git commands through ExecutionProvider\n- Commit message: \"[AUTO] Phase 2 pipeline: {sprint_name} task {task_id} (iteration {count})\"\n- Push to configured branch\n- Store commit SHA in IterationHistory\n\nImplement pause/resume:\n- Save iteration state (iteration_number, current output, analysis)\n- Support resume from checkpoint via RunManager\n- Restore agent session from AgentSession record in database",
+        "testStrategy": "Unit tests in tests/ralph/test_orchestrator.py: test iteration loop executes and collects results, test failure detection parses output correctly, test steering feedback composes prompt, test no-progress detection after 2 identical iterations, test commit is created on success. Integration test with FakeAgentAdapter: execute pipeline with injected failure, verify steering feedback, verify second iteration corrects it. Test pause/resume checkpoint logic.",
+        "priority": "high",
+        "dependencies": [
+          "22"
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Create IterationHistory model and RalphOrchestrator class with iteration loop",
+            "description": "Implement the IterationHistory SQLAlchemy model to persist iteration state, and create the RalphOrchestrator class that wraps PipelineExecutor with the core iteration loop logic (execute→collect→analyze→decide).",
+            "dependencies": [],
+            "details": "Create app/ralph/models.py with IterationHistory model including fields: id, run_id, iteration_number, status (in_progress/success/failed/blocked_no_progress), started_at, completed_at, analysis, next_action, previous_output. Create app/ralph/orchestrator.py with RalphOrchestrator class that accepts a PipelineExecutor and ExecutionProvider. Implement the core iteration loop method that: (1) executes the pipeline step via PipelineExecutor, (2) collects output/logs from execution, (3) analyzes results to determine success/failure, (4) decides next action (retry, steer, commit, or block). Store each iteration in IterationHistory with timestamps and analysis results.",
+            "status": "pending",
+            "testStrategy": "Unit test: verify iteration loop executes pipeline step and collects results. Verify IterationHistory records are created with correct status transitions. Test loop continues on failure and exits on success.",
+            "parentId": "undefined"
+          },
+          {
+            "id": 2,
+            "title": "Implement failure detection with output parsing and agent feedback analysis",
+            "description": "Build failure detection logic that parses task output, test results, and agent session feedback to identify failure indicators and track consecutive failures per step.",
+            "dependencies": [
+              1
+            ],
+            "details": "Implement failure detection in RalphOrchestrator: (1) Parse pipeline step output for failure indicators: check exit codes (non-zero), parse test result output for assertion failures/exceptions, detect error patterns in stderr. (2) Use AgentAdapter feedback mechanism to get agent session result status (success/failure/error). (3) Track consecutive failure count per step (store in IterationHistory.analysis JSON field). (4) Implement heuristics for common failure patterns (import errors, assertion failures, timeout, compilation errors). Log detailed failure analysis including source (exit code vs test framework vs agent status) and categorization (transient vs structural).",
+            "status": "pending",
+            "testStrategy": "Unit test: parse output with various failure indicators (non-zero exit, test failures, agent errors). Verify consecutive failure counter increments. Test that success resets counter. Test with FakeAgentAdapter returning different result statuses. Verify failure analysis JSON is correctly structured.",
+            "parentId": "undefined"
+          },
+          {
+            "id": 3,
+            "title": "Implement steering feedback mechanism with prompt composition and agent session resume",
+            "description": "Build steering feedback system that composes failure context prompts, resumes the agent session with corrective guidance, and stores steering interactions in IterationHistory.",
+            "dependencies": [
+              2
+            ],
+            "details": "Implement in RalphOrchestrator: (1) After failure detection, compose steering prompt that includes: failure details (what failed and why), step context (what the step was trying to accomplish), previous attempts (iteration history, prior failures), and request for corrective action. (2) Invoke agent session resume() via AgentAdapter with the steering prompt. (3) Collect agent response and new output. (4) Store steering interaction in IterationHistory: steering_prompt field, agent_response field, and updated analysis field. (5) Ensure the same agent session is resumed (use AgentSession ID from database) so context is preserved. Make steering prompts human-readable for operator inspection.",
+            "status": "pending",
+            "testStrategy": "Unit test: verify steering prompt composition includes all required context sections. Test agent session resume is called with correct prompt. Test steering interactions are stored in IterationHistory. Integration test with FakeAgentAdapter: inject failure, verify steering prompt is composed, verify agent responds, verify new iteration based on response.",
+            "parentId": "undefined"
+          },
+          {
+            "id": 4,
+            "title": "Implement no-progress detection with output diff comparison",
+            "description": "Build no-progress detection by comparing consecutive iteration outputs and triggering manual review after 2+ identical iterations without success.",
+            "dependencies": [
+              1
+            ],
+            "details": "Implement in RalphOrchestrator: (1) After each iteration completes, compare current iteration's collected output (stdout/stderr/test results) with previous iteration's output using diff logic (line-by-line comparison or content hash). (2) If outputs are identical and not yet successful, increment no-progress counter (store in IterationHistory.analysis). (3) If no-progress counter reaches 2 or higher, set IterationHistory status to 'blocked_no_progress' and halt iteration loop. (4) Trigger notification mechanism (e.g., set a flag or log alert) to notify operator that manual review is required. (5) Store the diff result and no-progress rationale in IterationHistory.analysis for operator inspection.",
+            "status": "pending",
+            "testStrategy": "Unit test: verify diff comparison correctly identifies identical vs different outputs. Test no-progress counter increments on identical iteration. Test status transitions to 'blocked_no_progress' after 2 identical iterations. Test that different output resets counter. Test with outputs that differ only in timestamps (should be treated as identical).",
+            "parentId": "undefined"
+          },
+          {
+            "id": 5,
+            "title": "Implement automatic git commit on success with ExecutionProvider integration",
+            "description": "Build automatic git commit functionality that invokes git commands through ExecutionProvider, composes commit messages with sprint/task/iteration context, pushes to configured branch, and stores commit SHA.",
+            "dependencies": [
+              1
+            ],
+            "details": "Implement in RalphOrchestrator: (1) After final iteration succeeds, compose commit message in format '[AUTO] Phase 2 pipeline: {sprint_name} task {task_id} (iteration {count})' with run/task context. (2) Invoke git add, git commit, and git push via ExecutionProvider in the project's working directory. (3) Capture and parse the commit SHA from git output or use git rev-parse HEAD. (4) Handle git errors gracefully (merge conflicts, authentication failures) and log failures without blocking the orchestration. (5) Store commit SHA in IterationHistory.next_action or dedicated commit_sha field. (6) Verify git operations use the configured project root and branch (from PipelineRun/Run context).",
+            "status": "pending",
+            "testStrategy": "Unit test: verify commit message is composed correctly with all context variables. Test git commands are invoked via ExecutionProvider with correct arguments. Test commit SHA is captured from git output. Test error handling when git operations fail (conflict, auth). Integration test: execute iteration that succeeds, verify git commit and push are called, verify commit SHA is stored in database.",
+            "parentId": "undefined"
+          },
+          {
+            "id": 6,
+            "title": "Write comprehensive unit and integration tests for RalphOrchestrator",
+            "description": "Implement comprehensive test suite covering iteration loop logic, failure detection, steering feedback, no-progress detection, git commit, and pause/resume checkpoint validation.",
+            "dependencies": [
+              1,
+              2,
+              3,
+              4,
+              5
+            ],
+            "details": "Create tests/ralph/test_orchestrator.py: (1) Unit tests for iteration loop: test execute→collect→analyze→decide flow, verify status transitions, test successful completion halts loop. (2) Failure detection tests: test parsing of various failure outputs, test consecutive failure tracking, test agent feedback integration. (3) Steering feedback tests: test prompt composition with context sections, test agent session resume, test steering interaction storage. (4) No-progress tests: test diff comparison, test counter increment on identical output, test 'blocked_no_progress' status after threshold. (5) Git commit tests: test message composition, test ExecutionProvider invocation, test SHA capture and storage, test error handling. (6) Integration tests with FakeAgentAdapter: execute multi-iteration pipeline with injected failures, verify steering occurs, verify commit on success. (7) Pause/resume tests: verify iteration state saved to database, test resume restores state and continues from checkpoint, test agent session is correctly restored from database.",
+            "status": "pending",
+            "testStrategy": "Use FakeAgentAdapter for all integration tests to ensure deterministic behavior. Inject failures via scripted agent responses and pipeline step outputs. Test with multi-step pipelines and verify iteration loop handles complexity. Mock ExecutionProvider or use real implementation to test git operations in isolated repo. Include edge cases: agent timeout during steering, git conflict on push, identical outputs with minor timestamp variations.",
+            "parentId": "undefined"
+          },
+          {
+            "id": 7,
+            "title": "IterationHistory model and RalphOrchestrator class: iteration loop logic (execute→collect→analyze→decide)",
+            "description": "",
+            "details": "",
+            "status": "pending",
+            "dependencies": [],
+            "parentTaskId": 23,
+            "parentId": "undefined"
+          },
+          {
+            "id": 8,
+            "title": "Failure detection: parse task output, test results, agent session feedback, track consecutive failures",
+            "description": "",
+            "details": "",
+            "status": "pending",
+            "dependencies": [],
+            "parentTaskId": 23,
+            "parentId": "undefined"
+          },
+          {
+            "id": 9,
+            "title": "Steering feedback mechanism: compose failure context prompt, resume agent session with feedback, store history",
+            "description": "",
+            "details": "",
+            "status": "pending",
+            "dependencies": [],
+            "parentTaskId": 23,
+            "parentId": "undefined"
+          },
+          {
+            "id": 10,
+            "title": "No-progress detection: compare iteration outputs (diff-based), trigger manual review after 2+ identical iterations",
+            "description": "",
+            "details": "",
+            "status": "pending",
+            "dependencies": [],
+            "parentTaskId": 23,
+            "parentId": "undefined"
+          },
+          {
+            "id": 11,
+            "title": "Automatic git commit on success: invoke git commands, compose commit message with context, push to branch",
+            "description": "",
+            "details": "",
+            "status": "pending",
+            "dependencies": [],
+            "parentTaskId": 23,
+            "parentId": "undefined"
+          },
+          {
+            "id": 12,
+            "title": "Unit and integration tests: iteration loop, failure detection, steering feedback, no-progress detection, commits, FakeAgentAdapter",
+            "description": "",
+            "details": "",
+            "status": "pending",
+            "dependencies": [],
+            "parentTaskId": 23,
+            "parentId": "undefined"
+          }
+        ],
+        "complexity": 7,
+        "recommendedSubtasks": 6,
+        "expansionPrompt": "Decompose Ralph orchestrator implementation into focused subtasks: (1) Create IterationHistory model and RalphOrchestrator class with iteration loop logic (execute→collect→analyze→decide); (2) Implement failure detection by parsing task output, test results, agent session feedback, and tracking consecutive failures per step; (3) Implement steering feedback mechanism: compose failure context prompt, resume agent session with feedback, store prompts/responses in history; (4) Implement no-progress detection by comparing consecutive iteration outputs (diff-based) and triggering manual review after 2+ identical iterations; (5) Implement automatic git commit on success: invoke git commands through ExecutionProvider, compose commit message with sprint/task/iteration context, push to configured branch, store commit SHA; (6) Write comprehensive unit tests for iteration loop, failure detection parsing, steering feedback composition, no-progress detection, commit creation; include integration tests with FakeAgentAdapter, injected failures, and pause/resume checkpoint validation."
+      },
+      {
+        "id": "24",
+        "title": "Implement pipeline visualization engine and desktop/mobile graph rendering",
+        "description": "Build real-time visualization of pipeline execution showing step states, dependencies, compensation paths, and inspector panel for detailed inspection of results.",
+        "details": "Create app/pipelines/visualization.py:\n- PipelineGraphBuilder: converts Pipeline + PipelineRun state to graph JSON format\n- Graph format: nodes (steps with state: pending/running/success/failed), edges (dependencies), compensation_paths\n- Compute layout: left-to-right on desktop (800px+), top-to-bottom on mobile (<800px)\n\nCreate templates in app/templates/pipelines/:\n- run_detail.html: displays graph canvas (use SVG or canvas), right-hand inspector panel, iteration timeline\n- Graph rendering: desktop uses d3.js or similar for left-to-right DAG layout, mobile uses custom flex layout for vertical stacking\n- Inspector panel: shows selected step details: prompts (from agent session), replies, test results, file changes, artifacts\n- Iteration timeline: horizontal scrollable list of iterations with status badges, click to view iteration results\n\nImplement routes in app/pipelines/views.py:\n- GET /projects/<id>/sprints/<id>/run/<id> - display pipeline run with graph\n- GET /projects/<id>/sprints/<id>/run/<id>/graph.json - returns graph data for rendering (real-time updates via polling/websocket)\n- GET /projects/<id>/sprints/<id>/run/<id>/step/<step_id>.json - returns step details for inspector\n- GET /projects/<id>/sprints/<id>/run/<id>/artifacts - list artifacts from run\n- GET /projects/<id>/sprints/<id>/run/<id>/export - export run as JSON/CSV\n\nImplement step state indicators: color-coded by status (pending: gray, running: blue, success: green, failed: red, compensation: yellow). Show compensation paths (dashed edges to retry/recovery steps). Highlight currently executing step with animation.",
+        "testStrategy": "Playwright tests in tests/pipelines/test_visualization.py: test graph renders with correct node positions, test step colors reflect status, test clicking step shows inspector panel, test mobile viewport stacks vertically, test iteration timeline displays all iterations, test artifact list loads. Test responsive behavior at 375px and 1280px viewports. Mock PipelineRun state with various step statuses to verify rendering.",
+        "priority": "medium",
+        "dependencies": [
+          "22",
+          "23"
+        ],
+        "status": "pending",
+        "subtasks": [],
+        "complexity": 6,
+        "recommendedSubtasks": 5,
+        "expansionPrompt": "Break down pipeline visualization implementation into focused tasks: (1) Create PipelineGraphBuilder in app/pipelines/visualization.py to convert Pipeline + PipelineRun state to graph JSON format (nodes with states, edges for dependencies, compensation paths); (2) Implement responsive graph layout logic: left-to-right DAG layout for desktop (800px+) using d3.js or similar, top-to-bottom custom flex layout for mobile (<800px); (3) Create run_detail.html template with SVG/canvas graph display, right-hand inspector panel showing step details (agent prompts, replies, test results, file changes, artifacts), and iteration timeline; (4) Implement Flask routes (GET .../run/<id>, GET .../graph.json for real-time updates, GET .../step/<id>.json for inspector, GET .../artifacts, GET .../export) with proper state handling and artifact linkage; (5) Write Playwright tests covering graph rendering with correct node positions, step color coding by status, inspector panel interaction, mobile viewport vertical stacking, iteration timeline display, responsive behavior at 375px and 1280px, and artifact list loading."
+      },
+      {
+        "id": "25",
+        "title": "Implement artifact library with collection, filtering, and comparison tools",
+        "description": "Build centralized artifact storage and retrieval system capturing screenshots, traces, logs, and diffs. Implement filtering, search, comparison, and originating step linkage.",
+        "details": "Create app/artifacts/models.py with SQLAlchemy models:\n- Artifact: id, run_id, step_id, artifact_type (screenshot/trace/log/diff/file), name, file_path, mime_type, created_at, metadata (JSON: resolution, file_size, etc.)\n- ArtifactTag: id, artifact_id, tag (for categorization)\n- ArtifactComparison: id, artifact_a_id, artifact_b_id, comparison_type (diff/visual_diff), result (JSON)\n\nImplement ArtifactCollector in app/artifacts/collector.py:\n- Hooks into PipelineStep completion\n- Collects artifacts from step output directory (via ExecutionProvider file listing)\n- Classifies by file type: .png/.jpg → screenshot, .html → trace, .log → log, .diff → diff\n- Stores in AGENTFLOW_ARTIFACT_DIR/pipelines/<run_id>/<step_id>/\n- Links Artifact to originating Step via step_id\n\nImplement routes in app/artifacts/views.py:\n- GET /projects/<id>/sprints/<id>/run/<id>/artifacts - list artifacts with filters (type, date range, step)\n- GET /projects/<id>/artifacts/<id> - display artifact with metadata\n- GET /projects/<id>/artifacts/<id>/preview - return artifact preview/thumbnail\n- POST /projects/<id>/artifacts/<id>/compare - compare two artifacts\n- GET /projects/<id>/artifacts/search?q=<term> - full-text search artifacts (via file names, metadata)\n\nImplement ArtifactComparator for visual diffs (screenshots), text diffs (logs), file diffs. Store comparison results in ArtifactComparison. Implement filtering UI: multi-select type, date range picker, step selector. Support export as CSV with artifact metadata and links.",
+        "testStrategy": "Unit tests in tests/artifacts/test_models.py: test artifact creation and linking to steps. Integration test: execute pipeline step, verify artifacts are collected and classified. Test comparison of two artifacts produces diff. Test search returns correct artifacts. Playwright test: artifacts list page displays filters correctly, filtering works, comparison view renders diff.",
+        "priority": "medium",
+        "dependencies": [
+          "22",
+          "23"
+        ],
+        "status": "pending",
+        "subtasks": [],
+        "complexity": 5,
+        "recommendedSubtasks": 5,
+        "expansionPrompt": "Decompose artifact library implementation into focused tasks: (1) Create Artifact, ArtifactTag, and ArtifactComparison SQLAlchemy models with proper relationships to PipelineStep, metadata JSON storage, and comparison result structures; (2) Implement ArtifactCollector class that hooks into PipelineStep completion, lists files from step output directory via ExecutionProvider, classifies artifacts by type (screenshot/trace/log/diff), and stores in appropriate directories with proper linking to originating steps; (3) Implement ArtifactComparator for visual diffs (screenshots), text diffs (logs), and file diffs with diff result storage in ArtifactComparison records; (4) Implement Flask routes (GET .../artifacts list with filters, GET .../artifacts/<id>, GET .../artifacts/<id>/preview, POST .../artifacts/<id>/compare, GET .../artifacts/search) with filtering by type/date/step and full-text search capability; (5) Write unit tests for artifact creation and step linking, integration tests for artifact collection from executed steps, comparison functionality, search/filtering; include Playwright tests for artifacts list UI with filter interaction and comparison view rendering."
+      },
+      {
+        "id": "26",
+        "title": "Implement acceptance criteria management and evidence tracking",
+        "description": "Create first-class acceptance criteria system with templates, approval workflows, and traceability linking criteria to verification artifacts and test results.",
+        "details": "Create app/acceptance/models.py with SQLAlchemy models:\n- AcceptanceCriteria: id, task_id, title, description, status (draft/approved/verified/failed), created_at, approved_at, verified_at\n- AcceptanceCriteriaTemplate: id, name, description, template_text (markdown), fields (JSON: variable placeholders)\n- CriteriaEvidence: id, criteria_id, evidence_type (artifact/test_result/manual_approval), reference_id (artifact_id or test_id), verified_by, verified_at, notes\n\nImplement CriteriaTemplates in app/acceptance/templates.py:\n- \"API endpoint returns 200 with correct schema\"\n- \"All unit tests pass (100% green)\"\n- \"Integration test with real database succeeds\"\n- \"Screenshot matches design mock\"\n- \"Performance metric under {threshold}ms\"\n- \"Security scan finds no critical issues\"\n\nImplement routes in app/acceptance/views.py:\n- GET /tasks/<id>/criteria - list criteria for task\n- POST /tasks/<id>/criteria - create new criteria (with template support)\n- PUT /tasks/<id>/criteria/<id> - update criteria, attach evidence\n- POST /tasks/<id>/criteria/<id>/verify - mark criteria verified with evidence link\n- GET /tasks/<id>/criteria/<id>/evidence - show linked artifacts and test results\n- GET /templates - list acceptance criteria templates\n\nImplement automatic evidence linking: when artifact/test result is created during pipeline execution, attempt to match against open criteria (keyword matching on test name, artifact type). Show suggested linkage to operator. Implement approval workflow: criteria must be approved by non-implementer (enforced via user roles) before task completion. Track verification timestamp and approver identity.",
+        "testStrategy": "Unit tests in tests/acceptance/test_models.py: test criteria creation from template, test evidence linking, test status transitions (draft→approved→verified). Integration test: create task with criteria, execute pipeline that creates matching artifact, verify auto-linkage suggestion appears. Playwright test: criteria management UI allows adding/verifying criteria, test approval flow prevents unapproved completion.",
+        "priority": "medium",
+        "dependencies": [
+          "20",
+          "25"
+        ],
+        "status": "pending",
+        "subtasks": [],
+        "complexity": 5,
+        "recommendedSubtasks": 5,
+        "expansionPrompt": "Break down acceptance criteria system implementation into focused tasks: (1) Create AcceptanceCriteria, AcceptanceCriteriaTemplate, and CriteriaEvidence SQLAlchemy models with relationships to tasks and artifacts, template support with field placeholders, and approval workflow fields (approver, timestamps); (2) Implement acceptance criteria templates library with predefined templates (API responses, test coverage, performance, security, etc.) and template variable substitution logic; (3) Implement evidence linking system: automatic keyword matching between artifacts/test results and open criteria, suggestion display to operator, manual linking interface; (4) Implement approval workflow: enforce non-implementer approvals, track approver identity and timestamp, prevent task completion without verified criteria; (5) Write unit tests for criteria creation from templates, evidence linking, status transitions; integration tests for auto-linkage suggestion from executed pipelines; Playwright tests for criteria management UI, approval workflow, and unapproved completion prevention."
       }
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-09-26T00:25:27.439Z",
-      "taskCount": 16,
-      "completedCount": 16,
+      "lastModified": "2026-09-26T11:08:30.678Z",
+      "taskCount": 26,
+      "completedCount": 20,
       "tags": [
         "master"
       ]

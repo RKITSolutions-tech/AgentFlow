@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% from "_project_tabs.html" import project_tabs %}
+{% from "sprints/_helpers.html" import sprint_badge %}
+{% block title %}{{ project.name }} - Sprints - AgentFlow{% endblock %}
+{% block content %}
+  {{ project_tabs(project, none, 'sprints') }}
+  <h1>{{ project.name }} - Sprints</h1>
+  <p><a class="btn-primary" href="{{ url_for('sprints.new_sprint', project_id=project.id) }}">New sprint</a></p>
+  <table class="table-compact">
+    <thead><tr><th>Sprint</th><th>Status</th><th>Goal</th><th>Target</th></tr></thead>
+    <tbody>
+      {% for s in sprints %}
+        <tr data-row>
+          <td class="wrap-cell"><a href="{{ url_for('sprints.view_sprint', project_id=project.id, sprint_id=s.id) }}">{{ s.name }}</a></td>
+          <td>{{ sprint_badge(s.status) }}</td>
+          <td class="wrap-cell">{{ s.goal }}</td>
+          <td>{{ s.target_date or '–' }}</td>
+        </tr>
+      {% else %}
+        <tr><td colspan="4">No sprints yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}

@@ -1,0 +1,168 @@
+{% extends "base.html" %}
+{% from "_project_tabs.html" import project_tabs %}
+{% from "sprints/_helpers.html" import sprint_badge %}
+{% block title %}{{ sprint.name }} - {{ project.name }} - AgentFlow{% endblock %}
+{% block content %}
+  {{ project_tabs(project, none, 'sprints') }}
+  {% if planning %}<div data-poll-plan="{{ url_for('sprints.plan_status', project_id=project.id, sprint_id=sprint.id) }}" hidden></div>{% endif %}
+  <h1>{{ sprint.name }} {{ sprint_badge(sprint.status) }}</h1>
+  <p class="wrap-cell"><strong>Goal:</strong> {{ sprint.goal or '(none)' }}</p>
+  {% if sprint.description %}<p class="wrap-cell">{{ sprint.description }}</p>{% endif %}
+  <p class="form-hint">Profile: {{ sprint.planning_profile|replace('_', ' ')|capitalize }}{% if sprint.target_date %} &middot; target {{ sprint.target_date }}{% endif %}
+    {% if sprint.approved_at %} &middot; approved by {{ sprint.approved_by }} on {{ sprint.approved_at[:10] }}{% endif %}</p>
+
+  {% set locked = sprint.status not in ('DRAFT', 'PLANNING', 'REVIEW') %}
+
+  <h2>Backlog items</h2>
+  <ul class="backlog-cards">
+    {% for item in items %}
+      <li class="backlog-card" data-row>
+        <h3><a href="{{ url_for('backlog.view_item', project_id=project.id, item_id=item.id) }}">#{{ item.id }} {{ item.title or item.text[:60] or 'Attachment only' }}</a></h3>
+        <span class="run-status">{{ item.status|capitalize }}</span>
+        {% if item.status == 'SELECTED' and not locked %}
+          <div class="row-actions"><button type="button" data-ajax-action="{{ url_for('sprints.remove_item', project_id=project.id, sprint_id=sprint.id, item_id=item.id) }}" data-method="DELETE">Remove</button></div>
+        {% endif %}
+      </li>
+    {% else %}
+      <li class="form-hint">None selected.</li>
+    {% endfor %}
+  </ul>
+  {% if candidates and not locked %}
+    <form method="post" action="{{ url_for('sprints.add_items', project_id=project.id, sprint_id=sprint.id) }}" class="stacked" data-ajax-form>
+      <label>Add triaged item
+        <select name="item_ids">{% for c in candidates %}<option value="{{ c.id }}">#{{ c.id }} {{ (c.title or c.text)[:60] }}</option>{% endfor %}</select>
+      </label>
+      <button type="submit">Add to sprint</button>
+    </form>
+  {% endif %}
+
+  <h2>Documentation</h2>
+  <ul>
+    {% for d in docs %}
+      <li class="wrap-cell" data-row>{{ d.reference }} {% if d.note %}<span class="form-hint">{{ d.note }}</span>{% endif %}
+        {% if not locked %}<button type="button" class="link-danger" data-ajax-action="{{ url_for('sprints.remove_document', project_id=project.id, sprint_id=sprint.id, ref_id=d.id) }}" data-method="DELETE">Remove</button>{% endif %}</li>
+    {% else %}
+      <li class="form-hint">None referenced.</li>
+    {% endfor %}
+  </ul>
+  {% if not locked %}
+    <form method="post" action="{{ url_for('sprints.add_document', project_id=project.id, sprint_id=sprint.id) }}" class="stacked" data-ajax-form>
+      <label>Path or URL <input name="reference" required></label>
+      <button type="submit">Add reference</button>
+    </form>
+  {% endif %}
+
+  <h2>Planning</h2>
+  {% if sprint.status == 'DRAFT' %}
+    <form method="post" action="{{ url_for('sprints.plan', project_id=project.id, sprint_id=sprint.id) }}" data-ajax-form>
+      <button type="submit" class="btn-primary">Generate plan</button>
+    </form>
+  {% elif sprint.status == 'PLANNING' %}
+    <p class="form-hint" data-plan-status>The planning agent is working&hellip; this page updates when it finishes.</p>
+  {% elif sprint.status == 'REVIEW' %}
+    <form method="post" action="{{ url_for('sprints.plan', project_id=project.id, sprint_id=sprint.id) }}" data-ajax-form>
+      <input type="hidden" name="replan" value="1">
+      <button type="submit">Refine plan (keeps tasks you edited)</button>
+    </form>
+  {% endif %}
+
+  {% if work %}
+    <h2>Task graph</h2>
+    <ol class="task-graph" aria-label="Task dependency graph">
+      {% for layer in layers %}
+        <li class="task-layer">
+          <ul>
+            {% for w in layer %}
+              <li class="task-node task-{{ w.status|lower }}"><strong>{{ w.title }}</strong>
+                {% if w.depends_on %}<span class="form-hint">after {% for d in w.depends_on %}{{ titles[d] }}{% if not loop.last %}, {% endif %}{% endfor %}</span>{% endif %}</li>
+            {% endfor %}
+          </ul>
+        </li>
+      {% endfor %}
+    </ol>
+
+    <h2>Proposed tasks</h2>
+    <ul class="backlog-cards">
+      {% for w in work %}
+        <li class="backlog-card" data-row>
+          <form method="post" action="{{ url_for('sprints.edit_task', project_id=project.id, sprint_id=sprint.id, work_id=w.id) }}" class="stacked" data-ajax-form>
+            <span class="run-status">{{ w.status|capitalize }}</span>
+            <label>Title <input name="title" value="{{ w.title }}" {% if locked %}readonly{% endif %}></label>
+            <label>Description <textarea name="description" rows="2" {% if locked %}readonly{% endif %}>{{ w.description }}</textarea></label>
+            <label>Acceptance criteria, one per line
+              <textarea name="acceptance" rows="3" {% if locked %}readonly{% endif %}>{{ w.acceptance|join('\n') }}</textarea>
+            </label>
+            <label>Estimate <input name="estimate" value="{{ w.estimate }}" maxlength="20" {% if locked %}readonly{% endif %}></label>
+            <fieldset>
+              <legend>Depends on</legend>
+              <input type="hidden" name="set_dependencies" value="1">
+              {% for other in work if other.id != w.id %}
+                <label class="backlog-select"><input type="checkbox" name="depends_on" value="{{ other.id }}"{% if other.id in w.depends_on %} checked{% endif %}{% if locked %} disabled{% endif %}> {{ other.title }}</label>
+              {% endfor %}
+            </fieldset>
+            {% if not locked %}
+              <div class="row-actions">
+                <button type="submit" name="status" value="REVIEWED">Save &amp; mark reviewed</button>
+                <button type="button" class="link-danger" data-ajax-action="{{ url_for('sprints.delete_task', project_id=project.id, sprint_id=sprint.id, work_id=w.id) }}" data-confirm="Remove this task?">Remove</button>
+              </div>
+            {% endif %}
+          </form>
+        </li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+
+  {% if sprint.status in ('REVIEW', 'PLANNING', 'DRAFT') %}
+    <details>
+      <summary>Add a task manually</summary>
+      <form method="post" action="{{ url_for('sprints.add_task', project_id=project.id, sprint_id=sprint.id) }}" class="stacked" data-ajax-form>
+        <label>Title <input name="title" required></label>
+        <label>Description <textarea name="description" rows="2"></textarea></label>
+        <label>Acceptance criteria, one per line <textarea name="acceptance" rows="2"></textarea></label>
+        <fieldset>
+          <legend>Covers backlog items</legend>
+          {% for item in items %}<label class="backlog-select"><input type="checkbox" name="backlog_item_ids" value="{{ item.id }}"> #{{ item.id }}</label>{% endfor %}
+        </fieldset>
+        <button type="submit">Add task</button>
+      </form>
+    </details>
+  {% endif %}
+
+  <h2>Readiness</h2>
+  <ul class="readiness">
+    {% for c in readiness %}
+      <li class="readiness-{{ c.status|lower }}"><span class="run-status run-status-{{ {'PASS': 'passed', 'FAIL': 'failed', 'WARN': 'paused'}[c.status] }}">{{ c.status }}</span>
+        {{ c.check_name|replace('_', ' ')|capitalize }} <span class="form-hint">{{ c.details }}</span></li>
+    {% else %}
+      <li class="form-hint">Not checked yet.</li>
+    {% endfor %}
+  </ul>
+
+  {% if sprint.status == 'REVIEW' %}
+    <form method="post" action="{{ url_for('sprints.approve', project_id=project.id, sprint_id=sprint.id) }}" class="stacked" data-ajax-form>
+      <label>Your name (signs the approval) <input name="approved_by" required maxlength="80"></label>
+      <label>Comment <input name="comment" maxlength="500"></label>
+      <button type="submit" class="btn-primary">Approve sprint</button>
+    </form>
+  {% elif sprint.status == 'READY' %}
+    <form method="post" action="{{ url_for('sprints.revoke', project_id=project.id, sprint_id=sprint.id) }}" class="stacked" data-ajax-form>
+      <label>Your name <input name="approved_by" required maxlength="80"></label>
+      <label>Reason <input name="comment" maxlength="500"></label>
+      <button type="submit">Revoke approval</button>
+    </form>
+  {% endif %}
+
+  {% if approvals %}
+    <h2>Approval history</h2>
+    <table class="table-compact">
+      <thead><tr><th>When</th><th>Decision</th><th>By</th><th>Comment</th></tr></thead>
+      <tbody>{% for a in approvals %}<tr><td>{{ a.created_at }}</td><td>{{ a.decision|capitalize }}</td><td>{{ a.approved_by }}</td><td class="wrap-cell">{{ a.comment }}</td></tr>{% endfor %}</tbody>
+    </table>
+  {% endif %}
+
+  {% if sprint.status not in ('COMPLETE', 'CANCELLED') %}
+    <form method="post" action="{{ url_for('sprints.cancel', project_id=project.id, sprint_id=sprint.id) }}" data-ajax-form>
+      <button type="submit" class="link-danger">Cancel sprint</button>
+    </form>
+  {% endif %}
+{% endblock %}

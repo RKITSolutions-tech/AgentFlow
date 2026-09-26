@@ -1,0 +1,36 @@
+{% macro backlog_nav(project, active, counts) %}
+  <nav class="backlog-counts" aria-label="Backlog">
+    <a href="{{ url_for('backlog.inbox', project_id=project.id) }}"{% if active == 'inbox' %} aria-current="true"{% endif %}>Inbox <span class="count">{{ counts.get('INBOX', 0) + counts.get('TRIAGED', 0) }}</span></a>
+    <a href="{{ url_for('backlog.triage', project_id=project.id) }}"{% if active == 'triage' %} aria-current="true"{% endif %}>Triage <span class="count">{{ counts.get('INBOX', 0) }}</span></a>
+    <a href="{{ url_for('backlog.sprint_items', project_id=project.id) }}"{% if active == 'sprint' %} aria-current="true"{% endif %}>Sprint <span class="count">{{ counts.get('SELECTED', 0) }}</span></a>
+  </nav>
+{% endmacro %}
+
+{% macro priority_label(priority) -%}
+  {%- if priority %}<span class="priority-{{ priority|lower }}">{{ priority|capitalize }}</span>{% else %}<span class="form-hint">No priority</span>{% endif -%}
+{%- endmacro %}
+
+{% macro file_list(project, item, files) %}
+  {% if files %}
+    <ul class="backlog-files">
+      {% for f in files %}
+        {% set href = url_for('backlog.download_attachment', project_id=project.id, item_id=item.id, attachment_id=f.id) %}
+        <li>
+          {% if f.kind == 'IMAGE' and not (f.name|lower).endswith('.svg') %}
+            <a href="{{ href }}"><img src="{{ href }}" alt="{{ f.name }}" loading="lazy"></a>
+          {% else %}
+            <a href="{{ href }}">{{ f.name }}</a>
+          {% endif %}
+        </li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+{% endmacro %}
+
+{% macro priority_select(project, item, priorities) %}
+  <select name="priority" aria-label="Priority for item {{ item.id }}"
+          data-ajax-change="{{ url_for('backlog.update_item', project_id=project.id, item_id=item.id) }}">
+    <option value="">No priority</option>
+    {% for p in priorities %}<option value="{{ p }}"{% if p == item.priority %} selected{% endif %}>{{ p|capitalize }}</option>{% endfor %}
+  </select>
+{% endmacro %}

@@ -1,0 +1,93 @@
+{
+	"meta": {
+		"generatedAt": "2026-09-26T08:05:43.108Z",
+		"tasksAnalyzed": 10,
+		"totalTasks": 26,
+		"analysisCount": 10,
+		"thresholdScore": 5,
+		"projectName": "Task Master",
+		"usedResearch": false
+	},
+	"complexityAnalysis": [
+		{
+			"taskId": 17,
+			"taskTitle": "Design and implement Backlog data model and database schema",
+			"complexityScore": 4,
+			"recommendedSubtasks": 4,
+			"expansionPrompt": "Break down the backlog data model implementation into focused subtasks: (1) Create SQLAlchemy ORM models for BacklogItem, BacklogAttachment, and TriageHistory with relationships and field definitions; (2) Design and implement Alembic migrations for schema creation and ensure migration compatibility; (3) Implement CRUD operations and query methods in persistence.py with proper indexing strategy; (4) Implement file upload path traversal validation and artifact storage logic following existing security patterns, with comprehensive unit tests for all components.",
+			"reasoning": "This task involves straightforward database schema design and ORM implementation using existing patterns (SQLAlchemy, Alembic) already established in the codebase. The models are relatively simple with clear relationships. Security concerns (path traversal) are well-understood and can follow existing patterns in app/security.py. The main effort is systematic implementation of CRUD operations, migrations, and tests rather than architectural complexity. No external integrations or novel algorithms required."
+		},
+		{
+			"taskId": 18,
+			"taskTitle": "Implement Backlog UI pages (inbox, triage, sprint selection)",
+			"complexityScore": 5,
+			"recommendedSubtasks": 5,
+			"expansionPrompt": "Decompose the backlog UI implementation into focused frontend tasks: (1) Create inbox.html template with item list, quick-add form, and file upload widget following app.css design tokens and mobile responsiveness guidelines; (2) Implement triage.html with card-based layout, inline editing (status/priority), and bulk operations UI; (3) Implement Flask routes (GET/POST/PUT/DELETE endpoints) with proper JSON response handling for AJAX calls; (4) Implement AJAX handlers in app.js for in-place updates (status changes, bulk operations) with proper error handling; (5) Write comprehensive Playwright tests covering inbox/triage workflows, file uploads, mobile viewport behavior, and permission validation across both viewports.",
+			"reasoning": "This task requires coordinating multiple UI pages with interactive elements (file uploads, inline editing, bulk operations) and proper AJAX integration. While individual components are not complex, the coordination across multiple templates, routes, and JavaScript handlers adds moderate complexity. Mobile responsiveness testing across multiple viewports adds another dimension. The task depends on completed backlog models (task 17) but is otherwise self-contained."
+		},
+		{
+			"taskId": 19,
+			"taskTitle": "Design and implement Sprint data model and planning workflow",
+			"complexityScore": 6,
+			"recommendedSubtasks": 5,
+			"expansionPrompt": "Break down sprint data model and planning workflow into: (1) Create SQLAlchemy models (Sprint, SprintBacklogLink, SprintDependency, SprintReadinessCheck) with proper relationships and status enums; (2) Implement PlanningAgent class that accepts Sprint and BacklogItems, wraps AgentAdapter abstraction, and generates TaskProposal objects; (3) Implement readiness check system with pass/fail logic for dependencies, minimum items, goal definition, and resource conflicts; (4) Implement approval workflow with approval history tracking, timestamps, and approver identity; (5) Write unit and integration tests using FakeAgentAdapter for deterministic planning agent testing, and tests for readiness checks and approval workflows.",
+			"reasoning": "This task introduces moderate architectural complexity through the PlanningAgent abstraction that must interface with existing AgentAdapter patterns. The readiness check system requires designing validation logic for multiple interdependent conditions (dependency resolution, resource conflicts). Integration with existing AgentAdapter requires understanding the existing session/event model and how to generate deterministic proposals. Testing with FakeAgentAdapter adds complexity around mocking agent responses. This is a foundational sprint-management task with wider architectural implications."
+		},
+		{
+			"taskId": 20,
+			"taskTitle": "Implement Sprint planning UI and approval workflow interface",
+			"complexityScore": 6,
+			"recommendedSubtasks": 5,
+			"expansionPrompt": "Decompose sprint planning UI and approval interface into focused tasks: (1) Create planning.html template with sprint creation form, backlog item selection (checkboxes), goal and documentation link fields, trigger button, and async job tracking display; (2) Create tasks_review.html for displaying AI-generated task proposals with acceptance criteria, inline editing capability, dependency visualization, and resource estimates; (3) Create readiness_review.html showing readiness check results and approval form with signature/comment fields; (4) Implement Flask routes (GET /sprints/new, POST /sprints, GET /sprints/<id>/tasks, PUT /sprints/<id>/tasks/<id>, POST /sprints/<id>/approve) with async job polling and proper status transitions; (5) Write Playwright tests covering sprint creation, planning trigger, async polling, approval flow, mobile graph rendering, and permission validation (non-leads cannot approve).",
+			"reasoning": "This task combines UI development with async job tracking and complex task graph visualization. The planning UI requires integration with the PlanningAgent (task 19), handling async execution, and polling for results. The task graph visualization requires responsive layout handling (left-to-right desktop, top-to-bottom mobile). The approval workflow must coordinate with sprint readiness checks. Multiple templates and complex state management make this moderately complex, though the individual pieces follow established patterns."
+		},
+		{
+			"taskId": 21,
+			"taskTitle": "Define and implement Pipeline data model and YAML/JSON pipeline format",
+			"complexityScore": 6,
+			"recommendedSubtasks": 5,
+			"expansionPrompt": "Break down pipeline data model and format implementation into: (1) Define YAML/JSON schema in app/pipelines/schema.py with clear structure for steps, dependencies, compensation strategies, and rigging setup/teardown; (2) Create SQLAlchemy models (Pipeline, PipelineRun, PipelineStep, SubPipeline) with proper relationships, status enums, and JSON configuration storage; (3) Implement PipelineValidator to check step references, detect dependency cycles (DAG validation), validate required fields, and enforce schema constraints; (4) Implement PipelineComposer for SubPipeline expansion and composition into executable steps; (5) Write comprehensive unit tests covering schema validation, pipeline parsing (YAML/JSON), DAG cycle detection, SubPipeline composition, and compensation config preservation.",
+			"reasoning": "This task requires defining a robust domain-specific language (DSL) for pipelines with careful schema design to support complex features (compensation, rigging, dependencies). The PipelineValidator and PipelineComposer classes introduce algorithmic complexity (DAG validation with cycle detection, SubPipeline expansion). Schema design decisions must be made carefully to support future pipeline types and avoid over-complication. The task is moderately complex due to the need for thorough validation and proper schema documentation."
+		},
+		{
+			"taskId": 22,
+			"taskTitle": "Implement deterministic pipeline execution engine",
+			"complexityScore": 8,
+			"recommendedSubtasks": 6,
+			"expansionPrompt": "Break down pipeline execution engine into focused implementation tasks: (1) Design and implement PipelineExecutor class with state management (current_step_id, step_results), dependency resolution using topological sort, and step sequencing logic (sequential/parallel with constraints); (2) Implement rigging support: execute setup steps before first step, teardown on completion/error, with proper error handling; (3) Create StepExecutor subclasses (TaskStepExecutor, CommandStepExecutor, ApprovalStepExecutor, SubPipelineExecutor) with appropriate execution logic and output capture; (4) Implement approval gate pausing/resuming: persist execution state, allow operator approval via UI, resume from checkpoint; (5) Implement compensation strategies: retry with exponential backoff, skip failures, abort on critical errors, timeout detection with no-progress monitoring; (6) Write comprehensive unit tests for step sequencing, rigging, approval gates, compensation retry logic, timeout handling, and integration tests with FakeAgentAdapter and state restoration testing.",
+			"reasoning": "This is a high-complexity task involving a sophisticated execution engine with state management, multiple step executor types, and sophisticated error handling. The topological sort for dependency resolution, combined with support for parallel/sequential execution with constraints, requires careful algorithmic design. The compensation system with retry logic and backoff introduces state machine complexity. The pause/resume mechanism requires careful transaction handling and state persistence. Integration with existing ExecutionProvider and AgentAdapter requires deep understanding of both abstractions. This is a critical task with significant implementation and testing scope."
+		},
+		{
+			"taskId": 23,
+			"taskTitle": "Implement Ralph orchestration agent with failure feedback and iteration",
+			"complexityScore": 7,
+			"recommendedSubtasks": 6,
+			"expansionPrompt": "Decompose Ralph orchestrator implementation into focused subtasks: (1) Create IterationHistory model and RalphOrchestrator class with iteration loop logic (execute→collect→analyze→decide); (2) Implement failure detection by parsing task output, test results, agent session feedback, and tracking consecutive failures per step; (3) Implement steering feedback mechanism: compose failure context prompt, resume agent session with feedback, store prompts/responses in history; (4) Implement no-progress detection by comparing consecutive iteration outputs (diff-based) and triggering manual review after 2+ identical iterations; (5) Implement automatic git commit on success: invoke git commands through ExecutionProvider, compose commit message with sprint/task/iteration context, push to configured branch, store commit SHA; (6) Write comprehensive unit tests for iteration loop, failure detection parsing, steering feedback composition, no-progress detection, commit creation; include integration tests with FakeAgentAdapter, injected failures, and pause/resume checkpoint validation.",
+			"reasoning": "This task is highly complex due to the coordination of multiple sophisticated systems: iteration loop logic, failure detection with output parsing heuristics, steering feedback that must compose coherent prompts, no-progress detection with diff logic, and automatic git operations. The failure detection requires robust parsing logic that works across different agent types and output formats. The steering feedback mechanism must intelligently analyze failures and compose prompts that guide the agent to corrective action. The iteration loop must maintain coherent state across multiple agent sessions and handle edge cases (agent failure, git conflicts). This is a critical integration task requiring careful design and extensive testing."
+		},
+		{
+			"taskId": 24,
+			"taskTitle": "Implement pipeline visualization engine and desktop/mobile graph rendering",
+			"complexityScore": 6,
+			"recommendedSubtasks": 5,
+			"expansionPrompt": "Break down pipeline visualization implementation into focused tasks: (1) Create PipelineGraphBuilder in app/pipelines/visualization.py to convert Pipeline + PipelineRun state to graph JSON format (nodes with states, edges for dependencies, compensation paths); (2) Implement responsive graph layout logic: left-to-right DAG layout for desktop (800px+) using d3.js or similar, top-to-bottom custom flex layout for mobile (<800px); (3) Create run_detail.html template with SVG/canvas graph display, right-hand inspector panel showing step details (agent prompts, replies, test results, file changes, artifacts), and iteration timeline; (4) Implement Flask routes (GET .../run/<id>, GET .../graph.json for real-time updates, GET .../step/<id>.json for inspector, GET .../artifacts, GET .../export) with proper state handling and artifact linkage; (5) Write Playwright tests covering graph rendering with correct node positions, step color coding by status, inspector panel interaction, mobile viewport vertical stacking, iteration timeline display, responsive behavior at 375px and 1280px, and artifact list loading.",
+			"reasoning": "This task requires careful UI/UX design for complex state visualization (pipeline DAG with multiple status types and compensation paths). The responsive layout challenge (left-to-right vs. top-to-bottom with proper spacing) adds complexity. The inspector panel must coordinate with multiple data sources (agent sessions, test results, artifacts). Real-time updates via polling/websocket require careful state management. The visualization is user-facing and requires thorough testing across multiple viewports. This is moderately complex primarily due to the responsive design and multi-source data coordination."
+		},
+		{
+			"taskId": 25,
+			"taskTitle": "Implement artifact library with collection, filtering, and comparison tools",
+			"complexityScore": 5,
+			"recommendedSubtasks": 5,
+			"expansionPrompt": "Decompose artifact library implementation into focused tasks: (1) Create Artifact, ArtifactTag, and ArtifactComparison SQLAlchemy models with proper relationships to PipelineStep, metadata JSON storage, and comparison result structures; (2) Implement ArtifactCollector class that hooks into PipelineStep completion, lists files from step output directory via ExecutionProvider, classifies artifacts by type (screenshot/trace/log/diff), and stores in appropriate directories with proper linking to originating steps; (3) Implement ArtifactComparator for visual diffs (screenshots), text diffs (logs), and file diffs with diff result storage in ArtifactComparison records; (4) Implement Flask routes (GET .../artifacts list with filters, GET .../artifacts/<id>, GET .../artifacts/<id>/preview, POST .../artifacts/<id>/compare, GET .../artifacts/search) with filtering by type/date/step and full-text search capability; (5) Write unit tests for artifact creation and step linking, integration tests for artifact collection from executed steps, comparison functionality, search/filtering; include Playwright tests for artifacts list UI with filter interaction and comparison view rendering.",
+			"reasoning": "This task involves building a comprehensive artifact management system with multiple classification types, comparison logic, and flexible filtering. The artifact collector requires integration with ExecutionProvider for file listing and classification logic. The comparison system must support multiple formats (visual, text, file diffs). The filtering and search UI adds moderate complexity. The system is moderately complex due to multiple integration points and the need for robust artifact classification logic, but individual components follow established patterns."
+		},
+		{
+			"taskId": 26,
+			"taskTitle": "Implement acceptance criteria management and evidence tracking",
+			"complexityScore": 5,
+			"recommendedSubtasks": 5,
+			"expansionPrompt": "Break down acceptance criteria system implementation into focused tasks: (1) Create AcceptanceCriteria, AcceptanceCriteriaTemplate, and CriteriaEvidence SQLAlchemy models with relationships to tasks and artifacts, template support with field placeholders, and approval workflow fields (approver, timestamps); (2) Implement acceptance criteria templates library with predefined templates (API responses, test coverage, performance, security, etc.) and template variable substitution logic; (3) Implement evidence linking system: automatic keyword matching between artifacts/test results and open criteria, suggestion display to operator, manual linking interface; (4) Implement approval workflow: enforce non-implementer approvals, track approver identity and timestamp, prevent task completion without verified criteria; (5) Write unit tests for criteria creation from templates, evidence linking, status transitions; integration tests for auto-linkage suggestion from executed pipelines; Playwright tests for criteria management UI, approval workflow, and unapproved completion prevention.",
+			"reasoning": "This task creates a first-class acceptance criteria system with templates, automatic evidence linking, and approval workflows. The template system requires variable substitution and flexible instantiation. The automatic evidence linking requires heuristics for matching artifacts/test results to criteria (keyword matching is a reasonable start but could be enhanced). The approval workflow must integrate with user role management and prevent task completion violations. This is moderately complex due to the template system, automatic linking heuristics, and approval workflow integration, but is not architecturally novel."
+		}
+	]
+}

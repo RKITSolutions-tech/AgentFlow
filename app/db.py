@@ -300,6 +300,76 @@ CREATE TABLE IF NOT EXISTS backlog_triage_history (
     changed_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_backlog_history_item ON backlog_triage_history(backlog_item_id);
+
+CREATE TABLE IF NOT EXISTS sprints (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    goal TEXT NOT NULL DEFAULT '',
+    description TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'DRAFT' CHECK(status IN ('DRAFT', 'PLANNING', 'REVIEW', 'READY', 'EXECUTING', 'VERIFYING', 'COMPLETE', 'CANCELLED')),
+    planning_profile TEXT NOT NULL DEFAULT 'STANDARD_FEATURE',
+    start_date TEXT,
+    target_date TEXT,
+    planning_session_id INTEGER REFERENCES agent_sessions(id) ON DELETE SET NULL,
+    approved_at TEXT,
+    approved_by TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sprints_project ON sprints(project_id, status);
+
+CREATE TABLE IF NOT EXISTS sprint_document_refs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    sprint_id INTEGER NOT NULL REFERENCES sprints(id) ON DELETE CASCADE,
+    reference TEXT NOT NULL,
+    note TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS planned_work_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    sprint_id INTEGER NOT NULL REFERENCES sprints(id) ON DELETE CASCADE,
+    seq INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    acceptance TEXT NOT NULL DEFAULT '[]',
+    estimate TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'SUGGESTED' CHECK(status IN ('SUGGESTED', 'REVIEWED', 'APPROVED', 'REJECTED')),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_planned_work_sprint ON planned_work_items(sprint_id, seq);
+
+CREATE TABLE IF NOT EXISTS planned_work_dependencies (
+    work_item_id INTEGER NOT NULL REFERENCES planned_work_items(id) ON DELETE CASCADE,
+    depends_on_id INTEGER NOT NULL REFERENCES planned_work_items(id) ON DELETE CASCADE,
+    PRIMARY KEY (work_item_id, depends_on_id)
+);
+
+CREATE TABLE IF NOT EXISTS planned_work_backlog_links (
+    work_item_id INTEGER NOT NULL REFERENCES planned_work_items(id) ON DELETE CASCADE,
+    backlog_item_id INTEGER NOT NULL REFERENCES backlog_items(id) ON DELETE CASCADE,
+    PRIMARY KEY (work_item_id, backlog_item_id)
+);
+
+CREATE TABLE IF NOT EXISTS sprint_readiness_checks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    sprint_id INTEGER NOT NULL REFERENCES sprints(id) ON DELETE CASCADE,
+    check_name TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('PASS', 'FAIL', 'WARN')),
+    details TEXT NOT NULL DEFAULT '',
+    checked_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS sprint_approvals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    sprint_id INTEGER NOT NULL REFERENCES sprints(id) ON DELETE CASCADE,
+    decision TEXT NOT NULL CHECK(decision IN ('APPROVED', 'REVOKED')),
+    approved_by TEXT NOT NULL,
+    comment TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+);
 """
 
 # Starter catalog, seeded once (see `_seed_model_catalog`) so the model

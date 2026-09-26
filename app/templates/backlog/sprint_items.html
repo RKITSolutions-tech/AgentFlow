@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% from "_project_tabs.html" import project_tabs %}
+{% from "backlog/_helpers.html" import backlog_nav, priority_label %}
+{% block title %}{{ project.name }} - Sprint items - AgentFlow{% endblock %}
+{% block content %}
+  {{ project_tabs(project, none, 'backlog') }}
+  <h1>{{ project.name }} - Sprint items</h1>
+  {{ backlog_nav(project, 'sprint', counts) }}
+
+  <h2>Selected for a sprint</h2>
+  <ul class="backlog-cards">
+    {% for item in items %}
+      <li class="backlog-card" data-row data-id="{{ item.id }}">
+        <h3><a href="{{ url_for('backlog.view_item', project_id=project.id, item_id=item.id) }}">#{{ item.id }} {{ item.title or (item.text[:60] if item.text else 'Attachment only') }}</a></h3>
+        <div>{{ priority_label(item.priority) }} &middot; <span class="run-status">{{ item.status|capitalize }}</span></div>
+        {% if item.status == 'SELECTED' %}
+          <div class="row-actions">
+            <button type="button" data-ajax-action="{{ url_for('backlog.update_item', project_id=project.id, item_id=item.id, status='TRIAGED') }}" data-on-removed="backlog-changed">Return to backlog</button>
+          </div>
+        {% endif %}
+      </li>
+    {% else %}
+      <li class="form-hint">No items selected yet. Pick triaged items below.</li>
+    {% endfor %}
+  </ul>
+
+  <h2>Triaged, available to select</h2>
+  <ul class="backlog-cards">
+    {% for item in candidates %}
+      <li class="backlog-card" data-row data-id="{{ item.id }}">
+        <h3><a href="{{ url_for('backlog.view_item', project_id=project.id, item_id=item.id) }}">#{{ item.id }} {{ item.title or (item.text[:60] if item.text else 'Attachment only') }}</a></h3>
+        <div>{{ priority_label(item.priority) }}</div>
+        <div class="row-actions">
+          <button type="button" data-ajax-action="{{ url_for('backlog.update_item', project_id=project.id, item_id=item.id, status='SELECTED') }}">Add to sprint</button>
+        </div>
+      </li>
+    {% else %}
+      <li class="form-hint">Nothing triaged.</li>
+    {% endfor %}
+  </ul>
+{% endblock %}

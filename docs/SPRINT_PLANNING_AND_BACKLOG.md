@@ -988,3 +988,78 @@ NEXT ELIGIBLE TASK
     ↓
 SPRINT COMPLETE
 ```
+
+## 49. Implementation Decisions (Phase 2, autonomous assumptions)
+
+These were made without the owner in the loop while building Phase 2 (tasks
+18-26) and are recommendations to confirm, not settled decisions.
+
+### Backlog UI (task 18)
+
+- Pages: `/projects/<id>/backlog/inbox` (capture + filter), `/triage` (cards,
+  inline priority, bulk move), `/sprint` (items selected for a sprint) and
+  `/items/<id>` (full edit + history). A "Backlog" tab is added to the project
+  tab strip. The "select an item opens a right-hand inspector" idea of §8 is
+  deferred; items open a full page instead (better on mobile).
+- No authentication exists, so "non-project members cannot access" is
+  implemented as *scoping*: every item route 404s when the item does not belong
+  to the project in the URL.
+- Archive is a status change (`ARCHIVED`), exposed as `DELETE /items/<id>` and
+  `POST /items/<id>/archive`. Items are never hard-deleted from the UI, so
+  history and attachments stay traceable. Archiving an archived item is a no-op.
+- "Add to sprint" before Sprints exist (task 19) moves an item to `SELECTED`;
+  `sprint_id` is attached when a Sprint is chosen. Drag-to-reorder is dropped:
+  it needs a persisted position column and the planner, not the inbox, defines
+  order. Revisit with the planning workspace (task 20).
+- Bulk moves are best effort per item: each id is checked against
+  `TRANSITIONS`; the response lists `changed` and `failed` ids.
+- Image attachments are shown inline; SVG is always served as a download
+  (scriptable), as are non-image files. Max 10 files per capture, 25 MiB each.
+
+### Sprints and planning workflow (tasks 18-19)
+
+- Sprint status uses the §10 lifecycle (`DRAFT` → `PLANNING` → `REVIEW` →
+  `READY` → `EXECUTING` → `VERIFYING` → `COMPLETE`, plus `CANCELLED`), not the
+  shorter list in the task description. Transitions are enforced by
+  `SPRINT_TRANSITIONS` (`app/sprints/models.py`).
+- Storage is plain `sqlite3` dataclasses like the rest of the app (not
+  SQLAlchemy). Tables: `sprints`, `sprint_document_refs`, `planned_work_items`,
+  `planned_work_dependencies`, `planned_work_backlog_links` (many-to-many, §16),
+  `sprint_readiness_checks`, `sprint_approvals` (approval history).
+- Backlog membership uses the existing `backlog_items.sprint_id` (one sprint per
+  item) instead of a separate link table; an item already in another sprint
+  cannot be added. `sprint_id` still has no foreign key (SQLite cannot add one
+  to an existing column without a table rebuild); nothing deletes Sprints yet.
+- Status sync: selecting an item → `SELECTED`; planning starts → `PLANNING`;
+  proposal ingested → `PLANNED`; approval → `READY`; revoked approval →
+  back to `PLANNED`; failed planning → back to `SELECTED`.
+- Cross-sprint dependencies (`SprintDependency`) are deferred: dependencies are
+  modelled between planned tasks inside one Sprint (§19), which is what
+  readiness and the pipeline need first.
+- The planning agent (`app/sprints/planning_agent.py`) is an ordinary
+  `AgentAdapter` session with role `PLANNING`. It is prompted to reply with one
+  JSON object (`tasks[]` with `ref`, `title`, `description`, `acceptance`,
+  `depends_on`, `backlog_items`, `estimate`); backlog ids it invents are dropped,
+  bad replies fail the planning run and return the Sprint to `DRAFT`. Agent
+  output enters as `SUGGESTED` (§9 provenance); any human edit makes it
+  `REVIEWED`, approval makes it `APPROVED`. Resource estimates are a free-text
+  size (`S|M|L`), not hours.
+- Planning is polled, not blocking: `POST /plan` starts the session and stores
+  its id on the sprint; `GET /plan/status` ingests the reply once the session
+  completes and the sprint page polls it. Adapters that run synchronously (the
+  fake agent) finish within the start call.
+- `AGENTFLOW_PLANNING_AGENT` selects `codex` (default) or `fake`. `fake` is the
+  deterministic FakePlanningAgent of §43 (one task per backlog item) for CI.
+- Re-planning ("Refine plan") deletes only un-reviewed `SUGGESTED` tasks and
+  keeps anything a person touched (PHASE2_PLANNING §3: merge, don't replace).
+- Readiness (`app/sprints/readiness.py`) is a list of explicit checks:
+  `goal_defined`, `items_selected`, `tasks_proposed`, `backlog_covered`,
+  `acceptance_defined`, `acceptance_reviewed`, `dependencies_valid` block
+  approval; `documentation_referenced` only warns.
+- There is no user/role model, so "only project leads may approve" cannot be
+  enforced. Approval instead requires a typed name (recorded as the signature)
+  and every approve/revoke is kept in `sprint_approvals`. Real authorisation
+  waits for a user model.
+- The task graph groups tasks into dependency layers: columns left-to-right at
+  ≥861px, stacked top-to-bottom below it. Edges are shown as "after <task>"
+  labels rather than drawn lines (drawn edges belong with task 24's visualiser).
