@@ -422,6 +422,8 @@ only mechanism.
 
 Open questions to resolve before implementation:
 
+(Proposed answers: `PHASE2_PLANNING.md` §2.)
+
 ```text
 where project-level context files live (repository file vs Project metadata)
 how on-demand files are surfaced (pre-injected on request vs an

@@ -297,6 +297,9 @@ lands, and surfacing chain status in Sprint Documentation (§12 of
 
 ## 14. Open Questions
 
+Proposed answers to all three are recorded in `PHASE2_PLANNING.md` §4, along
+with the status of the §13 Phase 1 slice.
+
 ```text
 Should STANDARD documents be versioned the same way (SUPERSEDED chain)
   or treated as always-current with edit history left entirely to Git?

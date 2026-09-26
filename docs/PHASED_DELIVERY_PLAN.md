@@ -338,6 +338,10 @@ Visual monitoring
 - health checks
 - service lifecycle
 
+Carried in from the Phase 1 review (see `PHASE2_PLANNING.md`): context-file
+resolution alongside P2.9, document review event types alongside P2.4, and
+the deferred Run/terminal items listed there.
+
 ## 9. Phase 2 Definition of Useful
 
 Phase 2 is complete when a reviewed Sprint can autonomously execute released Tasks through a visible, inspectable pipeline with evidence and controlled Ralph retries.

@@ -15,6 +15,7 @@ This archive contains the AgentFlow design documents produced to date.
 9. `PHASED_DELIVERY_PLAN.md`
 10. `TASK_INTELLIGENCE.md`
 11. `DOCUMENT_LIFECYCLE.md`
+12. `PHASE2_PLANNING.md`
 
 ## Delivery Priority
 

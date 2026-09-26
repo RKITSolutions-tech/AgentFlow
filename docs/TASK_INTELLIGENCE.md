@@ -175,6 +175,9 @@ re-running decomposition on a Task with human-edited subtasks must not
 
 ## 9. Open Questions
 
+Phase 1 resolved none of these (no planning was built). Proposed answers
+and the remaining open item are recorded in `PHASE2_PLANNING.md` §3.
+
 ```text
 Does re-running decomposition on an edited Task merge or replace
   subtasks, and how are conflicts surfaced?
