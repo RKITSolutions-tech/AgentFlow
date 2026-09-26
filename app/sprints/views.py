@@ -442,3 +442,24 @@ def next_task(project_id: int, sprint_id: int):
     except ValueError as exc:  # LockConflict: the run stays CREATED and can be resumed
         return _reply(str(exc), False, target, 409)
     return _reply("Ralph started on the next task", True, target, run_id=run_id, work_item_id=work_id, redirect=target)
+
+
+@bp.post("/<int:sprint_id>/auto-run")
+def auto_run(project_id: int, sprint_id: int):
+    """Switch automatic linear execution on/off (`enabled` = 1/0). Turning it on
+    starts the next eligible task straight away."""
+    _project(project_id)
+    _sprint(project_id, sprint_id)
+    back = url_for("sprints.queue_view", project_id=project_id, sprint_id=sprint_id)
+    enabled = request.form.get("enabled") == "1"
+    queue.set_auto_run(get_db(), sprint_id, enabled)
+    started = None
+    if enabled:
+        promoted = queue.advance(get_db(), sprint_id)
+        if promoted:
+            try:
+                current_app.extensions["ralph_manager"].start(promoted[1])
+                started = promoted[1]
+            except ValueError as exc:
+                return _reply(str(exc), False, back, 409)
+    return _reply("Automatic mode " + ("on" if enabled else "off"), True, back, run_id=started)

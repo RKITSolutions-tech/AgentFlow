@@ -147,3 +147,46 @@ def test_queue_views(client, app, env):
     assert client.post(f"{base}/release", headers=AJAX).status_code == 409
     assert "Run next task" in client.get(f"{base}/queue").get_data(as_text=True)
     assert client.get(f"/projects/{env.project_id + 99}/sprints/{env.sprint_id}/queue").status_code == 404
+
+
+def test_advance_only_in_automatic_mode(env):
+    queue.release_sprint(env.db, env.sprint_id)
+    assert queue.advance(env.db, env.sprint_id) is None  # automatic mode is off
+    queue.set_auto_run(env.db, env.sprint_id, True)
+    work_id, run_id = queue.advance(env.db, env.sprint_id)
+    assert work_id == env.a and ralph.get_run(env.db, run_id).work_item_id == env.a
+    assert queue.advance(env.db, env.sprint_id) is None  # project busy with that run
+
+
+def test_advance_moves_on_after_a_run_ends(app, env):
+    from app.ralph.manager import RalphManager
+
+    queue.release_sprint(env.db, env.sprint_id)
+    queue.set_auto_run(env.db, env.sprint_id, True)
+    _, first = queue.advance(env.db, env.sprint_id)
+    started = []
+    manager = RalphManager(app.extensions["pipeline_manager"])
+    manager.start = lambda run_id: started.append(run_id)
+
+    ralph.update_run(env.db, first, status="CANCELLED")
+    queue.sync_from_run(env.db, first)
+    manager._advance_sprint(first)
+    assert started == []  # a person stopped it: automatic mode does not push on
+
+    queue.set_state(env.db, env.a, "IN_PROGRESS")  # the cancelled task is picked up again
+    ralph.update_run(env.db, first, status="COMPLETED")
+    queue.sync_from_run(env.db, first)
+    manager._advance_sprint(first)
+    assert len(started) == 1
+    nxt = ralph.get_run(env.db, started[0])
+    assert nxt.work_item_id in (env.b, env.c) and _state(env, nxt.work_item_id) == "IN_PROGRESS"
+
+
+def test_auto_run_endpoint_and_page(client, env):
+    base = f"/projects/{env.project_id}/sprints/{env.sprint_id}"
+    queue.release_sprint(env.db, env.sprint_id)
+    assert "Automatic mode: off" in client.get(f"{base}/queue").get_data(as_text=True)
+    resp = client.post(f"{base}/auto-run", data={"enabled": "0"}, headers=AJAX)
+    assert resp.status_code == 200
+    assert client.post(f"{base}/auto-run", data={"enabled": "1"}, headers=AJAX).status_code in (200, 409)
+    assert env.db.execute("SELECT auto_run FROM sprints").fetchone()[0] == 1

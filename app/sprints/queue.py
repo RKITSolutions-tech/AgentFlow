@@ -157,6 +157,31 @@ def promote_next(db: sqlite3.Connection, sprint_id: int, repository_id: int | No
     return work.id, run_id
 
 
+def set_auto_run(db: sqlite3.Connection, sprint_id: int, enabled: bool) -> None:
+    """Automatic linear execution: when on, each finished task starts the next
+    eligible one (§27 "Manual Sprint release then automatic linear execution")."""
+    db.execute("UPDATE sprints SET auto_run = ?, updated_at = ? WHERE id = ?", (int(enabled), now(), sprint_id))
+    db.commit()
+
+
+# Run outcomes after which automatic mode carries on. A cancelled run is a
+# person saying stop, so it does not; a blocked run does (the queue moves on to
+# independent tasks, §28) but its own task waits for a human.
+ADVANCE_AFTER = ("COMPLETED", "FAILED", "TIMED_OUT", "BLOCKED")
+
+
+def advance(db: sqlite3.Connection, sprint_id: int) -> tuple[int, int] | None:
+    """Promote the next eligible task if automatic mode is on and the project is
+    free. Returns (work_item_id, run_id) for the caller to start, else None."""
+    sprint = sprints.get_sprint(db, sprint_id)
+    if sprint is None or not sprint.auto_run or sprint.status != "EXECUTING":
+        return None
+    try:
+        return promote_next(db, sprint_id)
+    except QueueError:
+        return None  # nothing eligible, project busy, or no pipeline: wait for a person
+
+
 def sync_from_run(db: sqlite3.Connection, run_id: int) -> None:
     """Reflect a Ralph run's status on its Task and, when every task is done,
     move the Sprint to VERIFYING."""

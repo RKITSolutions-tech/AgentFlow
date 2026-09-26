@@ -33,9 +33,13 @@
       <nav class="sidebar-links" aria-label="Sections">
         <a href="{{ url_for('projects.list_projects') }}"{% if ep.startswith('projects.') %} aria-current="page"{% endif %}>Projects</a>
         <a href="{{ url_for('sessions.list_sessions') }}"{% if ep == 'sessions.list_sessions' %} aria-current="page"{% endif %}>Sessions</a>
-        <a href="#" aria-disabled="true">Backlog</a>
-        <a href="#" aria-disabled="true">Sprints</a>
-        <a href="#" aria-disabled="true">Runs</a>
+        {# These sections are per project: use the one being viewed, else the first in the sidebar. #}
+        {% set sp = shell.active_project_id or (shell.projects[0].id if shell.projects else None) %}
+        {% if sp %}
+          <a href="{{ url_for('backlog.inbox', project_id=sp) }}"{% if ep.startswith('backlog.') %} aria-current="page"{% endif %}>Backlog</a>
+          <a href="{{ url_for('sprints.list_sprints', project_id=sp) }}"{% if ep.startswith('sprints.') %} aria-current="page"{% endif %}>Sprints</a>
+          <a href="{{ url_for('runs.list_runs', project_id=sp) }}"{% if ep.startswith('runs.') %} aria-current="page"{% endif %}>Runs</a>
+        {% endif %}
         <a href="{{ url_for('prompts.library') }}"{% if ep.startswith('prompts.') %} aria-current="page"{% endif %}>Prompts</a>
         <a href="{{ url_for('notifications.index') }}"{% if ep.startswith('notifications.') %} aria-current="page"{% endif %}>Notifications
           <span class="notify-badge" data-notify-badge{% if not shell.unread_notifications %} hidden{% endif %}>{{ shell.unread_notifications }}</span></a>

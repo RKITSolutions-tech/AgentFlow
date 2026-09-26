@@ -84,6 +84,7 @@ class Sprint:
     approved_by: str | None
     created_at: str
     updated_at: str
+    auto_run: bool = False
 
 
 @dataclass

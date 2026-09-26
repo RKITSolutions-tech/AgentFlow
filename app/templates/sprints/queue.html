@@ -19,6 +19,10 @@
         <button type="submit">Release all ready tasks</button>
       </form>
       {% if sprint.status == 'EXECUTING' %}
+        <form method="post" action="{{ url_for('sprints.auto_run', project_id=project.id, sprint_id=sprint.id) }}" data-ajax-form>
+          <input type="hidden" name="enabled" value="{{ '0' if sprint.auto_run else '1' }}">
+          <button type="submit" role="switch" aria-checked="{{ 'true' if sprint.auto_run else 'false' }}">Automatic mode: {{ 'on' if sprint.auto_run else 'off' }}</button>
+        </form>
         <form method="post" action="{{ url_for('sprints.next_task', project_id=project.id, sprint_id=sprint.id) }}" class="stacked" data-ajax-form>
           <label>Verification pipeline
             <select name="verification_pipeline">{% for p in pipelines %}<option value="{{ p.name }}">{{ p.name }}</option>{% endfor %}</select>

@@ -140,7 +140,9 @@ helpers `assert_no_horizontal_overflow`, `assert_touch_target_size`,
 `assert_viewport_layout_switches`, `watch_console` in `tests/conftest.py`). It visits 18 Phase 2
 pages (backlog, sprints, queue, pipelines + execution, Ralph, artifacts, acceptance, prompt
 library) at 375px and 1280px with console/JS errors captured, then drives the shared
-JavaScript. Firefox/WebKit were not run; the suite uses Chromium only.
+JavaScript. A smaller cross-engine test (`test_key_pages_work_in_every_engine`) also runs in Firefox; WebKit
+cannot launch here (it needs system libraries installed with `sudo playwright install-deps`), so
+its case skips and WebKit remains unverified.
 
 | # | Where (viewport) | Element | Defect | Sev. | Fix / guard |
 | --- | --- | --- | --- | --- | --- |
@@ -157,6 +159,5 @@ JavaScript. Firefox/WebKit were not run; the suite uses Chromium only.
 | 11 | `pipeline.js`, `agentflowFlash` | initial graph fetch, flash | Unhandled rejection on a failed fetch; flash threw without `main.content` | low | catch + null guard (no browser test: needs a failing network) |
 | 12 | sidebar drawer (375) | focus | Focus was not moved into / back out of the drawer | low | focus first link on open, toggle on close (enhancement, not a regression) |
 
-Known and not fixed: the sidebar's Backlog / Sprints / Runs entries are disabled
-placeholders (they need a project, and the project tabs already reach those pages), and the
-graph and replay have not been run in Firefox or WebKit or on a real touch device.
+The sidebar's Backlog / Sprints / Runs entries, formerly disabled placeholders, now link to the
+project being viewed (else the first project). Not verified: WebKit and a real touch device.

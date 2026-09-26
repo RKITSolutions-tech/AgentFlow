@@ -709,6 +709,7 @@ _ADDED_COLUMNS = (
     ("ralph_runs", "awaiting_acceptance", "INTEGER NOT NULL DEFAULT 0"),
     ("step_executions", "execution_prompt_id", "INTEGER"),
     ("ralph_iterations", "execution_prompt_id", "INTEGER"),
+    ("sprints", "auto_run", "INTEGER NOT NULL DEFAULT 0"),
     ("planned_work_items", "task_state", "TEXT NOT NULL DEFAULT 'DRAFT'"),
     ("planned_work_items", "released_at", "TEXT"),
     ("planned_work_items", "verification_pipeline", "TEXT NOT NULL DEFAULT ''"),

@@ -54,6 +54,25 @@ class RalphManager:
             with self._lock:
                 self._threads.pop(run_id, None)
             db.close()
+        self._advance_sprint(run_id)
+
+    def _advance_sprint(self, run_id: int) -> None:
+        """Automatic sprint mode: hand the project to the next eligible task."""
+        db = self._connect()
+        try:
+            run = models.get_run(db, run_id)
+            if run is None or not run.sprint_id or run.status not in queue.ADVANCE_AFTER:
+                return
+            promoted = queue.advance(db, run.sprint_id)
+        except Exception:  # a scheduling problem must never crash the finished worker
+            return
+        finally:
+            db.close()
+        if promoted:
+            try:
+                self.start(promoted[1])
+            except ValueError:
+                pass  # lock taken meanwhile: the run stays CREATED and can be resumed
 
     def is_executing(self, run_id: int) -> bool:
         return run_id in self._threads

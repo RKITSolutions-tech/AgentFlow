@@ -1130,8 +1130,13 @@ DRAFT/READY_FOR_REVIEW -> READY -> RELEASED -> IN_PROGRESS -> COMPLETE
   its own dependants. "Project lock available" is `queue.project_busy` (any Ralph run
   in the project that is created/running/verifying/paused/waiting); task 28 replaces it
   with the real lock.
-- **Promotion is manual per task** (`POST .../next-task`, "Run next task"): the initial
-  release mode is manual release, and automatic linear execution is deferred. It builds
+- **Promotion** is manual per task (`POST .../next-task`, "Run next task"), or automatic:
+  the queue page's "Automatic mode" switch (`sprints.auto_run`, `POST .../auto-run`) makes
+  each finished Ralph run start the next eligible task (`RalphManager._advance_sprint`, after
+  the finished run's lock is released). It carries on after completed, failed, timed-out and
+  blocked runs (independent tasks continue, §28) but not after a cancel, which is a person
+  saying stop; it stops when nothing is eligible or the project is busy, and turning it on
+  starts the next task immediately. It builds
   the Ralph run from the task (title + description, acceptance lines, `work_item_id`,
   `sprint_id`), using the pipeline chosen in the form, else the task's
   `verification_pipeline`, else the project's first enabled pipeline (an error if none),

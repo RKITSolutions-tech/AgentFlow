@@ -331,3 +331,56 @@ def test_static_javascript_has_no_control_characters():
     for path in glob.glob(os.path.join(root, "*.js")):
         data = open(path, "rb").read()
         assert b"\x00" not in data, f"{os.path.basename(path)} contains a NUL byte"
+
+
+@pytest.mark.parametrize("engine", ["chromium", "firefox", "webkit"])
+@pytest.mark.parametrize("viewport", VIEWPORTS, ids=IDS)
+def test_key_pages_work_in_every_engine(world, live_server, engine, viewport):
+    """Layout, JS errors, the graph, replay and an AJAX form in Chromium, Firefox and WebKit."""
+    from tests.conftest import launch_browser
+
+    sync_playwright = require_playwright()
+    with sync_playwright() as p:
+        browser = launch_browser(p, engine)
+        try:
+            page = browser.new_page(viewport=viewport)
+            errors = watch_console(page)
+            for path in (f"/projects/{world.pid}/sprints/{world.sprint}/queue", "/prompts/ralph-blocks"):
+                page.goto(live_server + path)
+                page.wait_for_load_state("networkidle")
+                assert_no_horizontal_overflow(page, path)
+            page.goto(f"{live_server}/projects/{world.pid}/pipelines/executions/{world.eid}")
+            page.wait_for_selector(".pipeline-edges path", state="attached")
+            page.click('[data-node="unit"]')
+            page.wait_for_selector("[data-inspector] h2:has-text('unit')")
+            page.click("[data-replay-toggle]")
+            page.wait_for_selector(".replay-event")
+            page.locator(".replay-event", has_text="Step Completed · build").first.click()
+            page.wait_for_function("document.querySelector('[data-node=build] .node-state').textContent.includes('Passed')")
+            assert_no_horizontal_overflow(page, "replay")
+            page.goto(live_server + "/prompts/library")
+            page.fill("form[data-ajax-form] input[name=name]", f"engine-{engine}")
+            page.fill("form[data-ajax-form] textarea[name=content]", "text")
+            page.click("form[data-ajax-form] button[type=submit]")
+            page.wait_for_selector(f"text=engine-{engine}")
+            assert errors == []
+        finally:
+            browser.close()
+
+
+def test_sidebar_section_links_are_live(world, live_server):
+    """Backlog / Sprints / Runs used to be dead `#` placeholders."""
+    sync_playwright = require_playwright()
+    with sync_playwright() as p:
+        browser = launch_chromium(p)
+        try:
+            page = browser.new_page(viewport=DESKTOP)
+            page.goto(f"{live_server}/projects/{world.pid}")
+            for label, fragment in (("Backlog", "/backlog"), ("Sprints", "/sprints"), ("Runs", "/runs")):
+                link = page.locator(".sidebar-links a", has_text=label)
+                assert fragment in link.get_attribute("href")
+                assert link.get_attribute("aria-disabled") is None
+            page.click(".sidebar-links a:has-text('Sprints')")
+            page.wait_for_url("**/sprints")
+        finally:
+            browser.close()

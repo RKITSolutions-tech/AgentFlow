@@ -157,3 +157,11 @@ def watch_console(page):
         lambda m: errors.append(f"console.{m.type}: {m.text}") if m.type in ("error",) else None,
     )
     return errors
+
+
+def launch_browser(playwright, name):
+    """Launch chromium/firefox/webkit, skipping only if that browser cannot start."""
+    try:
+        return getattr(playwright, name).launch()
+    except Exception as exc:  # browser binary missing / cannot start
+        pytest.skip(f"Playwright {name} unavailable: {exc}")
