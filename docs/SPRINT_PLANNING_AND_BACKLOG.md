@@ -1155,3 +1155,10 @@ DRAFT/READY_FOR_REVIEW -> READY -> RELEASED -> IN_PROGRESS -> COMPLETE
   the Sprint moves to `VERIFYING`; closing it to `COMPLETE` stays a human action.
 - The queue page (`/projects/<id>/sprints/<id>/queue`) shows the §29 progress counts,
   each task's state, what it is waiting on, and the linked run.
+
+## 50. Research Action (proposed)
+
+Decided in discussion; not yet built. "Research this item" on a Backlog item or planned task starts a `RESEARCH` agent
+session (AGENT_ADAPTER §23). The report attaches to the item as suggested context with the same provenance rules as
+`SUGGESTED` planned tasks (§9): nothing is accepted automatically, a person accepts or dismisses each finding, and
+accepted findings may seed acceptance criteria or task descriptions. Sources are always listed.

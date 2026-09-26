@@ -431,3 +431,20 @@ how on-demand files are surfaced (pre-injected on request vs an
 whether context-file assembly is purely an AgentFlow-side prompt
   composition step, or partly delegated to adapters with native support
 ```
+
+## 23. Research Agent Role (proposed)
+
+Decided in discussion; not yet built. A `RESEARCH` role is added to the session roles (§5). It uses the same
+`AgentAdapter` interface as every other role, so all adapters, including `FakeAgentAdapter`, support it.
+
+- **Read-only.** No file writes, no commits, no project mutation. The adapter must refuse or ignore write tools
+  under this role.
+- **Web only at first.** Web search and fetch come from the agent's own tools (the Claude CLI has them and works on
+  the OS login without an API key). AgentFlow does not fetch pages itself. Reading the project's repository and docs
+  is a later step and would reuse the context-file path checks (`ALLOWED_PROJECT_ROOTS`, PHASE2_PLANNING §8).
+- **Structured report.** The reply is a report: summary, findings, and a source list. A finding with no source is marked
+  `unverified`. The report is redacted like other stored text and indexed in the Artifact Library with a link to the
+  originating session or step.
+- **Limits.** Time and cost limits, like Ralph's iteration and runtime limits.
+- **Locking.** Research holds no exclusive project lock (RUN_AND_RALPH §22), so it can run alongside other work.
+- **Advisory output.** A person accepts findings before they change a plan or acceptance criteria.

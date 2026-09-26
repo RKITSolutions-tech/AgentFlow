@@ -570,3 +570,11 @@ recommendations to confirm.
 - `STOP_AND_MESSAGE` sets `needs_attention` and records an
   `InterventionRequested` event. The existing notification table is
   session-scoped, so wiring these into notifications waits for the UI (task 24).
+
+## 23. Research Step (proposed)
+
+Decided in discussion; not yet built. An `AGENT` step with `config.role: RESEARCH` (AGENT_ADAPTER §23), driven by a
+prompt-library template. It records its effective prompt like any AGENT step and stores the report as an artifact.
+Typical uses: before planning (to inform task suggestions), before a Ralph iteration (background or an answer), and
+after repeated Ralph failures (opt-in: the report reaches the next iteration as steering, never automatically applied).
+A research step needs no repository lock and never changes the working tree.
