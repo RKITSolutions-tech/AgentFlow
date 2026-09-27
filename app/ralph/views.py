@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from flask import Blueprint, abort, current_app, flash, redirect, render_template, request, url_for
 
+from app.acceptance import models as acceptance_models
+from app.artifacts import models as artifact_models
 from app.db import get_db
 from app.pipelines import executions, persistence
 from app.projects import models as project_models
@@ -192,12 +194,36 @@ def timeline(project_id: int, run_id: int):
     return render_template("ralph/timeline.html", project=project, run=run, **data)
 
 
+def _evidence_summary(db, project_id: int, evidence_id: int) -> dict | None:
+    """Label (and link, where there's somewhere to send someone) for a piece of
+    evidence, for display next to an acceptance criterion's status history."""
+    ev = acceptance_models.get_evidence(db, evidence_id)
+    if ev is None:
+        return None
+    if ev.evidence_type == "ARTIFACT":
+        a = artifact_models.get_artifact(db, ev.reference_id)
+        return {"label": a.name, "url": url_for("artifacts.detail", project_id=project_id, artifact_id=a.id)} if a else None
+    if ev.evidence_type == "TEST_RESULT":
+        row = db.execute(
+            "SELECT execution_id, element_name FROM step_executions WHERE id = ?", (ev.reference_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        return {
+            "label": f"{row['element_name']} (run #{row['execution_id']})",
+            "url": url_for("pipelines.view_execution", project_id=project_id, execution_id=row["execution_id"]),
+        }
+    return {"label": ev.note or "Manual note", "url": None}
+
+
 @bp.get("/<int:run_id>/compare")
 def compare(project_id: int, run_id: int):
-    """Two iterations side by side with diffs of prompts, replies, files, steps, and test output."""
+    """Two iterations side by side with diffs of prompts, replies, files, steps,
+    test output, screenshots, and acceptance criteria status progression."""
     project = _project(project_id)
     run = _run(project_id, run_id)
-    numbers = [i.number for i in models.list_iterations(get_db(), run_id)]
+    db = get_db()
+    numbers = [i.number for i in models.list_iterations(db, run_id)]
     if len(numbers) < 2:
         flash("A run needs at least two iterations to compare", "error")
         return redirect(_detail(project_id, run_id))
@@ -206,7 +232,16 @@ def compare(project_id: int, run_id: int):
         b = int(request.args.get("b") or numbers[-1])
     except ValueError:
         abort(400)
-    result = timeline_mod.compare(get_db(), run_id, a, b, _root(), project_id)
+    result = timeline_mod.compare(db, run_id, a, b, _root(), project_id)
     if result is None:
         abort(404)
+    for criterion in result["acceptance_criteria"]:
+        criterion["history"] = [
+            {
+                "iteration_number": h.iteration_number, "old_status": h.old_status, "new_status": h.new_status,
+                "changed_by": h.changed_by,
+                "evidence": _evidence_summary(db, project_id, h.evidence_id) if h.evidence_id else None,
+            }
+            for h in criterion["history"]
+        ]
     return render_template("ralph/compare.html", project=project, run=run, numbers=numbers, **result)

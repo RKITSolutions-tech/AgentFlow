@@ -89,6 +89,29 @@
     {% endfor %}
   {% endif %}
 
+  {% if acceptance_criteria %}
+    <h2>Acceptance criteria</h2>
+    <table class="table-compact">
+      <thead><tr><th>Criterion</th><th>Status</th><th>Changes (iteration {{ a.number }}&ndash;{{ b.number }})</th></tr></thead>
+      <tbody>
+        {% for c in acceptance_criteria %}
+          <tr>
+            <td class="wrap-cell">{{ c.title }}{% if not c.required %} <span class="form-hint">optional</span>{% endif %}</td>
+            <td><span class="badge {{ 'badge-success' if c.status in ('VERIFIED', 'WAIVED') else 'badge-danger' if c.status == 'FAILED' else '' }}">{{ c.status|capitalize }}</span></td>
+            <td class="wrap-cell">
+              {% for h in c.history %}
+                <div>Iteration {{ h.iteration_number }}: {{ h.old_status|capitalize }} &rarr; {{ h.new_status|capitalize }}{% if h.changed_by %} by {{ h.changed_by }}{% endif %}
+                  {% if h.evidence %}&middot; {% if h.evidence.url %}<a href="{{ h.evidence.url }}">{{ h.evidence.label }}</a>{% else %}{{ h.evidence.label }}{% endif %}{% endif %}</div>
+              {% else %}
+                <span class="form-hint">No change</span>
+              {% endfor %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+
   <h2>Files changed</h2>
   <div class="compare-grid">
     <div><h3>Only in {{ a.number }}</h3><p class="wrap-cell">{{ files.only_a|join(', ') or 'none' }}</p></div>

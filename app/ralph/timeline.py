@@ -10,6 +10,8 @@ import difflib
 import sqlite3
 from pathlib import Path
 
+from app.acceptance import models as acceptance_models
+from app.acceptance import service as acceptance_service
 from app.artifacts import models as artifact_models
 from app.pipelines import executions, replay
 from app.ralph import models
@@ -100,10 +102,26 @@ def _side(db: sqlite3.Connection, it: models.Iteration, root: str = "", project_
     }
 
 
+def _criteria_progress(db: sqlite3.Connection, run_id: int, a: int, b: int) -> list[dict]:
+    """Every acceptance criterion attached to this run (or its planned task), with
+    its current status and whichever transitions its history recorded between
+    iterations `a` and `b` (§ Sprint Planning & Backlog #49)."""
+    lo, hi = min(a, b), max(a, b)
+    out = []
+    for c in acceptance_service.run_criteria(db, run_id):
+        history = [
+            h for h in acceptance_models.list_history(db, c.id)
+            if h.iteration_number is not None and lo <= h.iteration_number <= hi
+        ]
+        out.append({"id": c.id, "title": c.title, "required": c.required, "status": c.status, "history": history})
+    return out
+
+
 def compare(db: sqlite3.Connection, run_id: int, a: int, b: int, root: str = "", project_id: int | None = None) -> dict | None:
     """Iteration numbers `a` and `b` of a run side by side: prompt and reply
     (with line diffs), analysis, changed files, verification step results, test output
-    diffs, and screenshots (when `project_id` is given so the Artifact Library can be queried)."""
+    diffs, screenshots (when `project_id` is given so the Artifact Library can be queried),
+    and acceptance criteria status progression between the two iterations."""
     by_number = {i.number: i for i in models.list_iterations(db, run_id)}
     if a not in by_number or b not in by_number:
         return None
@@ -143,4 +161,5 @@ def compare(db: sqlite3.Connection, run_id: int, a: int, b: int, root: str = "",
         "files": {"only_a": sorted(fa - fb), "only_b": sorted(fb - fa), "both": sorted(fa & fb)},
         "steps": steps,
         "screenshots": screenshots,
+        "acceptance_criteria": _criteria_progress(db, run_id, a, b),
     }

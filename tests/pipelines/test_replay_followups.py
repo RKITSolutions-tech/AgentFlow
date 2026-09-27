@@ -270,6 +270,34 @@ def test_compare_page_displays_screenshot_diffs(ralph_run):
     assert compared.status_code == 302 and "/compare/" in compared.headers["Location"]
 
 
+def test_compare_gathers_acceptance_criteria_progression(ralph_run):
+    from app.acceptance import models as acceptance_models
+    from app.acceptance import service as acceptance_service
+
+    setup, run_id, ids = ralph_run
+    cid = acceptance_models.create(setup.db, setup.project_id, "Feature works", ralph_run_id=run_id, created_by="dev")
+    # Both ralph iterations already exist by now, so every transition below lands on iteration 2
+    # (the run's latest recorded iteration) - see test_status_history_tracks_transitions_with_iteration_and_evidence
+    # in tests/acceptance/test_acceptance.py for a case that spans distinct iteration numbers.
+    acceptance_service.approve(setup.db, cid, "rev")
+    acceptance_service.verify(setup.db, cid, "rev", "looks good")
+
+    c = timeline.compare(setup.db, run_id, 1, 2, setup.root, setup.project_id)
+    crit = {x["id"]: x for x in c["acceptance_criteria"]}[cid]
+    assert crit["status"] == "VERIFIED" and crit["required"] is True
+    assert [(h.old_status, h.new_status, h.iteration_number) for h in crit["history"]] == [
+        ("DRAFT", "APPROVED", 2), ("APPROVED", "VERIFIED", 2),
+    ]
+    assert crit["history"][-1].evidence_id is not None
+    # Comparing an iteration against itself narrows the range to [1, 1], excluding both entries.
+    assert timeline.compare(setup.db, run_id, 1, 1, setup.root, setup.project_id)["acceptance_criteria"][0]["history"] == []
+
+    page = setup.client.get(f"/projects/{setup.project_id}/ralph/{run_id}/compare?a=1&b=2").get_data(as_text=True)
+    assert "Acceptance criteria" in page and "Feature works" in page
+    assert "Draft &rarr; Approved" in page and "Approved &rarr; Verified" in page
+    assert "by rev" in page and "looks good" in page
+
+
 def test_compare_page_highlights_newly_failing_and_passing_steps(ralph_run):
     setup, run_id, _ = ralph_run
     cmp_page = setup.client.get(f"/projects/{setup.project_id}/ralph/{run_id}/compare").get_data(as_text=True)

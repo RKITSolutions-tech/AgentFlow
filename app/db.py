@@ -690,6 +690,18 @@ CREATE TABLE IF NOT EXISTS acceptance_evidence (
 );
 CREATE INDEX IF NOT EXISTS idx_acceptance_evidence_criterion ON acceptance_evidence(criterion_id);
 
+CREATE TABLE IF NOT EXISTS acceptance_criteria_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    criterion_id INTEGER NOT NULL REFERENCES acceptance_criteria(id) ON DELETE CASCADE,
+    iteration_number INTEGER,
+    old_status TEXT NOT NULL,
+    new_status TEXT NOT NULL CHECK(new_status IN ('DRAFT', 'APPROVED', 'VERIFIED', 'FAILED', 'WAIVED')),
+    evidence_id INTEGER REFERENCES acceptance_evidence(id) ON DELETE SET NULL,
+    changed_by TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_acceptance_history_criterion ON acceptance_criteria_history(criterion_id, iteration_number);
+
 CREATE TABLE IF NOT EXISTS sprint_approvals (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     sprint_id INTEGER NOT NULL REFERENCES sprints(id) ON DELETE CASCADE,

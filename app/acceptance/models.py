@@ -61,6 +61,18 @@ class Evidence:
     created_at: str
 
 
+@dataclass
+class HistoryEntry:
+    id: int
+    criterion_id: int
+    iteration_number: int | None
+    old_status: str
+    new_status: str
+    evidence_id: int | None
+    changed_by: str
+    created_at: str
+
+
 def _criterion(row: sqlite3.Row) -> Criterion:
     d = dict(row)
     d["required"] = bool(d["required"])
@@ -151,7 +163,7 @@ def update_text(db: sqlite3.Connection, criterion_id: int, title: str, descripti
     db.commit()
 
 
-def set_status(db: sqlite3.Connection, criterion_id: int, new_status: str, **fields) -> None:
+def set_status(db: sqlite3.Connection, criterion_id: int, new_status: str, evidence_id: int | None = None, **fields) -> None:
     c = get(db, criterion_id)
     if c is None:
         raise LookupError("Criterion not found")
@@ -160,7 +172,33 @@ def set_status(db: sqlite3.Connection, criterion_id: int, new_status: str, **fie
     values = {"status": new_status, "updated_at": now(), **fields}
     assignments = ", ".join(f"{k} = ?" for k in values)
     db.execute(f"UPDATE acceptance_criteria SET {assignments} WHERE id = ?", [*values.values(), criterion_id])
+    _record_history(db, c, new_status, evidence_id, fields)
     db.commit()
+
+
+def _record_history(db: sqlite3.Connection, c: Criterion, new_status: str, evidence_id: int | None, fields: dict) -> None:
+    """One row per transition (§ Sprint Planning & Backlog #49), tagged with the
+    run's current iteration when the criterion belongs to a Ralph run, so the
+    iteration comparison view can show status progression."""
+    iteration_number = None
+    if c.ralph_run_id:
+        row = db.execute("SELECT MAX(number) AS n FROM ralph_iterations WHERE run_id = ?", (c.ralph_run_id,)).fetchone()
+        iteration_number = row["n"] if row else None
+    changed_by = fields.get("verified_by") or fields.get("approved_by") or ""
+    db.execute(
+        "INSERT INTO acceptance_criteria_history (criterion_id, iteration_number, old_status, new_status, "
+        "evidence_id, changed_by, created_at) VALUES (?,?,?,?,?,?,?)",
+        (c.id, iteration_number, c.status, new_status, evidence_id, changed_by, now()),
+    )
+
+
+def list_history(db: sqlite3.Connection, criterion_id: int) -> list[HistoryEntry]:
+    return [
+        HistoryEntry(**dict(r))
+        for r in db.execute(
+            "SELECT * FROM acceptance_criteria_history WHERE criterion_id = ? ORDER BY id", (criterion_id,)
+        )
+    ]
 
 
 def delete_draft(db: sqlite3.Connection, criterion_id: int) -> None:

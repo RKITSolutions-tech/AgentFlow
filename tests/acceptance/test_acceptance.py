@@ -97,6 +97,32 @@ def test_status_transitions_and_approval_independence(env):
         service.waive(env.db, cid, "rev", " ")
 
 
+def test_status_history_tracks_transitions_with_iteration_and_evidence(env):
+    run_id = _run(env)
+    ralph.add_iteration(env.db, run_id, 1, "p1", False)
+    cid = _criterion(env, run_id)
+    service.approve(env.db, cid, "rev")  # still iteration 1
+    ralph.add_iteration(env.db, run_id, 2, "p2", False)
+    service.verify(env.db, cid, "rev", "Checked by hand")  # now iteration 2
+
+    history = models.list_history(env.db, cid)
+    assert [(h.old_status, h.new_status, h.iteration_number, h.changed_by) for h in history] == [
+        ("DRAFT", "APPROVED", 1, "rev"),
+        ("APPROVED", "VERIFIED", 2, "rev"),
+    ]
+    verified = history[-1]
+    assert verified.evidence_id is not None
+    evidence = models.get_evidence(env.db, verified.evidence_id)
+    assert evidence.evidence_type == "MANUAL" and evidence.note == "Checked by hand"
+
+    # A criterion with no Ralph run (planned-task only) records history without an iteration.
+    sprint_id = sprints.create_sprint(env.db, env.project_id, "S", goal="g")
+    work_id = sprints.add_work_item(env.db, sprint_id, "Task")
+    work_cid = models.create(env.db, env.project_id, "Docs updated", work_item_id=work_id, created_by="dev")
+    service.approve(env.db, work_cid, "rev")
+    assert models.list_history(env.db, work_cid)[0].iteration_number is None
+
+
 def test_editing_approved_title_withdraws_approval(env):
     cid = _criterion(env)
     service.approve(env.db, cid, "rev")

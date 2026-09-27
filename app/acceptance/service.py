@@ -97,20 +97,20 @@ def verify(db: sqlite3.Connection, criterion_id: int, by: str, note: str = "") -
         raise AcceptanceError("Enter your name to verify")
     if c.status != "APPROVED":
         raise AcceptanceError("Approve the criterion before verifying it")
-    if note.strip():
-        models.add_evidence(db, criterion_id, "MANUAL", None, note, recorded_by=by)
+    evidence_id = models.add_evidence(db, criterion_id, "MANUAL", None, note, recorded_by=by) if note.strip() else None
     if not models.list_evidence(db, criterion_id, "LINKED"):
         raise AcceptanceError("Link at least one piece of evidence (or add a manual note) before verifying")
-    models.set_status(db, criterion_id, "VERIFIED", verified_by=by, verified_at=models.now())
+    models.set_status(db, criterion_id, "VERIFIED", evidence_id=evidence_id, verified_by=by, verified_at=models.now())
 
 
 def fail(db: sqlite3.Connection, criterion_id: int, by: str, note: str = "") -> None:
     _require(db, criterion_id)
     if not by.strip():
         raise AcceptanceError("Enter your name")
+    evidence_id = None
     if note.strip():
-        models.add_evidence(db, criterion_id, "MANUAL", None, f"FAILED: {note.strip()}", state="LINKED", recorded_by=by)
-    models.set_status(db, criterion_id, "FAILED", verified_by=by.strip(), verified_at=models.now())
+        evidence_id = models.add_evidence(db, criterion_id, "MANUAL", None, f"FAILED: {note.strip()}", state="LINKED", recorded_by=by)
+    models.set_status(db, criterion_id, "FAILED", evidence_id=evidence_id, verified_by=by.strip(), verified_at=models.now())
 
 
 def reopen(db: sqlite3.Connection, criterion_id: int, by: str) -> None:
