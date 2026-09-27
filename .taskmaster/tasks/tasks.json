@@ -1144,13 +1144,14 @@
         "description": "Optimize Replayer to load pipeline_events incrementally with pagination instead of reading all events on every request, keeping checkpointed seeks for 100k+ event logs to remain performant.",
         "details": "Modify app/pipelines/replay.py to implement paged event loading:\n\n1. Extend Replayer class with checkpoint-based pagination:\n   - Add load_events_page(run_id, page_size=1000, checkpoint_offset=None) that returns events from checkpoint forward\n   - Implement checkpoint_at_event(event_number) to save (event_number, reconstructed_state) pairs every K events (e.g., K=5000)\n   - Store checkpoints in memory during replay session or in a replay_checkpoints table (run_id, checkpoint_number, event_offset, state_json)\n\n2. Update ReplayController to manage pagination:\n   - Fetch events in page_size chunks rather than all at once\n   - Use nearest checkpoint to seek forward (e.g., jump to checkpoint 50k, then load 1000-event pages)\n   - Track current page position and total event count\n   - Implement has_next_page()/has_prev_page() for UI controls\n\n3. Modify timeline reconstruction:\n   - When seeking to event N, find nearest checkpoint <= N, reconstruct from checkpoint, then replay remaining events up to N\n   - This converts O(total_events) reconstruction to O(K + remaining_events) where K is checkpoint interval\n   - Keep memory footprint constant by not holding all events in RAM\n\n4. API changes:\n   - GET /executions/<id>/replay/events?page=1&page_size=1000 returns paginated events + checkpoint metadata\n   - GET /executions/<id>/replay/seek?event_num=50000 uses checkpoint to jump efficiently\n   - Response includes total_events, current_page, next_page_available for UI pagination controls\n\n5. Frontend (static/pipeline.js):\n   - Implement lazy event loading in timeline: fetch pages as user scrolls\n   - Show loading indicator while fetching next page\n   - Cache loaded pages in memory to avoid re-fetching\n   - Display event count and current page info",
         "testStrategy": "1) Unit tests in tests/pipelines/test_replay.py:\n   - test_load_events_page_returns_correct_slice for 1000, 5000, 10000 event logs\n   - test_checkpoint_at_event_saves_state_every_k_events verifies checkpoints created at intervals\n   - test_seek_to_event_uses_nearest_checkpoint reconstructs state from checkpoint faster than from event 0\n   - test_reconstruct_from_checkpoint_matches_full_replay ensures checkpoint-based reconstruction equals full reconstruction\n   - test_pagination_metadata_correct returns accurate total_events and page info\n\n2) Performance integration tests:\n   - Generate synthetic 100k-event log using script in tests/fixtures/large_log_generator.py\n   - test_100k_events_paginated_load_completes_in_under_1s for page 1 load\n   - test_seek_to_50k_events_completes_in_under_500ms verifies checkpoint seeking\n   - test_memory_usage_constant_across_pages confirms no memory leak from page accumulation\n\n3) Playwright UI tests (tests/test_phase2_ui_verification.py):\n   - test_replay_with_large_log_loads_and_scrolls at 375px and 1280px\n   - Verify timeline renders without lag when scrolling through 100k events\n   - Verify page navigation controls appear and function correctly\n\n4) Regression tests:\n   - Run existing replay tests (test_reconstruct_state_at_event, etc.) to ensure checkpoint changes don't break state reconstruction\n   - Verify replay with small logs (<1000 events) still works correctly",
-        "status": "pending",
+        "status": "in-progress",
         "dependencies": [
           "29",
           "35"
         ],
         "priority": "medium",
-        "subtasks": []
+        "subtasks": [],
+        "updatedAt": "2026-09-27T07:31:47.983Z"
       },
       {
         "id": "40",
@@ -1369,7 +1370,7 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-09-27T07:16:10.039Z",
+      "lastModified": "2026-09-27T07:31:47.983Z",
       "taskCount": 52,
       "completedCount": 38,
       "tags": [

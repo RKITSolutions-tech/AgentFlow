@@ -308,6 +308,82 @@ def _open_replay(page, url):
     return errors
 
 
+def test_load_events_page_pagination(setup):
+    """Test paged event loading with pagination metadata."""
+    eid = _run(setup, _cmd("build", "print(1)"), _cmd("test", "print(2)", depends_on=["build"]))
+    rp = _replayer(setup, eid)
+
+    # Test default page size
+    page0 = rp.load_events_page(0, 10)
+    assert page0["page"] == 0
+    assert page0["page_size"] == 10
+    assert page0["total"] >= 4  # at least: PipelineStarted, StepStarted (build), StepCompleted (build), StepStarted (test), StepCompleted (test), PipelineCompleted
+    assert len(page0["events"]) <= 10
+    assert page0["has_next"] or page0["total"] <= 10
+
+    # Test pagination across pages
+    if page0["has_next"]:
+        page1 = rp.load_events_page(1, 10)
+        assert page1["page"] == 1
+        assert page1["has_prev"]
+        # Events should not overlap between pages
+        page0_ids = {e["id"] for e in page0["events"]}
+        page1_ids = {e["id"] for e in page1["events"]}
+        assert len(page0_ids & page1_ids) == 0
+
+
+def test_checkpoint_based_seeking(setup):
+    """Test that seeking to an event uses checkpoints efficiently."""
+    eid = _run(setup, _cmd("build", "print(1)"), _cmd("test", "print(2)", depends_on=["build"]))
+    rp = _replayer(setup, eid)
+
+    # Seek to the middle event
+    mid_pos = len(rp) // 2
+    state_mid = rp.state_at(mid_pos)
+    assert state_mid is not None
+    assert state_mid["event"] == mid_pos
+
+    # Verify checkpoints were built
+    assert len(rp._checkpoints) > 0
+
+    # Seeking to different positions should reuse memoized states
+    state_mid2 = rp.state_at(mid_pos)
+    assert state_mid == state_mid2
+
+
+def test_pagination_with_large_event_log(setup):
+    """Test pagination with a large number of events."""
+    # Create a pipeline with many steps to generate many events
+    steps = [_cmd(f"step{i}", f"print({i})") for i in range(10)]
+    # Chain dependencies so all run in sequence
+    for i in range(1, len(steps)):
+        steps[i] = {**steps[i], "depends_on": [f"step{i-1}"]}
+
+    eid = _run(setup, *steps)
+    rp = _replayer(setup, eid)
+
+    # Test pagination with small page size
+    page_size = 5
+    page0 = rp.load_events_page(0, page_size)
+    assert page0["page_size"] == page_size
+    total_collected = len(page0["events"])
+
+    # Collect all pages
+    current_page = 0
+    all_events = []
+    while True:
+        page = rp.load_events_page(current_page, page_size)
+        all_events.extend(page["events"])
+        if not page["has_next"]:
+            break
+        current_page += 1
+
+    # Verify we got all events without duplicates
+    event_ids = [e["id"] for e in all_events]
+    assert len(event_ids) == len(set(event_ids)), "Duplicate events found across pages"
+    assert len(all_events) == page0["total"]
+
+
 @pytest.mark.parametrize("viewport", [{"width": 375, "height": 667}, {"width": 1280, "height": 800}], ids=["375", "1280"])
 def test_replay_timeline_renders_and_click_seeks(browser_execution, viewport):
     sync_playwright = require_playwright()

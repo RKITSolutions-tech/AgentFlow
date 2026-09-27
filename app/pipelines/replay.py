@@ -72,15 +72,10 @@ class Replayer:
         self.db = db
         self.execution = execution
         self._steps = {s.id: s for s in executions.list_steps(db, execution.id)}
-        self._raw_events: list[ExecutionEvent] = executions.list_events(db, execution.id)
-        self.events: list[ReplayEvent] = []
-        for i, e in enumerate(self._raw_events, start=1):
-            kind, icon, visible = EVENT_KINDS.get(e.event_type, ("other", "•", True))
-            step = self._steps.get(e.step_execution_id) if e.step_execution_id else None
-            self.events.append(ReplayEvent(
-                i, e.id, e.event_type, e.data, e.created_at, kind, icon, visible,
-                step.element_name if step else None, e.step_execution_id,
-            ))
+        self._execution_id = execution.id
+        self._total_events: int | None = None  # lazy-loaded event count
+        self._raw_events_cache: dict[int, list[ExecutionEvent]] = {}  # page -> events
+        self._replay_events_cache: dict[int, list[ReplayEvent]] = {}  # page -> ReplayEvents
         self._memo: OrderedDict[int, dict] = OrderedDict()
         self._checkpoints: dict[int, tuple] = {}  # event count -> (status, waiting, loops, step_status)
         self._artifacts = [
@@ -91,17 +86,88 @@ class Replayer:
         ]
 
     def __len__(self) -> int:
-        return len(self.events)
+        if self._total_events is None:
+            row = self.db.execute(
+                "SELECT COUNT(*) FROM pipeline_events WHERE execution_id = ?", (self._execution_id,)
+            ).fetchone()
+            self._total_events = row[0] if row else 0
+        return self._total_events
+
+    def _get_raw_events_page(self, page: int, page_size: int = 1000) -> list[ExecutionEvent]:
+        """Load a page of raw events from the database."""
+        if page in self._raw_events_cache:
+            return self._raw_events_cache[page]
+        offset = page * page_size
+        rows = self.db.execute(
+            "SELECT * FROM pipeline_events WHERE execution_id = ? ORDER BY id LIMIT ? OFFSET ?",
+            (self._execution_id, page_size, offset),
+        ).fetchall()
+        events = [ExecutionEvent(**dict(r)) for r in rows]
+        self._raw_events_cache[page] = events
+        return events
+
+    def _get_replay_events_page(self, page: int, page_size: int = 1000) -> list[ReplayEvent]:
+        """Get ReplayEvent objects for a page, building them from raw events."""
+        if page in self._replay_events_cache:
+            return self._replay_events_cache[page]
+        raw_events = self._get_raw_events_page(page, page_size)
+        replay_events = []
+        for i, e in enumerate(raw_events, start=page * page_size + 1):
+            kind, icon, visible = EVENT_KINDS.get(e.event_type, ("other", "•", True))
+            step = self._steps.get(e.step_execution_id) if e.step_execution_id else None
+            replay_events.append(ReplayEvent(
+                i, e.id, e.event_type, e.data, e.created_at, kind, icon, visible,
+                step.element_name if step else None, e.step_execution_id,
+            ))
+        self._replay_events_cache[page] = replay_events
+        return replay_events
+
+    def load_events_page(self, page: int = 0, page_size: int = 1000) -> dict:
+        """Load a page of events with pagination metadata."""
+        total = len(self)
+        max_page = (total + page_size - 1) // page_size if total > 0 else 0
+        page = max(0, min(page, max_page - 1)) if total > 0 else 0
+        events = self._get_replay_events_page(page, page_size)
+        return {
+            "page": page, "page_size": page_size, "total": total,
+            "total_pages": max_page, "events": [e.as_dict() for e in events],
+            "has_next": page < max_page - 1, "has_prev": page > 0,
+        }
+
+    @property
+    def events(self) -> list[ReplayEvent]:
+        """Backward compatibility: return all events (loads on demand)."""
+        all_events = []
+        page_size = 1000
+        total = len(self)
+        for page in range((total + page_size - 1) // page_size if total > 0 else 0):
+            all_events.extend(self._get_replay_events_page(page, page_size))
+        return all_events
 
     # -- reconstruction -------------------------------------------------------------
 
     def _clamp(self, n: int) -> int:
-        return max(0, min(int(n), len(self.events)))
+        return max(0, min(int(n), len(self)))
+
+    def _get_events_slice(self, lo: int, hi: int) -> list[ReplayEvent]:
+        """Get a slice of events across page boundaries."""
+        events = []
+        page_size = 1000
+        lo_page = lo // page_size
+        hi_page = (hi + page_size - 1) // page_size
+        for page in range(lo_page, hi_page):
+            page_events = self._get_replay_events_page(page, page_size)
+            page_lo = max(0, lo - page * page_size)
+            page_hi = min(len(page_events), hi - page * page_size)
+            if page_lo < page_hi:
+                events.extend(page_events[page_lo:page_hi])
+        return events
 
     def _fold(self, start: tuple, lo: int, hi: int) -> tuple:
         """Apply events `lo`..`hi` (0-based slice) to a copy of a (status, waiting, loops, steps) state."""
         status, waiting, loops, step_status = start[0], start[1], dict(start[2]), dict(start[3])
-        for ev in self.events[lo:hi]:
+        events = self._get_events_slice(lo, hi)
+        for ev in events:
             real = self._steps.get(ev.step_id) if ev.step_id else None
             t = ev.type
             if t == "StepStarted":
@@ -132,8 +198,9 @@ class Replayer:
         if not self._checkpoints:
             state = ("PENDING", None, {}, {})
             self._checkpoints[0] = state
-            for lo in range(0, len(self.events), CHECKPOINT_EVERY):
-                hi = min(lo + CHECKPOINT_EVERY, len(self.events))
+            total = len(self)
+            for lo in range(0, total, CHECKPOINT_EVERY):
+                hi = min(lo + CHECKPOINT_EVERY, total)
                 state = self._fold(state, lo, hi)
                 if hi - lo == CHECKPOINT_EVERY:
                     self._checkpoints[hi] = state
@@ -200,7 +267,16 @@ class Replayer:
 
     def inspector_at(self, n: int, node: str, root: str, patterns: tuple[str, ...] = ()) -> dict | None:
         n = self._clamp(n)
-        raw = self._raw_events[:n]  # event `position` is its 1-based index
+        # Get raw events up to position n (load in pages as needed)
+        raw = []
+        page_size = 1000
+        for page in range((n + page_size - 1) // page_size if n > 0 else 0):
+            page_events = self._get_raw_events_page(page, page_size)
+            page_start = page * page_size
+            page_end = min(page_start + page_size, n)
+            if page_start < page_end:
+                count = page_end - page_start
+                raw.extend(page_events[:count])
         return visualization.step_detail(
             self.db, root, self.execution_at(n), node, patterns, steps=self.steps_at(n), events=raw
         )
@@ -227,11 +303,29 @@ class Replayer:
     # -- timeline ---------------------------------------------------------------------
 
     def timeline(self, offset: int = 0, limit: int = 200, kind: str | None = None) -> dict:
-        events = [e for e in self.events if not kind or e.kind == kind]
-        page = events[max(offset, 0): max(offset, 0) + max(limit, 1)]
+        """Return a slice of events with optional kind filtering."""
+        page_size = 1000
+        all_kinds = set()
+
+        # Collect all events and kinds (load on demand)
+        total_events = len(self)
+        all_events = []
+        for page in range((total_events + page_size - 1) // page_size if total_events > 0 else 0):
+            page_events = self._get_replay_events_page(page, page_size)
+            all_events.extend(page_events)
+            all_kinds.update(e.kind for e in page_events)
+
+        # Filter by kind if specified
+        filtered = [e for e in all_events if not kind or e.kind == kind]
+
+        # Paginate the filtered results
+        offset = max(offset, 0)
+        limit = max(limit, 1)
+        page = filtered[offset: offset + limit]
+
         return {
-            "total": len(events), "offset": offset, "limit": limit,
-            "kinds": sorted({e.kind for e in self.events}),
+            "total": len(filtered), "offset": offset, "limit": limit,
+            "kinds": sorted(all_kinds),
             "events": [e.as_dict() for e in page],
         }
 

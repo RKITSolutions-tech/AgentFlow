@@ -175,9 +175,22 @@ def _int_arg(value, default: int | None = None) -> int | None:
 
 @bp.get("/executions/<int:execution_id>/replay/events")
 def replay_events(project_id: int, execution_id: int):
-    """Paginated timeline (§18): every recorded event with its kind, icon and node."""
+    """Paginated timeline (§18): every recorded event with its kind, icon and node.
+
+    Supports two pagination modes:
+    - offset/limit: legacy mode (slower for large logs)
+    - page/page_size: new mode optimized for large event logs with checkpointing
+    """
     _project(project_id)
     replayer = replay.Replayer(get_db(), _execution(project_id, execution_id))
+
+    # Check if using new page-based pagination
+    page = _int_arg(request.args.get("page"))
+    if page is not None:
+        page_size = min(_int_arg(request.args.get("page_size"), 1000), 5000)
+        return replayer.load_events_page(page, page_size)
+
+    # Legacy offset/limit pagination
     return replayer.timeline(
         _int_arg(request.args.get("offset"), 0), min(_int_arg(request.args.get("limit"), 200), 1000),
         request.args.get("kind") or None,
