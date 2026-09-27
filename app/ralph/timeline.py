@@ -8,11 +8,14 @@ from __future__ import annotations
 
 import difflib
 import sqlite3
+from pathlib import Path
 
 from app.pipelines import executions, replay
 from app.ralph import models
+from app.runs import artifacts as run_artifacts
 
 MAX_DIFF_LINES = 2000
+MAX_OUTPUT_SIZE = 100_000  # 100KB limit for test output display
 
 
 def merged_timeline(db: sqlite3.Connection, run_id: int, include_hidden: bool = False) -> dict:
@@ -59,11 +62,25 @@ def _diff(a: str, b: str) -> list[dict]:
     return out
 
 
-def _side(db: sqlite3.Connection, it: models.Iteration) -> dict:
-    steps: dict[str, str] = {}
+def _read_test_output(root: str, raw_data_reference: str | None) -> str:
+    """Read test output from artifact file, limiting to MAX_OUTPUT_SIZE."""
+    if not raw_data_reference:
+        return ""
+    try:
+        path = run_artifacts._resolve_within(root, raw_data_reference)
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            content = f.read(MAX_OUTPUT_SIZE)
+        return content
+    except Exception:
+        return ""
+
+
+def _side(db: sqlite3.Connection, it: models.Iteration, root: str = "") -> dict:
+    steps: dict[str, dict] = {}  # name -> {"status": str, "output": str}
     if it.verification_execution_id:
         for s in executions.list_steps(db, it.verification_execution_id):
-            steps[s.element_name] = s.status  # the last attempt wins
+            output = _read_test_output(root, s.raw_data_reference)
+            steps[s.element_name] = {"status": s.status, "output": output}  # last attempt wins
     return {
         "number": it.number, "status": it.status, "prompt": it.prompt, "reply": it.reply,
         "analysis": it.analysis, "changed_files": it.changed_files, "commit": it.commit_sha,
@@ -71,23 +88,39 @@ def _side(db: sqlite3.Connection, it: models.Iteration) -> dict:
     }
 
 
-def compare(db: sqlite3.Connection, run_id: int, a: int, b: int) -> dict | None:
+def compare(db: sqlite3.Connection, run_id: int, a: int, b: int, root: str = "") -> dict | None:
     """Iteration numbers `a` and `b` of a run side by side: prompt and reply
-    (with line diffs), analysis, changed files, and verification step results."""
+    (with line diffs), analysis, changed files, verification step results, and test output diffs."""
     by_number = {i.number: i for i in models.list_iterations(db, run_id)}
     if a not in by_number or b not in by_number:
         return None
-    left, right = _side(db, by_number[a]), _side(db, by_number[b])
+    left, right = _side(db, by_number[a], root), _side(db, by_number[b], root)
     names = list(dict.fromkeys([*left["steps"], *right["steps"]]))
     fa, fb = set(left["changed_files"]), set(right["changed_files"])
+
+    # Build step comparison with status and test output diffs
+    steps = []
+    for n in names:
+        left_step = left["steps"].get(n, {"status": "—", "output": ""})
+        right_step = right["steps"].get(n, {"status": "—", "output": ""})
+        output_diff = _diff(
+            left_step.get("output", ""),
+            right_step.get("output", "")
+        ) if (left_step.get("output") or right_step.get("output")) else []
+
+        steps.append({
+            "name": n,
+            "a": left_step["status"] if isinstance(left_step, dict) else left_step,
+            "b": right_step["status"] if isinstance(right_step, dict) else right_step,
+            "changed": (left_step.get("status") if isinstance(left_step, dict) else left_step) !=
+                      (right_step.get("status") if isinstance(right_step, dict) else right_step),
+            "output_diff": output_diff,
+        })
+
     return {
         "a": left, "b": right,
         "prompt_diff": _diff(left["prompt"], right["prompt"]),
         "reply_diff": _diff(left["reply"], right["reply"]),
         "files": {"only_a": sorted(fa - fb), "only_b": sorted(fb - fa), "both": sorted(fa & fb)},
-        "steps": [
-            {"name": n, "a": left["steps"].get(n, "—"), "b": right["steps"].get(n, "—"),
-             "changed": left["steps"].get(n) != right["steps"].get(n)}
-            for n in names
-        ],
+        "steps": steps,
     }

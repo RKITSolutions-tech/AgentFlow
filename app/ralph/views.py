@@ -8,6 +8,7 @@ from app.projects import models as project_models
 from app.ralph import models
 from app.ralph import timeline as timeline_mod
 from app.ralph.manager import RalphManager
+from app.runs import artifacts as run_artifacts
 
 bp = Blueprint("ralph", __name__, url_prefix="/projects/<int:project_id>/ralph")
 
@@ -18,6 +19,10 @@ def _wants_json() -> bool:
 
 def _manager() -> RalphManager:
     return current_app.extensions["ralph_manager"]
+
+
+def _root() -> str:
+    return run_artifacts.artifact_root(current_app.config)
 
 
 def _project(project_id: int):
@@ -189,7 +194,7 @@ def timeline(project_id: int, run_id: int):
 
 @bp.get("/<int:run_id>/compare")
 def compare(project_id: int, run_id: int):
-    """Two iterations side by side; defaults to the last two."""
+    """Two iterations side by side with diffs of prompts, replies, files, steps, and test output."""
     project = _project(project_id)
     run = _run(project_id, run_id)
     numbers = [i.number for i in models.list_iterations(get_db(), run_id)]
@@ -201,7 +206,7 @@ def compare(project_id: int, run_id: int):
         b = int(request.args.get("b") or numbers[-1])
     except ValueError:
         abort(400)
-    result = timeline_mod.compare(get_db(), run_id, a, b)
+    result = timeline_mod.compare(get_db(), run_id, a, b, _root())
     if result is None:
         abort(404)
     return render_template("ralph/compare.html", project=project, run=run, numbers=numbers, **result)
