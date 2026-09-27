@@ -63,6 +63,32 @@
     {% endfor %}
   {% endif %}
 
+  {% if screenshots %}
+    <h2>Screenshots</h2>
+    {% for s in screenshots %}
+      <h3 class="wrap-cell">{{ s.name }}</h3>
+      <div class="compare-grid screenshot-pair">
+        {% for artifact, number in ((s.a, a.number), (s.b, b.number)) %}
+          <figure>
+            <figcaption>Iteration {{ number }}</figcaption>
+            {% if artifact %}
+              <img src="{{ url_for('artifacts.preview', project_id=project.id, artifact_id=artifact.id) }}" alt="{{ s.name }} screenshot, iteration {{ number }}" loading="lazy">
+            {% else %}
+              <p class="form-hint">No screenshot captured</p>
+            {% endif %}
+          </figure>
+        {% endfor %}
+      </div>
+      {% if s.a and s.b %}
+        <form method="post" action="{{ url_for('artifacts.compare', project_id=project.id) }}" class="run-form-row">
+          <input type="hidden" name="a" value="{{ s.a.id }}">
+          <input type="hidden" name="b" value="{{ s.b.id }}">
+          <button type="submit">Compare pixel diff</button>
+        </form>
+      {% endif %}
+    {% endfor %}
+  {% endif %}
+
   <h2>Files changed</h2>
   <div class="compare-grid">
     <div><h3>Only in {{ a.number }}</h3><p class="wrap-cell">{{ files.only_a|join(', ') or 'none' }}</p></div>

@@ -206,7 +206,7 @@ def compare(project_id: int, run_id: int):
         b = int(request.args.get("b") or numbers[-1])
     except ValueError:
         abort(400)
-    result = timeline_mod.compare(get_db(), run_id, a, b, _root())
+    result = timeline_mod.compare(get_db(), run_id, a, b, _root(), project_id)
     if result is None:
         abort(404)
     return render_template("ralph/compare.html", project=project, run=run, numbers=numbers, **result)

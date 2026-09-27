@@ -1,9 +1,12 @@
 """Task 35: replay checkpoints, sub-pipeline collapsing, Ralph timeline and comparison."""
+import base64
+import os
 import sys
 import time
 
 import pytest
 
+from app.artifacts import collector
 from app.db import get_db
 from app.pipelines import executions, persistence, replay, visualization
 from app.ralph import models as ralph
@@ -16,6 +19,8 @@ from tests.pipelines.test_replay import _cmd, _replayer, _run, _states, setup  #
 
 PY = sys.executable
 AJAX = {"X-Requested-With": "XMLHttpRequest"}
+# Smallest valid PNG (1x1 transparent pixel), used to stand in for a captured screenshot.
+_PNG = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")
 
 
 # -- checkpoints ---------------------------------------------------------------------------------
@@ -225,6 +230,46 @@ def test_compare_two_iterations(ralph_run):
     assert steps["build"]["output_diff"] == []
 
 
+def test_compare_extracts_screenshots_across_iterations(ralph_run):
+    setup, run_id, ids = ralph_run
+    # "build" ran in both iterations and got a screenshot each time; "unit" only got one in
+    # iteration 2, so iteration 1's side should come back with no screenshot for it.
+    collector.store_bytes(setup.db, setup.root, setup.project_id, "build.png", _PNG, os.path.join("ralph", "1"),
+                          kind="screenshot", execution_id=ids[0], step_name="build")
+    collector.store_bytes(setup.db, setup.root, setup.project_id, "build.png", _PNG, os.path.join("ralph", "2"),
+                          kind="screenshot", execution_id=ids[1], step_name="build")
+    collector.store_bytes(setup.db, setup.root, setup.project_id, "unit.png", _PNG, os.path.join("ralph", "2b"),
+                          kind="screenshot", execution_id=ids[1], step_name="unit")
+
+    c = timeline.compare(setup.db, run_id, 1, 2, setup.root, setup.project_id)
+    shots = {s["name"]: s for s in c["screenshots"]}
+    assert shots["build"]["a"] is not None and shots["build"]["b"] is not None
+    assert shots["unit"]["a"] is None and shots["unit"]["b"] is not None
+    assert "e2e" not in shots  # no screenshot on either side
+
+    # Without a project_id (e.g. an older caller), screenshots are simply omitted.
+    assert timeline.compare(setup.db, run_id, 1, 2, setup.root)["screenshots"] == []
+
+
+def test_compare_page_displays_screenshot_diffs(ralph_run):
+    setup, run_id, ids = ralph_run
+    a_id = collector.store_bytes(setup.db, setup.root, setup.project_id, "build.png", _PNG, os.path.join("ralph", "1"),
+                                 kind="screenshot", execution_id=ids[0], step_name="build")
+    b_id = collector.store_bytes(setup.db, setup.root, setup.project_id, "build.png", _PNG, os.path.join("ralph", "2"),
+                                 kind="screenshot", execution_id=ids[1], step_name="build")
+    collector.store_bytes(setup.db, setup.root, setup.project_id, "unit.png", _PNG, os.path.join("ralph", "2b"),
+                          kind="screenshot", execution_id=ids[1], step_name="unit")
+
+    page = setup.client.get(f"/projects/{setup.project_id}/ralph/{run_id}/compare").get_data(as_text=True)
+    assert "Screenshots" in page
+    assert page.count(f"/artifacts/{a_id}/preview") == 1 and page.count(f"/artifacts/{b_id}/preview") == 1
+    assert "No screenshot captured" in page  # "unit" iteration 1 has none
+    assert 'name="a" value="' + str(a_id) in page and 'name="b" value="' + str(b_id) in page
+
+    compared = setup.client.post(f"/projects/{setup.project_id}/artifacts/compare", data={"a": a_id, "b": b_id})
+    assert compared.status_code == 302 and "/compare/" in compared.headers["Location"]
+
+
 def test_compare_page_highlights_newly_failing_and_passing_steps(ralph_run):
     setup, run_id, _ = ralph_run
     cmp_page = setup.client.get(f"/projects/{setup.project_id}/ralph/{run_id}/compare").get_data(as_text=True)
@@ -262,10 +307,11 @@ def browser_world(app, client, tmp_path, live_server):
     from tests.conftest import create_project_with_repo
 
     project_id, repo = create_project_with_repo(client, app.config["allowed_root"])
+    root = str(tmp_path / "artifacts")
     with app.app_context():
         db = get_db()
         provider = HostExecutionProvider(app.config["DATABASE_PATH"], app.config["ALLOWED_PROJECT_ROOTS"])
-        engine = PipelineEngine(db, provider, str(tmp_path / "artifacts"), lambda c: FakeAgentAdapter(c), sleep=lambda s: None)
+        engine = PipelineEngine(db, provider, root, lambda c: FakeAgentAdapter(c), sleep=lambda s: None)
         persistence.create_pipeline(db, {"name": "inner", "elements": [_cmd("db", "print(1)"), _cmd("app", "print(2)", depends_on=["db"])]}, project_id)
         persistence.create_pipeline(db, {"name": "outer", "elements": [
             _cmd("prep", "print(1)"),
@@ -286,6 +332,10 @@ def browser_world(app, client, tmp_path, live_server):
             it = ralph.add_iteration(db, run_id, n, f"prompt {n}\nshared", False)
             ralph.update_iteration(db, it, verification_execution_id=vid, status="FAILED" if n == 1 else "PASSED",
                                    changed_files=["long/" + "x" * 50 + f"{n}.py"], reply=f"reply {n}")
+            # A screenshot per iteration for the "test" step, so the compare page has real
+            # images to lay out and check for overflow in the browser.
+            collector.store_bytes(db, root, project_id, "test.png", _PNG, os.path.join("ralph", str(run_id), str(n)),
+                                  kind="screenshot", execution_id=vid, step_name="test")
     base = f"{live_server}/projects/{project_id}"
     return type("W", (), {"execution": f"{base}/pipelines/executions/{eid}", "timeline": f"{base}/ralph/{run_id}/timeline",
                           "compare": f"{base}/ralph/{run_id}/compare", "run_id": run_id})
@@ -324,6 +374,9 @@ def test_group_timeline_and_compare_pages_in_a_browser(browser_world, viewport):
                 assert_no_horizontal_overflow(page, name)
                 if viewport is MOBILE:
                     assert_touch_target_size(page, label=name)
+            page.wait_for_selector(".screenshot-pair img", state="attached")
+            assert page.locator(".screenshot-pair img").count() == 2  # one per iteration, "test" step
+            assert_no_horizontal_overflow(page, "compare screenshots")
             assert page.locator(".output-diff summary").count() == 1  # the differing "test" step
             page.click(".output-diff summary")
             page.wait_for_selector(".output-diff[open] .diff-lines")

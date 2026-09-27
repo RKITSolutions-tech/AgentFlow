@@ -986,4 +986,8 @@ fieldset { min-width: 0; }
 .output-diff summary { padding: 0.6rem; min-height: var(--tap); display: flex; align-items: center; gap: 0.4rem; cursor: pointer; font-weight: 600; }
 .output-diff summary:hover { background: var(--surface-2); }
 .output-diff .diff-lines { margin: 0; border-top: 1px solid var(--border); }
+.screenshot-pair { margin: 0.6rem 0; }
+.screenshot-pair figure { margin: 0; }
+.screenshot-pair figcaption { font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.3rem; }
+.screenshot-pair img { display: block; max-width: 100%; height: auto; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-2); }
 @media (max-width: 860px) { .compare-grid { grid-template-columns: 1fr; } }

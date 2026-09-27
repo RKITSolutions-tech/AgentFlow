@@ -10,6 +10,7 @@ import difflib
 import sqlite3
 from pathlib import Path
 
+from app.artifacts import models as artifact_models
 from app.pipelines import executions, replay
 from app.ralph import models
 from app.runs import artifacts as run_artifacts
@@ -75,12 +76,23 @@ def _read_test_output(root: str, raw_data_reference: str | None) -> str:
         return ""
 
 
-def _side(db: sqlite3.Connection, it: models.Iteration, root: str = "") -> dict:
-    steps: dict[str, dict] = {}  # name -> {"status": str, "output": str}
+def _screenshot(db: sqlite3.Connection, project_id: int | None, execution_id: int, step_name: str):
+    """Most recent screenshot artifact indexed for this step, if any (§ Artifact Library)."""
+    if not project_id:
+        return None
+    shots, _ = artifact_models.search(
+        db, project_id, kinds=["screenshot"], execution_id=execution_id, step_name=step_name, limit=1,
+    )
+    return shots[0] if shots else None
+
+
+def _side(db: sqlite3.Connection, it: models.Iteration, root: str = "", project_id: int | None = None) -> dict:
+    steps: dict[str, dict] = {}  # name -> {"status": str, "output": str, "screenshot": Artifact | None}
     if it.verification_execution_id:
         for s in executions.list_steps(db, it.verification_execution_id):
             output = _read_test_output(root, s.raw_data_reference)
-            steps[s.element_name] = {"status": s.status, "output": output}  # last attempt wins
+            screenshot = _screenshot(db, project_id, it.verification_execution_id, s.element_name)
+            steps[s.element_name] = {"status": s.status, "output": output, "screenshot": screenshot}  # last attempt wins
     return {
         "number": it.number, "status": it.status, "prompt": it.prompt, "reply": it.reply,
         "analysis": it.analysis, "changed_files": it.changed_files, "commit": it.commit_sha,
@@ -88,13 +100,14 @@ def _side(db: sqlite3.Connection, it: models.Iteration, root: str = "") -> dict:
     }
 
 
-def compare(db: sqlite3.Connection, run_id: int, a: int, b: int, root: str = "") -> dict | None:
+def compare(db: sqlite3.Connection, run_id: int, a: int, b: int, root: str = "", project_id: int | None = None) -> dict | None:
     """Iteration numbers `a` and `b` of a run side by side: prompt and reply
-    (with line diffs), analysis, changed files, verification step results, and test output diffs."""
+    (with line diffs), analysis, changed files, verification step results, test output
+    diffs, and screenshots (when `project_id` is given so the Artifact Library can be queried)."""
     by_number = {i.number: i for i in models.list_iterations(db, run_id)}
     if a not in by_number or b not in by_number:
         return None
-    left, right = _side(db, by_number[a], root), _side(db, by_number[b], root)
+    left, right = _side(db, by_number[a], root, project_id), _side(db, by_number[b], root, project_id)
     names = list(dict.fromkeys([*left["steps"], *right["steps"]]))
     fa, fb = set(left["changed_files"]), set(right["changed_files"])
 
@@ -117,10 +130,17 @@ def compare(db: sqlite3.Connection, run_id: int, a: int, b: int, root: str = "")
             "output_diff": output_diff,
         })
 
+    screenshots = [
+        {"name": n, "a": left["steps"].get(n, {}).get("screenshot"), "b": right["steps"].get(n, {}).get("screenshot")}
+        for n in names
+        if left["steps"].get(n, {}).get("screenshot") or right["steps"].get(n, {}).get("screenshot")
+    ]
+
     return {
         "a": left, "b": right,
         "prompt_diff": _diff(left["prompt"], right["prompt"]),
         "reply_diff": _diff(left["reply"], right["reply"]),
         "files": {"only_a": sorted(fa - fb), "only_b": sorted(fb - fa), "both": sorted(fa & fb)},
         "steps": steps,
+        "screenshots": screenshots,
     }
