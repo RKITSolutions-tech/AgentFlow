@@ -498,3 +498,80 @@ The shared knowledge base must be quick to search and easy to browse, for agents
   (see sharing rules above).
 - **For people.** The same index is browsable in the UI as a wiki: topic tree, page view with backlinks, search box,
   recent and most-used lists, and a "needs review / stale" queue.
+
+### 23.2 Agent Capability Delivery Architecture (decided task 51)
+
+**Decision: Layered Skill Management with Prompt Injection**
+
+Agent capabilities and extended context are delivered via prompt injection, with AgentFlow serving as the Master Data Management (MDM) source for skill definitions and context assembly.
+
+**Architecture:**
+
+1. **Generic Skills Layer (AgentFlow MDM)**
+   - Reusable capabilities common across multiple projects (e.g., "how to test a web UI", research patterns, common workflows).
+   - Stored and versioned in AgentFlow (database + files under `app/agents/skills/` or similar).
+   - AgentFlow is the single source of truth; generic skills are synced to project files when an agent session starts, or injected directly into prompts.
+   - Validated regularly by review agents.
+
+2. **App-Specific Skills Layer**
+   - Project or repository-specific capabilities (e.g., custom testing harnesses, deployment procedures).
+   - TBD: stored in AgentFlow and synced to repo, OR persisted in repo only and pulled by AgentFlow.
+   - Open question for follow-up: trade-offs between centralized (AgentFlow) vs. decentralized (repo-only) storage for app-specific skills.
+
+3. **Role-Based Context Injection**
+   - Skills are adapted and injected into prompts based on agent role (RESEARCH, PLANNING, IMPLEMENTATION, VERIFICATION, GENERAL).
+   - Prompt library (task 30) assembles role-specific context at session start.
+   - Same skill pool serves all roles; context varies by role's needs.
+   - No agent discovery or parsing required; agents receive a complete, tailored prompt.
+
+**Rationale (vs. alternatives):**
+
+- **Rejected: Per-agent skill files (approach a).** Skill files (e.g., `CLAUDE.md`, `SKILL.md`, per-adapter) would scatter skill definitions across agent repos, prevent reuse across projects, and require each adapter to parse custom formats. AgentFlow would have no MDM and no way to validate or version skills consistently.
+
+- **Rejected: Pure MCP server (approach b).** An MCP tool server adds latency for each skill invocation, requires MCP client support in every agent (not all agents may have it), and complicates adapter implementation. MCP is better suited for runtime tool access than for upfront context delivery.
+
+- **Selected: Prompt injection with layered skill management (approach c).** AgentFlow assembles tailored prompts upfront, including all role-specific context. Agents receive complete, reviewed guidance without discovery overhead. All skill definitions are versioned and validated in AgentFlow. Token consumption is the same as other approaches when skills are actually used (during invocation), but upfront assembly is simpler. Recorded `execution_prompts` (task 30) provide full visibility for compliance and debugging.
+
+**Evaluation Against Design Criteria:**
+
+- **Adapter uniformity (AGENT_ADAPTER §11):** All agent-specific logic is confined to adapters; the prompt/context assembly layer is agent-agnostic. Skills are defined once in AgentFlow and delivered the same way to all adapters.
+- **FakeAgent testability:** FakeAgentAdapter receives the final assembled prompt, no discovery or parsing needed. Test fixtures can be deterministic and self-contained.
+- **Token cost:** No net difference when skills are invoked compared to discovery approaches. Upfront token cost for injected context is offset by simpler adapter logic and no discovery overhead.
+- **Recorded effective prompts (task 30):** Full prompt + injected context are recorded together in `execution_prompts`, providing end-to-end visibility.
+- **Interactive vs. pipeline sessions:** Same mechanism works for both; context is assembled at session start, enabling consistent behavior across use cases.
+- **Redaction (app/runs/security.py):** Injected skill context is part of the final prompt and is redacted before persistence, same as other prompt content.
+
+**Fallback to Native Agent Capabilities:**
+
+AgentFlow's skill management is the primary path, but adapters retain a fallback to native agent discovery:
+
+1. **Primary (recommended):** AgentFlow assembles and injects role-specific skills into prompts at session start.
+2. **Secondary fallback:** If skill injection fails, is unavailable, or AgentFlow's skill service is down, adapters degrade gracefully:
+   - Agents can still discover and use their native instruction files (e.g., `CLAUDE.md` in the project, Codex's native config).
+   - Project-level context files (task 34) are still available as a fallback layer.
+   - The session works, but without AgentFlow's validated, role-adapted skills.
+
+This two-tier approach ensures resilience: centralized management for optimal behavior, but agents remain functional without AgentFlow's skill layer.
+
+**Open Questions & Deferred Decisions:**
+
+1. **App-specific skill storage (Decided: centralized with fallback):** App-specific skills are defined in AgentFlow (alongside generic skills) and synced to project repos on session start, or made available to adapters during context assembly. This provides:
+   - Single source of truth for skill definitions and versioning.
+   - Consistent validation and review across all app-specific skills.
+   - Projects still retain native fallback (task 34, project context files) if needed.
+   - Implementation task should detail sync strategy and fallback behavior.
+
+2. **Skill format and metadata:** Define the schema for skill definitions (title, description, when to use, constraints, dependencies). Should skills reference each other or have dependencies?
+
+3. **Skill versioning and updates:** How do generic skills versions propagate? On every session start, or on-demand? Should projects pin skill versions or always use latest?
+
+4. **Skill review and validation:** How often do review agents audit skill definitions? What triggers a review (time-based, change-based, usage-based)?
+
+**Follow-Up Tasks:**
+
+- Task: "Design and implement skill management service in AgentFlow" — models, persistence, versioning, sync/retrieval.
+- Task: "Create initial set of generic skills" — research patterns, testing strategies, common workflows.
+- Task: "Implement role-based context injection in prompt library (task 30)" — adapt skills per agent role.
+- Task: "Integrate skill review agents" — periodic audits and validation of skill definitions.
+- Task: "Decide app-specific skill storage strategy" — resolve centralized vs. decentralized storage trade-offs.
+- Task: "Surface skills in agent prompts and session UI" — ensure agents see available capabilities and can discover them if needed.
