@@ -209,7 +209,7 @@ def test_merged_timeline_has_a_lane_per_iteration_in_time_order(ralph_run):
 
 def test_compare_two_iterations(ralph_run):
     setup, run_id, _ = ralph_run
-    c = timeline.compare(setup.db, run_id, 1, 2)
+    c = timeline.compare(setup.db, run_id, 1, 2, setup.root)
     assert c["files"] == {"only_a": ["a.py"], "only_b": ["c.py"], "both": ["b.py"]}
     steps = {s["name"]: s for s in c["steps"]}
     assert steps["build"]["changed"] is False and steps["unit"]["changed"] is True
@@ -219,6 +219,18 @@ def test_compare_two_iterations(ralph_run):
     assert ("del", "prompt v1") in kinds and ("add", "prompt v2") in kinds
     assert timeline.compare(setup.db, run_id, 1, 9) is None
     assert timeline.compare(setup.db, run_id, 1, 1)["prompt_diff"] == []
+    # "unit" failed in iteration 1 and passed in iteration 2 with different stdout, so its
+    # output_diff carries the change; "build" printed the same thing both times, so it has none.
+    assert steps["unit"]["output_diff"]
+    assert steps["build"]["output_diff"] == []
+
+
+def test_compare_page_highlights_newly_failing_and_passing_steps(ralph_run):
+    setup, run_id, _ = ralph_run
+    cmp_page = setup.client.get(f"/projects/{setup.project_id}/ralph/{run_id}/compare").get_data(as_text=True)
+    assert "Test output" in cmp_page and 'class="output-diff"' in cmp_page
+    assert "newly passing" in cmp_page  # "unit" went FAILED (iteration 1) -> PASSED (iteration 2)
+    assert "row-newly-passed" in cmp_page and "row-newly-failed" not in cmp_page
 
 
 def test_timeline_and_compare_pages(ralph_run):
@@ -259,11 +271,17 @@ def browser_world(app, client, tmp_path, live_server):
             _cmd("prep", "print(1)"),
             {"name": "setup", "type": "SUB_PIPELINE", "config": {"pipeline": "inner"}, "depends_on": ["prep"]},
             _cmd("test", "print(2)", depends_on=["setup"])]}, project_id)
+        # A second pipeline whose "test" step prints something else, so the two verification
+        # runs below differ and the compare page has a test-output diff to render.
+        persistence.create_pipeline(db, {"name": "outer2", "elements": [
+            _cmd("prep", "print(1)"),
+            {"name": "setup", "type": "SUB_PIPELINE", "config": {"pipeline": "inner"}, "depends_on": ["prep"]},
+            _cmd("test", "print(99)", depends_on=["setup"])]}, project_id)
         eid = engine.create("outer", project_id, 1)
         engine.run(eid)
         run_id = ralph.create_run(db, project_id, 1, "Task", "do it", "outer")
         for n in (1, 2):
-            vid = engine.create("outer", project_id, 1, variables={"run": run_id, "iteration": n})
+            vid = engine.create("outer" if n == 1 else "outer2", project_id, 1, variables={"run": run_id, "iteration": n})
             engine.run(vid)
             it = ralph.add_iteration(db, run_id, n, f"prompt {n}\nshared", False)
             ralph.update_iteration(db, it, verification_execution_id=vid, status="FAILED" if n == 1 else "PASSED",
@@ -306,6 +324,9 @@ def test_group_timeline_and_compare_pages_in_a_browser(browser_world, viewport):
                 assert_no_horizontal_overflow(page, name)
                 if viewport is MOBILE:
                     assert_touch_target_size(page, label=name)
+            assert page.locator(".output-diff summary").count() == 1  # the differing "test" step
+            page.click(".output-diff summary")
+            page.wait_for_selector(".output-diff[open] .diff-lines")
             page.goto(browser_world.timeline)
             page.locator('[data-lane="2"] .lane-event').nth(3).click()  # opens that execution's replay at that event
             page.wait_for_selector(".replay-event")

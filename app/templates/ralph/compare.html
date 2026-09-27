@@ -32,12 +32,36 @@
     <thead><tr><th>Step</th><th>Iteration {{ a.number }}</th><th>Iteration {{ b.number }}</th></tr></thead>
     <tbody>
       {% for s in steps %}
-        <tr{% if s.changed %} class="row-changed"{% endif %}><td class="wrap-cell">{{ s.name }}</td><td>{{ s.a|replace('_', ' ')|capitalize }}</td><td>{{ s.b|replace('_', ' ')|capitalize }}{% if s.changed %} <span class="form-hint">changed</span>{% endif %}</td></tr>
+        {% set newly_failed = s.a != 'FAILED' and s.b == 'FAILED' %}
+        {% set newly_passed = s.a == 'FAILED' and s.b != 'FAILED' %}
+        <tr class="{{ 'row-newly-failed' if newly_failed else 'row-newly-passed' if newly_passed else 'row-changed' if s.changed else '' }}">
+          <td class="wrap-cell">{{ s.name }}</td><td>{{ s.a|replace('_', ' ')|capitalize }}</td>
+          <td>{{ s.b|replace('_', ' ')|capitalize }}
+            {% if newly_failed %} <span class="form-hint">newly failing</span>
+            {% elif newly_passed %} <span class="form-hint">newly passing</span>
+            {% elif s.changed %} <span class="form-hint">changed</span>{% endif %}</td>
+        </tr>
       {% else %}
         <tr><td colspan="3">No verification steps recorded.</td></tr>
       {% endfor %}
     </tbody>
   </table>
+
+  {% set steps_with_output = steps|selectattr('output_diff')|list %}
+  {% if steps_with_output %}
+    <h2>Test output</h2>
+    {% for s in steps_with_output %}
+      <details class="output-diff">
+        <summary>{{ s.name }}
+          {% set newly_failed = s.a != 'FAILED' and s.b == 'FAILED' %}
+          {% set newly_passed = s.a == 'FAILED' and s.b != 'FAILED' %}
+          {% if newly_failed %}<span class="badge badge-danger">newly failing</span>
+          {% elif newly_passed %}<span class="badge badge-success">newly passing</span>{% endif %}
+        </summary>
+        {{ diff(s.output_diff) }}
+      </details>
+    {% endfor %}
+  {% endif %}
 
   <h2>Files changed</h2>
   <div class="compare-grid">

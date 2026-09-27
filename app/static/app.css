@@ -977,4 +977,13 @@ fieldset { min-width: 0; }
 .diff-del { background: var(--danger-soft); color: var(--danger); }
 .diff-gap { color: var(--text-muted); }
 .row-changed td { background: var(--warning-soft); }
+.row-newly-failed td { background: var(--danger-soft); }
+.row-newly-passed td { background: var(--success-soft); }
+.badge { display: inline-block; margin-left: 0.4rem; padding: 0.1rem 0.5rem; border-radius: var(--radius); font-size: 0.75rem; font-weight: 600; }
+.badge-danger { background: var(--danger-soft); color: var(--danger); }
+.badge-success { background: var(--success-soft); color: var(--success); }
+.output-diff { margin: 0.6rem 0; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.output-diff summary { padding: 0.6rem; min-height: var(--tap); display: flex; align-items: center; gap: 0.4rem; cursor: pointer; font-weight: 600; }
+.output-diff summary:hover { background: var(--surface-2); }
+.output-diff .diff-lines { margin: 0; border-top: 1px solid var(--border); }
 @media (max-width: 860px) { .compare-grid { grid-template-columns: 1fr; } }
