@@ -55,6 +55,44 @@ def test_disabled_model_is_excluded_from_session_form(client, app):
     assert b"gpt-hidden-test" not in resp.data
 
 
+def test_add_local_model_requires_base_url(client, app):
+    resp = client.post(
+        "/settings/models/add",
+        data={"provider": "local", "model_id": "llama-3.1-8b-instruct"},
+        follow_redirects=True,
+    )
+    assert resp.status_code == 200
+    assert b"Base URL is required" in resp.data
+
+    with app.app_context():
+        db = get_db()
+        models = settings_models.list_models(db, provider="local")
+        assert not any(m.model_id == "llama-3.1-8b-instruct" for m in models)
+
+
+def test_add_local_model_stores_base_url_and_api_key(client, app):
+    resp = client.post(
+        "/settings/models/add",
+        data={
+            "provider": "local",
+            "model_id": "llama-3.1-8b-instruct",
+            "base_url": "http://localhost:1234/v1",
+            "api_key": "s3cret",
+        },
+        follow_redirects=True,
+    )
+    assert resp.status_code == 200
+    assert b"llama-3.1-8b-instruct" in resp.data
+    assert b"http://localhost:1234/v1" in resp.data
+    assert b"s3cret" not in resp.data
+
+    with app.app_context():
+        db = get_db()
+        [entry] = settings_models.list_models(db, provider="local")
+        assert entry.base_url == "http://localhost:1234/v1"
+        assert entry.api_key == "s3cret"
+
+
 def test_delete_model_removes_it(client, app):
     with app.app_context():
         db = get_db()

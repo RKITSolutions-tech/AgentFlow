@@ -27,14 +27,18 @@ def add_model():
     db = get_db()
     provider = request.form.get("provider", "").strip().lower()
     model_id = request.form.get("model_id", "").strip()
+    base_url = request.form.get("base_url", "").strip()
+    api_key = request.form.get("api_key", "").strip()
 
     if provider not in settings_models.PROVIDERS:
         flash("Unknown provider.", "error")
     elif not model_id:
         flash("Model id is required.", "error")
+    elif provider == "local" and not base_url:
+        flash("Base URL is required for local models.", "error")
     else:
         try:
-            settings_models.add_model(db, provider, model_id)
+            settings_models.add_model(db, provider, model_id, base_url=base_url, api_key=api_key)
             flash(f"Added {model_id}.", "info")
         except Exception:
             flash(f"{model_id} is already in the catalog.", "error")

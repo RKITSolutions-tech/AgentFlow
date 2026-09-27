@@ -74,25 +74,27 @@
   </script>
 
   <h2>Start New Session</h2>
-  <form class="stacked" id="startSessionForm" method="post" action="{{ url_for('sessions.create_session', project_id=project.id) }}">
+  <form class="stacked" id="startSessionForm" method="post" action="{{ url_for('sessions.create_session', project_id=project.id) }}"
+        data-model-providers="{{ model_providers_by_agent|tojson }}">
     <label>Agent Type
       <select name="agent_type" id="agentTypeSelect">
         <option value="codex">Codex</option>
+        <option value="claude">Claude</option>
         <option value="fake">Fake (Testing)</option>
       </select>
     </label>
     <label id="modelField">Model
-      <select name="model">
+      <select name="model" id="modelSelect">
         <option value="">(agent default)</option>
-        {% for m in openai_models %}
-          <option value="{{ m.model_id }}">{{ m.model_id }}</option>
+        {% for m in model_options %}
+          <option value="{{ m.model_id }}" data-provider="{{ m.provider }}">{{ m.model_id }}{% if m.provider == 'local' %} (local){% endif %}</option>
         {% endfor %}
       </select>
     </label>
-    {% if not openai_models %}
+    {% if not model_options %}
       <p class="form-hint">
-        No OpenAI models enabled in <a href="{{ url_for('settings.index') }}">Settings</a> — the
-        Codex CLI's own default model will be used.
+        No models enabled in <a href="{{ url_for('settings.index') }}">Settings</a> — the
+        agent's own default model will be used.
       </p>
     {% endif %}
     {% if project.repositories %}
@@ -110,11 +112,24 @@
   </form>
   <script>
     (function () {
+      var form = document.getElementById("startSessionForm");
       var agentSelect = document.getElementById("agentTypeSelect");
       var modelField = document.getElementById("modelField");
+      var modelSelect = document.getElementById("modelSelect");
+      var providersByAgent = JSON.parse(form.dataset.modelProviders || "{}");
+      var options = Array.prototype.slice.call(modelSelect.querySelectorAll("option[data-provider]"));
 
       function updateModelVisibility() {
-        modelField.hidden = agentSelect.value !== "codex";
+        var agent = agentSelect.value;
+        var providers = providersByAgent[agent] || [];
+        modelField.hidden = providers.length === 0;
+        options.forEach(function (option) {
+          var matches = providers.indexOf(option.dataset.provider) !== -1;
+          option.hidden = !matches;
+          if (!matches && option.selected) {
+            modelSelect.value = "";
+          }
+        });
       }
 
       agentSelect.addEventListener("change", updateModelVisibility);

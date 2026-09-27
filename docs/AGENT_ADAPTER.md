@@ -16,7 +16,8 @@ OpenCodeAdapter
 FakeAgentAdapter
 ```
 
-Codex is the first real implementation priority.
+Codex was the first real implementation priority (§17); Claude Code followed
+as a second real adapter (§18). Gemini and OpenCode remain unimplemented.
 
 ## 3. Core Interface
 
@@ -240,6 +241,17 @@ when to include it, and nothing includes it yet. Because `codex exec` ends its
 turn after asking, the answer goes back as a plain-text message that starts
 the next turn.
 
+Native handling for Claude Code (implemented in `app/agents/claude.py`, §18):
+unlike Codex, `claude -p --output-format stream-json` emits the question as a
+`tool_use` content block named `AskUserQuestion` on an `assistant` event, with
+`questions[].question`/`header`/`options`/`multiSelect` already structured —
+no text-fence detection needed. `ClaudeAdapter._extract_claude_questions`
+reads that block directly and passes the tool_use block's own `id` as
+`external_id` to `create_clarifying_question`. As with Codex, the turn ends
+after asking, so the answer is delivered as a plain-text message on the next
+`send()`/`resume()`; `ClaudeAdapter` does not reconstruct a `tool_result`
+block for it.
+
 Open questions:
 
 ```text
@@ -330,10 +342,66 @@ task 4.5):
   best-effort filesystem scan, not a `codex` subprocess call, so it degrades
   gracefully (returns only already-tracked sessions) when that directory
   doesn't exist.
+- A model chosen from the Settings model catalog's `local` provider (a
+  self-hosted, OpenAI-compatible server such as LM Studio) is not just
+  passed via `-m`: `_model_flags` also appends `-c model_provider=...`/
+  `model_providers.local.base_url`/`wire_api` overrides, and, only if that
+  catalog entry has an API key, `-c model_providers.local.env_key=...` plus
+  an `AGENTFLOW_LOCAL_MODEL_API_KEY` environment variable (never a command
+  line argument, so it needs no redaction).
 
-## 18. Other Agents
+## 18. Claude Adapter
 
-Claude, Gemini and OpenCode should follow after the adapter interface has been proven with FakeAgent and Codex.
+Claude Code is the second real adapter, implemented in `app/agents/claude.py`
+following the same structure as `CodexAdapter` (§17).
+
+Initial capability target (matches Codex's, minus `image_input`, for which
+the Claude CLI's print mode has no equivalent flag):
+
+```text
+binary discovery
+version
+start session
+resume where supported
+stream output
+stop
+session persistence
+Project working directory
+prompt/reply capture
+session discovery where supported
+```
+
+Requirements and behaviour:
+
+- The `claude` binary must be resolvable (`shutil.which`) and already
+  authenticated; AgentFlow does not manage Claude Code authentication
+  itself.
+- Turns run as `claude -p --output-format stream-json --verbose`
+  (`--resume <external_session_id>` for a resumed turn), and `--json`-style
+  stdout lines are translated by `_sync_events`: `system`/`init` supplies the
+  external session id (Codex's analogue is `thread.started`), `assistant`
+  message content blocks become `AgentText` events (or an `AskUserQuestion`
+  `tool_use` block, per §12), and the terminal `result` event
+  (`is_error` true/false) maps to `AgentComplete`/`AgentError`, matching
+  Codex's `turn.completed`/`turn.failed`.
+- `--permission-mode` accepts `default`, `plan` and `acceptEdits`;
+  `bypassPermissions` is deliberately not offered from the UI, mirroring
+  Codex withholding `danger-full-access`.
+- If the binary can't actually be launched, the adapter records an
+  `AgentError` event and marks the session `FAILED` rather than letting the
+  raw `OSError` escape — same degraded-mode contract as Codex.
+- Session discovery reads `$CLAUDE_CONFIG_DIR/projects/*/*.jsonl`
+  (`CLAUDE_CONFIG_DIR` defaults to `~/.claude`) for native transcripts whose
+  first line's `cwd` matches the Project's primary repository path; a
+  best-effort filesystem scan, degrading gracefully when the directory is
+  absent, same as Codex's rollout-file scan.
+- A `local` catalog model (§17) is applied via `ANTHROPIC_BASE_URL` and, if
+  the entry has an API key, `ANTHROPIC_AUTH_TOKEN` environment variables —
+  the Claude CLI's own documented mechanism for pointing at a custom,
+  Anthropic-API-compatible server, so no `-c`-style config flag is needed.
+
+Gemini and OpenCode remain unimplemented; they should follow the same
+pattern once needed.
 
 ## 19. UI Integration
 

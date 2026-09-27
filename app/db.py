@@ -182,6 +182,8 @@ CREATE TABLE IF NOT EXISTS model_catalog (
     provider TEXT NOT NULL,
     model_id TEXT NOT NULL,
     enabled INTEGER NOT NULL DEFAULT 1,
+    base_url TEXT NOT NULL DEFAULT '',
+    api_key TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     UNIQUE(provider, model_id)
 );
@@ -751,6 +753,8 @@ _ADDED_COLUMNS = (
     ("planned_work_items", "task_state", "TEXT NOT NULL DEFAULT 'DRAFT'"),
     ("planned_work_items", "released_at", "TEXT"),
     ("planned_work_items", "verification_pipeline", "TEXT NOT NULL DEFAULT ''"),
+    ("model_catalog", "base_url", "TEXT NOT NULL DEFAULT ''"),
+    ("model_catalog", "api_key", "TEXT NOT NULL DEFAULT ''"),
 )
 
 

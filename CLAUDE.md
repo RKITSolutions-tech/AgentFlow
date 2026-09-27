@@ -21,10 +21,20 @@ Key modules:
 - `app/agents/fake.py` — `FakeAgentAdapter`, the deterministic adapter used
   for automated tests. Driven by a scripted list of steps (`message`, `ask`,
   `write_file`, `fail`, `complete`) passed via `options["script"]`.
-- `app/agents/codex.py` — `CodexAdapter`, the first real adapter. Being
-  built incrementally across Task Master task 4's subtasks; methods not yet
-  implemented raise `NotImplementedError` naming the subtask that will add
-  them.
+- `app/agents/codex.py` — `CodexAdapter`, the first real adapter, driving
+  `codex exec`/`codex exec resume` (docs/AGENT_ADAPTER.md §17). Also resolves
+  a Settings `local` catalog model (self-hosted, OpenAI-compatible server) to
+  `-c model_providers.local.*` config overrides.
+- `app/agents/claude.py` — `ClaudeAdapter`, the second real adapter, driving
+  `claude -p --output-format stream-json` (docs/AGENT_ADAPTER.md §18).
+  Clarifying questions come from Claude Code's native `AskUserQuestion`
+  tool_use block rather than Codex's text-fence convention
+  (app/agents/questions.py). A `local` catalog model is applied via
+  `ANTHROPIC_BASE_URL`/`ANTHROPIC_AUTH_TOKEN` env vars instead.
+- `app/settings/models.py` — the model catalog (`openai`/`anthropic`/`local`
+  providers) offered when starting or switching a session's model
+  (`app/templates/settings/index.html`); a `local` entry carries its own
+  `base_url`/`api_key` for a self-hosted server.
 - `app/execution/base.py` — the `ExecutionProvider` ABC (`HostExecutionProvider`
   today, `DockerExecutionProvider` later). Adapters request process
   execution through this abstraction (per `docs/AGENT_ADAPTER.md` §13)

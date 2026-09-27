@@ -37,6 +37,7 @@ class FakeExecutionProvider(ExecutionProvider):
 
     def __init__(self):
         self.commands: list[list[str]] = []
+        self.options: list[dict[str, Any]] = []
         self._turns: list[dict[str, Any]] = []
         self._events: dict[int, list[exec_models.ProcessEvent]] = {}
         self._processes: dict[int, exec_models.Process] = {}
@@ -92,6 +93,7 @@ class FakeExecutionProvider(ExecutionProvider):
             raise exc
 
         self.commands.append(command)
+        self.options.append(options or {})
         turn = self._turns.pop(0)
 
         process_id = self._next_process_id
@@ -531,6 +533,91 @@ def test_start_passes_model_flag_and_persists_it_for_later_turns(app):
             "gpt-5.6-luna",
             "one more",
         ]
+
+
+def test_start_targets_local_model_provider_via_config_overrides_and_env(app):
+    from app.settings import models as settings_models
+
+    with app.app_context():
+        db = get_db()
+        project_id, working_directory = _make_project(db, app)
+        settings_models.add_model(
+            db,
+            "local",
+            "llama-3.1-8b-instruct",
+            base_url="http://localhost:1234/v1",
+            api_key="s3cret",
+        )
+
+        provider = FakeExecutionProvider()
+        provider.queue_turn(
+            [
+                _thread_started_line("ext-session-local"),
+                *_task_complete_line("done"),
+            ]
+        )
+        adapter = CodexAdapter(db, provider)
+        context = AgentContext(
+            project_id=project_id,
+            working_directory=working_directory,
+            execution_provider="host",
+            execution_target="1",
+            model="llama-3.1-8b-instruct",
+        )
+        adapter.start(context, "start it")
+
+        assert provider.commands[0] == [
+            "codex",
+            "exec",
+            "--json",
+            "-m",
+            "llama-3.1-8b-instruct",
+            "-c",
+            'model_provider="local"',
+            "-c",
+            'model_providers.local.name="Local"',
+            "-c",
+            'model_providers.local.base_url="http://localhost:1234/v1"',
+            "-c",
+            'model_providers.local.wire_api="chat"',
+            "-c",
+            'model_providers.local.env_key="AGENTFLOW_LOCAL_MODEL_API_KEY"',
+            "start it",
+        ]
+        assert provider.options[0]["environment"] == {
+            "AGENTFLOW_LOCAL_MODEL_API_KEY": "s3cret"
+        }
+
+
+def test_start_targets_local_model_without_api_key_omits_env_key_and_env(app):
+    from app.settings import models as settings_models
+
+    with app.app_context():
+        db = get_db()
+        project_id, working_directory = _make_project(db, app)
+        settings_models.add_model(
+            db, "local", "llama-3.1-8b-instruct", base_url="http://localhost:1234/v1"
+        )
+
+        provider = FakeExecutionProvider()
+        provider.queue_turn(
+            [
+                _thread_started_line("ext-session-local-2"),
+                *_task_complete_line("done"),
+            ]
+        )
+        adapter = CodexAdapter(db, provider)
+        context = AgentContext(
+            project_id=project_id,
+            working_directory=working_directory,
+            execution_provider="host",
+            execution_target="1",
+            model="llama-3.1-8b-instruct",
+        )
+        adapter.start(context, "start it")
+
+        assert "env_key" not in " ".join(provider.commands[0])
+        assert "environment" not in provider.options[0]
 
 
 def test_resume_without_external_session_id_raises(app):

@@ -37,7 +37,7 @@
         <select id="modelSwitch" data-url="{{ url_for('sessions.switch_model', session_id=session.id) }}">
           <option value="">(agent default)</option>
           {% for m in model_options %}
-            <option value="{{ m.model_id }}"{% if m.model_id == session.metadata.get('model') %} selected{% endif %}>{{ m.model_id }}</option>
+            <option value="{{ m.model_id }}"{% if m.model_id == session.metadata.get('model') %} selected{% endif %}>{{ m.model_id }}{% if m.provider == 'local' %} (local){% endif %}</option>
           {% endfor %}
         </select>
       </label>

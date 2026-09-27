@@ -9,13 +9,30 @@
   </p>
 
   {% for provider, entries in models_by_provider.items() %}
-    <h2>{{ provider|capitalize }} models</h2>
+    <h2>{{ 'Local' if provider == 'local' else provider|capitalize }} models</h2>
+    {% if provider == 'local' %}
+      <p class="form-hint">
+        Self-hosted, OpenAI-compatible servers such as LM Studio or Ollama. Each
+        model needs the server's base URL (e.g. <code>http://localhost:1234/v1</code>
+        for LM Studio); an API key is only needed if the server requires one.
+      </p>
+    {% endif %}
     <table class="table-compact" {% if not entries %}hidden{% endif %}>
-      <thead><tr><th>Model id</th><th>Included</th><th>Actions</th></tr></thead>
+      <thead>
+        <tr>
+          <th>Model id</th>
+          {% if provider == 'local' %}<th>Server</th>{% endif %}
+          <th>Included</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
       <tbody>
         {% for entry in entries %}
           <tr data-row>
             <td>{{ entry.model_id }}</td>
+            {% if provider == 'local' %}
+              <td class="wrap-cell">{{ entry.base_url }}{% if entry.api_key %} (API key set){% endif %}</td>
+            {% endif %}
             <td>
               <input type="checkbox" {% if entry.enabled %}checked{% endif %}
                      data-model-toggle="{{ url_for('settings.toggle_model', catalog_id=entry.id) }}"
@@ -36,9 +53,17 @@
 
     <form class="stacked" method="post" action="{{ url_for('settings.add_model') }}">
       <input type="hidden" name="provider" value="{{ provider }}">
-      <label>Add {{ provider|capitalize }} model id
-        <input type="text" name="model_id" placeholder="e.g. {{ 'gpt-5.6-luna' if provider == 'openai' else 'claude-sonnet-5' }}">
+      <label>Add {{ 'local' if provider == 'local' else provider|capitalize }} model id
+        <input type="text" name="model_id" placeholder="e.g. {{ 'llama-3.1-8b-instruct' if provider == 'local' else ('gpt-5.6-luna' if provider == 'openai' else 'claude-sonnet-5') }}">
       </label>
+      {% if provider == 'local' %}
+        <label>Base URL
+          <input type="text" name="base_url" placeholder="http://localhost:1234/v1">
+        </label>
+        <label>API key (optional)
+          <input type="password" name="api_key" autocomplete="off">
+        </label>
+      {% endif %}
       <button type="submit">Add</button>
     </form>
   {% endfor %}

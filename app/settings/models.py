@@ -3,7 +3,10 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass
 
-PROVIDERS = ("openai", "anthropic")
+# "local" covers any self-hosted, OpenAI-compatible server (LM Studio, Ollama,
+# vLLM, ...); each catalog entry carries its own base_url/api_key rather than
+# there being one fixed endpoint per provider.
+PROVIDERS = ("openai", "anthropic", "local")
 
 
 @dataclass
@@ -12,6 +15,8 @@ class ModelCatalogEntry:
     provider: str
     model_id: str
     enabled: bool
+    base_url: str = ""
+    api_key: str = ""
 
 
 def _hydrate(row: sqlite3.Row) -> ModelCatalogEntry:
@@ -20,6 +25,8 @@ def _hydrate(row: sqlite3.Row) -> ModelCatalogEntry:
         provider=row["provider"],
         model_id=row["model_id"],
         enabled=bool(row["enabled"]),
+        base_url=row["base_url"],
+        api_key=row["api_key"],
     )
 
 
@@ -40,10 +47,16 @@ def list_enabled_models(db: sqlite3.Connection, provider: str | None = None) -> 
     return [entry for entry in list_models(db, provider) if entry.enabled]
 
 
-def add_model(db: sqlite3.Connection, provider: str, model_id: str) -> int:
+def add_model(
+    db: sqlite3.Connection,
+    provider: str,
+    model_id: str,
+    base_url: str = "",
+    api_key: str = "",
+) -> int:
     cur = db.execute(
-        "INSERT INTO model_catalog (provider, model_id) VALUES (?, ?)",
-        (provider, model_id),
+        "INSERT INTO model_catalog (provider, model_id, base_url, api_key) VALUES (?, ?, ?, ?)",
+        (provider, model_id, base_url, api_key),
     )
     db.commit()
     return cur.lastrowid

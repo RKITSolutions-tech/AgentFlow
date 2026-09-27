@@ -283,7 +283,8 @@ OpenCodeAdapter
 FakeAgentAdapter
 ```
 
-Codex should be implemented first.
+Codex was implemented first, followed by Claude (`AGENT_ADAPTER.md` §18);
+Gemini and OpenCode remain unimplemented.
 
 ## 10. Process Execution Layer
 

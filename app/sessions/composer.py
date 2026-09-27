@@ -11,7 +11,6 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from app.agents import models
-from app.agents.codex import PERMISSION_MODES
 from app.security import PathNotAllowedError, validate_repository_path
 
 # -- attachments -------------------------------------------------------------
@@ -134,7 +133,7 @@ COMMANDS = (
     Command("help", "List the available commands"),
     Command("rename", "Rename this session", "<title>"),
     Command("model", "Use a model for the next message (\"default\" clears)", "<model>", "model_selection"),
-    Command("mode", "Set the permission mode: " + ", ".join(PERMISSION_MODES), "<mode>", "permission_modes"),
+    Command("mode", "Set the permission mode", "<mode>", "permission_modes"),
     Command("usage", "Show token usage for this session", "", "token_usage"),
     Command("fork", "Fork this session", "", "fork"),
     Command("archive", "Archive this session"),
@@ -142,8 +141,25 @@ COMMANDS = (
 )
 
 
-def available_commands(capabilities: frozenset[str]) -> list[Command]:
-    return [c for c in COMMANDS if c.capability is None or c.capability in capabilities]
+def available_commands(
+    capabilities: frozenset[str], permission_modes: tuple[str, ...] = ()
+) -> list[Command]:
+    """`permission_modes` fills in the "mode" command's description, since the
+    valid mode strings are adapter-specific (Codex vs. Claude)."""
+    commands = [c for c in COMMANDS if c.capability is None or c.capability in capabilities]
+    if permission_modes:
+        commands = [
+            Command(
+                c.name,
+                "Set the permission mode: " + ", ".join(permission_modes),
+                c.args,
+                c.capability,
+            )
+            if c.name == "mode"
+            else c
+            for c in commands
+        ]
+    return commands
 
 
 def parse_command(text: str) -> tuple[str, str] | None:

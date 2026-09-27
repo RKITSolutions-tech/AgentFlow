@@ -125,6 +125,7 @@ def add_repository(project_id: int):
 
 @bp.post("/<int:project_id>/delete")
 def delete_project(project_id: int):
+    from app.agents.claude import ClaudeAdapter
     from app.agents.codex import CodexAdapter
     from app.agents.fake import FakeAgentAdapter
     from app.agents.models import list_agent_sessions_for_project
@@ -147,8 +148,11 @@ def delete_project(project_id: int):
         )
         for session in running_sessions:
             try:
-                if session.agent_type.lower() == "codex":
+                agent_type = session.agent_type.lower()
+                if agent_type == "codex":
                     adapter = CodexAdapter(db=db, execution_provider=execution_provider)
+                elif agent_type == "claude":
+                    adapter = ClaudeAdapter(db=db, execution_provider=execution_provider)
                 else:
                     adapter = FakeAgentAdapter(db=db)
                 adapter.stop(session.id)

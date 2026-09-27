@@ -22,7 +22,8 @@ from app.agents.models import (
     list_agent_sessions_for_project,
     skip_clarifying_question,
 )
-from app.agents.codex import PERMISSION_MODES, CodexAdapter
+from app.agents.claude import PERMISSION_MODES as CLAUDE_PERMISSION_MODES, ClaudeAdapter
+from app.agents.codex import PERMISSION_MODES as CODEX_PERMISSION_MODES, CodexAdapter
 from app.sessions import composer
 from app.agents.fake import FakeAgentAdapter
 from app.notifications import models as notification_models
@@ -30,6 +31,21 @@ from app.projects import models as project_models
 from app.settings import models as settings_models
 
 bp = Blueprint("sessions", __name__, url_prefix="/sessions")
+
+# Sandbox/permission modes and catalog providers differ per agent CLI.
+_PERMISSION_MODES_BY_AGENT = {"codex": CODEX_PERMISSION_MODES, "claude": CLAUDE_PERMISSION_MODES}
+_MODEL_PROVIDERS_BY_AGENT = {"codex": ("openai", "local"), "claude": ("anthropic", "local")}
+
+
+def _permission_modes_for(agent_type: str) -> tuple[str, ...]:
+    return _PERMISSION_MODES_BY_AGENT.get((agent_type or "").lower(), ())
+
+
+def _model_options_for(db, agent_type: str) -> list[settings_models.ModelCatalogEntry]:
+    options: list[settings_models.ModelCatalogEntry] = []
+    for provider in _MODEL_PROVIDERS_BY_AGENT.get((agent_type or "").lower(), ()):
+        options.extend(settings_models.list_enabled_models(db, provider=provider))
+    return options
 
 
 @bp.get("")
@@ -89,7 +105,13 @@ def project_sessions(project_id: int):
             db, query, project_id=project_id, include_archived=show_archived
         )
     ]
-    openai_models = settings_models.list_enabled_models(db, provider="openai")
+    # All providers relevant to any startable agent type; project.html filters
+    # the options shown by the currently selected agent_type client-side.
+    model_options = settings_models.list_enabled_models(
+        db, provider="openai"
+    ) + settings_models.list_enabled_models(
+        db, provider="anthropic"
+    ) + settings_models.list_enabled_models(db, provider="local")
     return render_template(
         "sessions/project.html",
         project=project,
@@ -98,7 +120,8 @@ def project_sessions(project_id: int):
         show_archived=show_archived,
         query=query,
         hits=hits,
-        openai_models=openai_models,
+        model_options=model_options,
+        model_providers_by_agent=_MODEL_PROVIDERS_BY_AGENT,
     )
 
 
@@ -159,6 +182,8 @@ def create_session(project_id: int):
 
         if agent_type == "codex":
             adapter = CodexAdapter(db=db, execution_provider=execution_provider)
+        elif agent_type == "claude":
+            adapter = ClaudeAdapter(db=db, execution_provider=execution_provider)
         else:
             adapter = FakeAgentAdapter(db=db)
 
@@ -168,7 +193,7 @@ def create_session(project_id: int):
             working_directory=execution_target,
             execution_provider="host",
             execution_target=str(exec_context.id),  # Pass context ID as string
-            model=model if agent_type == "codex" else None,
+            model=model if agent_type in ("codex", "claude") else None,
         )
 
         session = adapter.start(context, "Starting session...")
@@ -204,7 +229,7 @@ def view_session(session_id: int):
         usage=session_usage(session),
         can_fork="fork" in capabilities,
         can_switch_model="model_selection" in capabilities,
-        model_options=settings_models.list_enabled_models(db, provider="openai"),
+        model_options=_model_options_for(db, session.agent_type),
     )
 
 
@@ -325,11 +350,13 @@ def stop_session(session_id: int):
 def _adapter_for(session):
     from app.execution.host import HostExecutionProvider
 
-    if session.agent_type.lower() == "codex":
+    agent_type = session.agent_type.lower()
+    if agent_type in ("codex", "claude"):
         execution_provider = HostExecutionProvider(
             current_app.config["DATABASE_PATH"], current_app.config["ALLOWED_PROJECT_ROOTS"]
         )
-        return CodexAdapter(db=get_db(), execution_provider=execution_provider)
+        adapter_cls = ClaudeAdapter if agent_type == "claude" else CodexAdapter
+        return adapter_cls(db=get_db(), execution_provider=execution_provider)
     return FakeAgentAdapter(db=get_db())
 
 
@@ -517,12 +544,13 @@ def composer_config(session_id: int):
     if error:
         return error
     capabilities = _adapter_for(session).capabilities()
+    permission_modes = _permission_modes_for(session.agent_type)
     return jsonify({
         "commands": [
             {"name": c.name, "description": c.description, "args": c.args}
-            for c in composer.available_commands(capabilities)
+            for c in composer.available_commands(capabilities, permission_modes)
         ],
-        "permission_modes": list(PERMISSION_MODES) if "permission_modes" in capabilities else [],
+        "permission_modes": list(permission_modes) if "permission_modes" in capabilities else [],
         "permission_mode": session.metadata.get("permission_mode") or "",
         "attachments": True,
         "images": "image_input" in capabilities,
@@ -572,7 +600,10 @@ def run_command(session_id: int):
     db = get_db()
     adapter = _adapter_for(session)
     capabilities = adapter.capabilities()
-    known = {c.name: c for c in composer.available_commands(capabilities)}
+    known = {
+        c.name: c
+        for c in composer.available_commands(capabilities, _permission_modes_for(session.agent_type))
+    }
     if name not in known:
         return jsonify({"error": f"Unknown command /{name}. Type /help for the list."}), 400
 
@@ -594,8 +625,9 @@ def run_command(session_id: int):
         update_session_metadata(db, session_id, model=None if arg == "default" else arg)
         return done(f"Model set to {arg} for the next message.")
     if name == "mode":
-        if arg not in PERMISSION_MODES:
-            return fail("Usage: /mode <" + " | ".join(PERMISSION_MODES) + ">")
+        modes = _permission_modes_for(session.agent_type)
+        if arg not in modes:
+            return fail("Usage: /mode <" + " | ".join(modes) + ">")
         update_session_metadata(db, session_id, permission_mode=arg)
         return done(f"Permission mode set to {arg} for the next message.", permission_mode=arg)
     if name == "usage":
