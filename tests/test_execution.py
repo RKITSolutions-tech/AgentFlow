@@ -16,6 +16,17 @@ def provider(app):
     )
 
 
+def _wait_for_event(provider, process_id, event_type, timeout=30.0):
+    """Wait for a specific event type to appear in the process event stream."""
+    start = time.monotonic()
+    while time.monotonic() - start < timeout:
+        events = provider.stream_output(process_id)
+        if any(e.event_type == event_type for e in events):
+            return events
+        time.sleep(0.01)
+    raise TimeoutError(f"Event type '{event_type}' not found within {timeout} seconds")
+
+
 def test_successful_command_streams_output_and_completes(app, provider):
     context = provider.create_context({"working_directory": app.config["allowed_root"]})
 
@@ -24,7 +35,7 @@ def test_successful_command_streams_output_and_completes(app, provider):
     assert process.status == "COMPLETED"
     assert process.exit_code == 0
 
-    events = provider.stream_output(process.id)
+    events = _wait_for_event(provider, process.id, "ProcessCompleted")
     event_types = [e.event_type for e in events]
     assert "ProcessStarted" in event_types
     assert "ProcessCompleted" in event_types
@@ -93,7 +104,7 @@ def test_stream_output_resumes_from_recorded_position(app, provider):
         ["sh", "-c", "echo one; echo two; echo three"], {"context_id": context.id}
     )
 
-    all_events = provider.stream_output(process.id)
+    all_events = _wait_for_event(provider, process.id, "ProcessCompleted")
     assert len(all_events) >= 3
 
     midpoint_id = all_events[len(all_events) // 2].id
