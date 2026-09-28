@@ -1,4 +1,5 @@
 import os
+import socket
 
 from app.config import Config
 
@@ -7,7 +8,10 @@ def test_loopback_binding_by_default(monkeypatch):
     monkeypatch.delenv("AGENTFLOW_HOST", raising=False)
     monkeypatch.delenv("AGENTFLOW_ALLOW_UNSAFE_BIND", raising=False)
     config = Config.from_env()
-    assert config.HOST == "127.0.0.1"
+    # Default is this host's own hostname, not the literal "127.0.0.1" -- but
+    # it must still resolve to loopback only (Config.from_env() would have
+    # raised RuntimeError otherwise, since AGENTFLOW_ALLOW_UNSAFE_BIND is unset).
+    assert config.HOST == socket.gethostname()
 
 
 def test_create_view_and_reload_project(client, app):

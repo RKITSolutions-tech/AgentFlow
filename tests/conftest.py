@@ -76,9 +76,10 @@ def client(app):
 
 
 class _LiveServerThread(threading.Thread):
-    def __init__(self, app):
+    def __init__(self, app, host, port):
         super().__init__(daemon=True)
-        self._server = make_server("127.0.0.1", 0, app)
+        self._server = make_server(host, port, app)
+        self.host = host
         self.port = self._server.server_port
 
     def run(self):
@@ -98,10 +99,19 @@ def live_server(app):
     a separately-started `flask run` process would talk to a *different*
     database than whatever the test set up via `client`, so nothing the
     test created would be visible to the browser.
+
+    Binds to `app.config["HOST"]`/`["PORT"]` -- the same devserver:5000
+    default the real app uses (app/config.py) -- rather than an ephemeral
+    127.0.0.1 port, so every Playwright test talks to the same fixed URL a
+    person would use. Deliberate trade-off: this only works because tests in
+    this suite run one at a time against a fixed port, so running pytest
+    concurrently with a real `wsgi.py`/`flask run` instance (or a second
+    pytest run) on the same port will fail the fixture with "address already
+    in use" instead of silently picking a different port.
     """
-    thread = _LiveServerThread(app)
+    thread = _LiveServerThread(app, app.config["HOST"], app.config["PORT"])
     thread.start()
-    yield f"http://127.0.0.1:{thread.port}"
+    yield f"http://{thread.host}:{thread.port}"
     thread.shutdown()
     thread.join(timeout=5)
 

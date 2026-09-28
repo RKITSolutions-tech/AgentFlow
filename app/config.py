@@ -1,9 +1,28 @@
 from __future__ import annotations
 
+import ipaddress
 import logging
 import os
 import secrets
+import socket
 from dataclasses import dataclass, field
+
+
+def _resolves_to_loopback_only(host: str) -> bool:
+    """True if every address `host` resolves to is in the loopback range
+    (127.0.0.0/8 or ::1) -- not just the literal strings "127.0.0.1"/
+    "localhost"/"::1". This is what actually matters for the safety check
+    below: a machine's own hostname (e.g. Debian's /etc/hosts convention of
+    mapping it to 127.0.1.1) is exactly as unreachable from the network as
+    "localhost" is, so it should not need AGENTFLOW_ALLOW_UNSAFE_BIND=1
+    either. An unresolvable host is treated as *not* loopback -- refuse by
+    default rather than silently accept something that won't actually bind.
+    """
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except socket.gaierror:
+        return False
+    return bool(infos) and all(ipaddress.ip_address(info[4][0]).is_loopback for info in infos)
 
 
 @dataclass
@@ -12,12 +31,20 @@ class Config:
 
     Binds to loopback by default per the AgentFlow security model
     (docs/HIGH_LEVEL_DESIGN.md §20): the app must not be exposed on all
-    interfaces without an explicit opt-in.
+    interfaces without an explicit opt-in. The default host is this
+    machine's own hostname (`socket.gethostname()`, e.g. "devserver" here)
+    rather than the literal "127.0.0.1", so the app is reachable at a
+    stable, memorable URL (http://<hostname>:5000/) without extra
+    configuration; it still has to resolve to a loopback address
+    (`_resolves_to_loopback_only`) to be accepted without
+    AGENTFLOW_ALLOW_UNSAFE_BIND=1, same guarantee as before -- this is
+    portable across machines rather than a literal "devserver" baked into
+    the code, since only this box's own hostname happens to be that.
     """
 
     DATABASE_PATH: str = "instance/agentflow.sqlite3"
     SECRET_KEY: str = field(default_factory=lambda: secrets.token_hex(32))
-    HOST: str = "127.0.0.1"
+    HOST: str = field(default_factory=socket.gethostname)
     PORT: int = 5000
     ALLOWED_PROJECT_ROOTS: tuple[str, ...] = field(default_factory=tuple)
     TESTING: bool = False
@@ -54,8 +81,8 @@ class Config:
         if not roots:
             roots = (os.path.abspath(os.path.expanduser("~")),)
 
-        host = os.environ.get("AGENTFLOW_HOST", "127.0.0.1")
-        if host not in ("127.0.0.1", "localhost", "::1"):
+        host = os.environ.get("AGENTFLOW_HOST", socket.gethostname())
+        if not _resolves_to_loopback_only(host):
             if os.environ.get("AGENTFLOW_ALLOW_UNSAFE_BIND") != "1":
                 raise RuntimeError(
                     "Refusing to bind to a non-loopback address "

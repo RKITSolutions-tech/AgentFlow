@@ -1,5 +1,6 @@
 import os
 import signal
+import socket
 import sqlite3
 import sys
 import time
@@ -335,7 +336,7 @@ def test_unsafe_bind_requires_explicit_opt_in(monkeypatch, caplog):
     monkeypatch.delenv("AGENTFLOW_HOST")
     monkeypatch.delenv("AGENTFLOW_ALLOW_UNSAFE_BIND")
     caplog.clear()
-    assert Config.from_env().HOST == "127.0.0.1"
+    assert Config.from_env().HOST == socket.gethostname()
     assert caplog.text == ""
 
 

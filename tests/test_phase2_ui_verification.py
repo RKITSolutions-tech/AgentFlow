@@ -321,13 +321,18 @@ def test_autorefresh_waits_while_the_user_is_typing(world, live_server):
             page = browser.new_page(viewport=DESKTOP)
             errors = watch_console(page)
 
-            def add_marker(route):
-                response = route.fetch()
-                body = response.text().replace("</main>", '<div data-autorefresh="300" hidden></div></main>', 1)
-                route.fulfill(response=response, body=body)
-
-            page.route(f"**/ralph/{world.run}", add_marker)
+            # The marker is injected via JS after a normal load, not by
+            # intercepting the navigation response itself (`page.route()` +
+            # `route.fulfill()`): substituting the top-level document's own
+            # response confuses Chromium's IP-address-space classification
+            # for the resulting page, spuriously blocking same-origin static
+            # asset requests (app.css) as Private Network Access violations
+            # once `live_server` serves from a hostname (devserver:5000,
+            # app/config.py) instead of a literal "127.0.0.1"/"localhost".
             page.goto(f"{live_server}/projects/{world.pid}/ralph/{world.run}")
+            page.eval_on_selector(
+                "main", "main => main.insertAdjacentHTML('beforeend', '<div data-autorefresh=\"300\" hidden></div>')"
+            )
             page.evaluate("window.__still_here = true")
             page.fill("textarea[name=message]", "use the old uploader")
             page.wait_for_timeout(1500)  # five refresh intervals
