@@ -12,8 +12,10 @@ import sqlite3
 from datetime import datetime, timezone
 
 from flask import Flask, request
+from markupsafe import Markup, escape
 
 from app.db import get_db
+from app.knowledge import models as knowledge_models
 from app.notifications import models as notification_models
 from app.projects import models as project_models
 
@@ -142,10 +144,25 @@ def _shell_context() -> dict:
             "active_session_id": active_session_id,
             "endpoint": request.endpoint or "",
             "unread_notifications": notification_models.unread_count(db),
+            "wiki_review_pending": len(knowledge_models.list_review_queue(db, status="pending")),
         }
     }
+
+
+def render_wiki_links(content: str) -> Markup:
+    """Render `[[slug]]` references in wiki entry content as hoverable/
+    tappable `.wiki-link` spans (popover preview wired in app.js), escaping
+    everything else first -- entry content is plain text, not HTML."""
+    escaped = str(escape(content or ""))
+
+    def repl(match) -> str:
+        slug = match.group(1)
+        return f'<span class="wiki-link" data-wiki-slug="{slug}" tabindex="0">{slug}</span>'
+
+    return Markup(knowledge_models.LINK_RE.sub(repl, escaped))
 
 
 def init_shell(app: Flask) -> None:
     app.context_processor(_shell_context)
     app.add_template_filter(relative_age, "relative_age")
+    app.add_template_filter(render_wiki_links, "wiki_links")

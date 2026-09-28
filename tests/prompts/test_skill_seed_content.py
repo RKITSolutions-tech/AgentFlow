@@ -54,13 +54,15 @@ def test_seeded_skills_have_no_dependency_cycles(db):
     assert {s.id for s in ordered} == {s.id for s in skills}
 
 
-def test_no_web_or_knowledge_base_research_skill_seeded(db):
-    """docs/AGENT_ADAPTER.md §23 Phase B/C (shared knowledge base, web) are
-    proposed, not built (task 45 shipped only Phase A, repository-scoped) --
-    a skill describing either would describe capability that doesn't exist."""
+def test_no_web_research_skill_seeded(db):
+    """docs/AGENT_ADAPTER.md §23 Phase C (web search/fetch feeding the KB) is
+    task 49, deferred -- a skill describing it would describe capability that
+    doesn't exist. The shared knowledge base itself (Phase B, task 48/50) is
+    built, so `research-use-shared-knowledge-base` legitimately exists."""
     models.seed_builtin_skills(db)
     names = " ".join(s.name for s in models.list_skills(db))
-    assert "web-search" not in names and "knowledge-base" not in names
+    assert "web-search" not in names
+    assert "research-use-shared-knowledge-base" in names
 
 
 def test_seeded_skills_render_via_skill_context_for_intended_roles(db):

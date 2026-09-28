@@ -1,0 +1,34 @@
+{# Included by wiki_index.html when a search/filter is active. #}
+{% if filters.language or filters.library or filters.version or filters.kind %}
+  <div class="wiki-filter-chips">
+    {% if filters.kind %}<span class="wiki-filter-chip">kind: {{ filters.kind }}</span>{% endif %}
+    {% if filters.language %}<span class="wiki-filter-chip">language: {{ filters.language }}</span>{% endif %}
+    {% if filters.library %}<span class="wiki-filter-chip">library: {{ filters.library }}</span>{% endif %}
+    {% if filters.version %}<span class="wiki-filter-chip">version: {{ filters.version }}</span>{% endif %}
+  </div>
+{% endif %}
+<ul class="wiki-cards table-compact">
+  {% for r in results %}
+    <li class="wiki-card">
+      <h3>
+        {% if r.slug %}
+          <a href="{{ url_for('wiki.view_entry', slug=r.slug) }}">{{ r.title }}</a>
+        {% else %}
+          {{ r.title }}
+        {% endif %}
+        <span class="badge">{{ "%.0f"|format(r.relevance_score * 100) }}%</span>
+      </h3>
+      <p>{{ r.snippet }}</p>
+    </li>
+  {% else %}
+    <li class="form-hint">No entries found for this search.</li>
+  {% endfor %}
+</ul>
+<div class="row-actions">
+  {% if page > 1 %}
+    <a href="{{ url_for('wiki.index', q=query, page=page-1, **filters) }}">&larr; Previous</a>
+  {% endif %}
+  {% if has_more %}
+    <a href="{{ url_for('wiki.index', q=query, page=page+1, **filters) }}">Next &rarr;</a>
+  {% endif %}
+</div>

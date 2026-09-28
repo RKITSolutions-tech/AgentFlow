@@ -16,6 +16,7 @@ from app.agents.fake import FakeAgentAdapter
 from app.backlog import persistence as backlog
 from app.db import get_db
 from app.execution.host import HostExecutionProvider
+from app.knowledge import models as knowledge
 from app.pipelines import persistence as pipelines
 from app.pipelines.engine import PipelineEngine
 from app.ralph import models as ralph
@@ -88,9 +89,19 @@ def world(app, client, tmp_path):
     with app.app_context():
         art = get_db().execute("SELECT id FROM artifact_library ORDER BY id LIMIT 1").fetchone()
         crit = get_db().execute("SELECT id FROM acceptance_criteria ORDER BY id LIMIT 1").fetchone()
+        db = get_db()
+        # Long title/slug: same overflow risk as the backlog item above.
+        wiki_slug = "-".join(["an-unbroken-wiki-title"] * 4)
+        knowledge.create_entry(
+            db, "note", wiki_slug, "See [[other-entry]] for more.\n\n" + ("padding " * 40),
+            slug=wiki_slug, confidence="reviewed", language="python", library="flask", version="3.x", topic="auth",
+        )
+        knowledge.create_entry(db, "note", "Other entry", "content", slug="other-entry", confidence="reviewed")
+        knowledge.propose_change(db, "create", slug="proposed-entry", title="Proposed entry", content="draft content")
     return type("W", (), {
         "pid": pid, "sprint": sprint_id, "eid": eid, "run": run_id, "item": items[0],
         "artifact": art[0] if art else None, "criterion": crit[0] if crit else None,
+        "wiki_slug": wiki_slug,
     })
 
 
@@ -115,6 +126,10 @@ def _pages(w):
         "prompt blocks": "/prompts/ralph-blocks",
         "prompt template": "/prompts/templates",
         "project prompts": f"/prompts/projects/{w.pid}",
+        "wiki index": "/wiki",
+        "wiki search": "/wiki?q=title",
+        "wiki entry": f"/wiki/{w.wiki_slug}",
+        "wiki review queue": "/wiki/review-queue",
     }
     if w.artifact:
         pages["artifact"] = f"{p}/artifacts/{w.artifact}"
@@ -416,5 +431,100 @@ def test_key_pages_work_with_touch_input(world, live_server, device):
             assert_no_horizontal_overflow(page, f"{device} replay")
             assert errors == []
             context.close()
+        finally:
+            browser.close()
+
+
+def test_wiki_topic_tree_collapsible_on_mobile(world, live_server):
+    """`<details>` topic tree nodes toggle open/closed on tap, same pattern
+    as the sidebar's `.project-node` (app.css)."""
+    sync_playwright = require_playwright()
+    with sync_playwright() as p:
+        browser = launch_chromium(p)
+        try:
+            page = browser.new_page(viewport=MOBILE)
+            errors = watch_console(page)
+            page.goto(live_server + "/wiki")
+            node = page.locator(".wiki-tree-node").first
+            assert node.evaluate("e => e.open") is True
+            node.locator("summary").first.click()
+            assert node.evaluate("e => e.open") is False
+            node.locator("summary").first.click()
+            assert node.evaluate("e => e.open") is True
+            assert_no_horizontal_overflow(page, "wiki topic tree (mobile)")
+            assert errors == []
+        finally:
+            browser.close()
+
+
+def test_wiki_search_filter_updates_results(world, live_server):
+    sync_playwright = require_playwright()
+    with sync_playwright() as p:
+        browser = launch_chromium(p)
+        try:
+            page = browser.new_page(viewport=DESKTOP)
+            errors = watch_console(page)
+            page.goto(live_server + "/wiki")
+            page.fill(".wiki-search-bar input[name=q]", "title")
+            page.fill(".wiki-search-bar input[name=language]", "python")
+            page.click(".wiki-search-bar button[type=submit]")
+            page.wait_for_load_state("networkidle")
+            assert "language=python" in page.url
+            assert page.locator(".wiki-cards .wiki-card").count() >= 1
+            assert errors == []
+        finally:
+            browser.close()
+
+
+def test_wiki_entry_slug_routing_and_backlinks_touch_sized(world, live_server):
+    sync_playwright = require_playwright()
+    with sync_playwright() as p:
+        browser = launch_chromium(p)
+        try:
+            page = browser.new_page(viewport=MOBILE)
+            errors = watch_console(page)
+            page.goto(f"{live_server}/wiki/{world.wiki_slug}")
+            page.wait_for_load_state("networkidle")
+            assert world.wiki_slug in page.inner_text("h1")
+            assert page.locator(".wiki-sidebar").is_visible()
+            assert_no_horizontal_overflow(page, "wiki entry (mobile)")
+            assert_touch_target_size(page, label="wiki entry (mobile)")
+            assert errors == []
+        finally:
+            browser.close()
+
+
+def test_wiki_link_preview_popover_on_hover(world, live_server):
+    sync_playwright = require_playwright()
+    with sync_playwright() as p:
+        browser = launch_chromium(p)
+        try:
+            page = browser.new_page(viewport=DESKTOP)
+            errors = watch_console(page)
+            page.goto(f"{live_server}/wiki/{world.wiki_slug}")
+            link = page.locator(".wiki-link").first
+            link.hover()
+            page.wait_for_selector(".wiki-link-preview")
+            assert page.locator(".wiki-link-preview strong").inner_text() == "Other entry"
+            assert errors == []
+        finally:
+            browser.close()
+
+
+def test_wiki_review_queue_ajax_approve_removes_item(world, live_server):
+    sync_playwright = require_playwright()
+    with sync_playwright() as p:
+        browser = launch_chromium(p)
+        try:
+            page = browser.new_page(viewport=MOBILE)
+            errors = watch_console(page)
+            page.goto(live_server + "/wiki/review-queue")
+            rows = page.locator(".needs-review-item[data-row]")
+            before = rows.count()
+            assert before >= 1
+            rows.first.locator("button:has-text('Approve')").click()
+            page.wait_for_function(f"document.querySelectorAll('.needs-review-item[data-row]').length === {before - 1}")
+            assert_no_horizontal_overflow(page, "wiki review queue (mobile)")
+            assert errors == []
         finally:
             browser.close()

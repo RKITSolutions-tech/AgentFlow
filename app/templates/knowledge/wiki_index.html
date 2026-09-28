@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}Wiki - AgentFlow{% endblock %}
+{% block content %}
+  <h1>Wiki
+    {% if pending_review %}
+      <a class="badge badge-danger" href="{{ url_for('wiki.review_queue') }}">{{ pending_review }} to review</a>
+    {% endif %}
+  </h1>
+  <p class="form-hint">Shared, reviewed knowledge from RESEARCH sessions and Ralph runs (<a href="{{ url_for('knowledge.list_entries') }}">admin view</a>).</p>
+
+  <form class="wiki-search-bar" method="get" action="{{ url_for('wiki.index') }}">
+    <label style="flex:1 1 16rem;">Search <input type="search" name="q" value="{{ query }}" placeholder="title:, content:, tag: or plain text"></label>
+    <label>Kind
+      <select name="kind">
+        <option value="" {% if not filters.kind %}selected{% endif %}>Any</option>
+        <option value="note" {% if filters.kind == 'note' %}selected{% endif %}>Note</option>
+        <option value="web_cache" {% if filters.kind == 'web_cache' %}selected{% endif %}>Web cache</option>
+      </select>
+    </label>
+    <label>Language <input type="text" name="language" value="{{ filters.language or '' }}" size="8"></label>
+    <label>Library <input type="text" name="library" value="{{ filters.library or '' }}" size="8"></label>
+    <label>Version <input type="text" name="version" value="{{ filters.version or '' }}" size="8"></label>
+    <button type="submit">Search</button>
+  </form>
+
+  {% if results is not none %}
+    {% include "knowledge/wiki_search_results.html" %}
+  {% else %}
+    {% if recent %}
+      <h2>Recently updated</h2>
+      <ul class="wiki-cards">
+        {% for e in recent %}
+          <li class="wiki-card">
+            <h3><a href="{{ url_for('wiki.view_entry', slug=e.slug) }}">{{ e.title }}</a></h3>
+            <p>{{ e.content[:120] }}{% if e.content|length > 120 %}&hellip;{% endif %}</p>
+          </li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+
+    <h2>Topics</h2>
+    {% if tree %}
+      <div class="wiki-tree">
+        {% for language, libraries in tree.items() %}
+          <details class="wiki-tree-node" open>
+            <summary>{{ language or "(unclassified language)" }}</summary>
+            {% for library, versions in libraries.items() %}
+              <details class="wiki-tree-node">
+                <summary>{{ library or "(unclassified library)" }}</summary>
+                {% for version, entries in versions.items() %}
+                  <details class="wiki-tree-node" open>
+                    <summary>{{ version or "(unversioned)" }} <span class="count">{{ entries|length }}</span></summary>
+                    <ul class="wiki-tree-leaves">
+                      {% for e in entries %}
+                        <li><a href="{{ url_for('wiki.view_entry', slug=e.slug) }}">{{ e.title }}</a>{% if e.topic %} <span class="form-hint">{{ e.topic }}</span>{% endif %}</li>
+                      {% endfor %}
+                    </ul>
+                  </details>
+                {% endfor %}
+              </details>
+            {% endfor %}
+          </details>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="form-hint">No wiki entries yet.</p>
+    {% endif %}
+  {% endif %}
+{% endblock %}

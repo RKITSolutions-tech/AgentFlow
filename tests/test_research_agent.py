@@ -22,6 +22,7 @@ from app.agents.research_agent import (
 from app.agents.research_context import RepositoryContextLoader
 from app.agents.research_report import Finding, ResearchReport, Source
 from app.db import get_db
+from app.knowledge import models as knowledge_models
 from app.projects import models as project_models
 from app.prompts import models as prompt_models
 from app.security import PathNotAllowedError
@@ -551,3 +552,65 @@ def test_research_report_custom_redaction_pattern_applied(app):
         assert "PROJECT-PHOENIX-42" not in outcome.report.summary
         stored = agent_models.get_research_session(db, research_session_id)
         assert "PROJECT-PHOENIX-42" not in stored.findings_summary
+
+
+def test_research_prompt_includes_relevant_reviewed_kb_entries(app):
+    """Task 50.5: a reviewed knowledge base entry relevant to the question is
+    surfaced in the prompt before repository context."""
+    with app.app_context():
+        db = get_db()
+        project_id, working_directory = _make_project(db, app)
+        knowledge_models.create_entry(
+            db, "note", "JWT auth pattern", "Use PyJWT with HS256 for token signing.",
+            confidence="reviewed", slug="jwt-auth-pattern",
+        )
+
+        report = ResearchReport(summary="done", findings=[], sources=[])
+        adapter = FakeAgentAdapter(db)
+        agent = ResearchAgent(adapter, db=db)
+        context = AgentContext(project_id=project_id, working_directory=working_directory)
+
+        _, outcome = agent.research(
+            context, "How should JWT auth be implemented?", options={"script": scripted_report(report)},
+        )
+        assert outcome.state == "COMPLETE"
+
+        sessions = agent_models.list_agent_sessions_for_project(db, project_id)
+        prompt_event = next(
+            e for e in agent_models.list_agent_events(db, sessions[0].id)
+            if e.event_type == "PromptSubmitted"
+        )
+        assert "PyJWT" in prompt_event.data
+        assert "shared knowledge base" in prompt_event.data
+
+
+def test_research_completion_ingests_sourced_findings_into_knowledge_base(app):
+    """Task 50.5: a completed session's sourced findings become suggested
+    (unverified) knowledge base entries, tagged from the finding's category."""
+    with app.app_context():
+        db = get_db()
+        project_id, working_directory = _make_project(db, app)
+
+        report = ResearchReport(
+            summary="done",
+            findings=[
+                Finding(text="Sessions expire after 30 minutes", source_ids=["S1"], category="auth"),
+                Finding(text="Unsourced speculation", source_ids=[]),
+            ],
+            sources=[Source(id="S1", file_path="app/sessions.py", line_range="10-12", excerpt="expiry")],
+        )
+        adapter = FakeAgentAdapter(db)
+        agent = ResearchAgent(adapter, db=db)
+        context = AgentContext(project_id=project_id, working_directory=working_directory)
+
+        research_session_id, outcome = agent.research(
+            context, "How long do sessions last?", options={"script": scripted_report(report)},
+        )
+        assert outcome.state == "COMPLETE"
+
+        entries = knowledge_models.list_entries(db, confidence="unverified")
+        assert len(entries) == 1
+        assert "Sessions expire after 30 minutes" in entries[0].content
+        assert entries[0].source_project_id == project_id
+        assert entries[0].source_session_id == research_session_id
+        assert entries[0].tags == ["auth"]

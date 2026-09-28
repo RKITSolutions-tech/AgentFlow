@@ -41,6 +41,8 @@
           <a href="{{ url_for('runs.list_runs', project_id=sp) }}"{% if ep.startswith('runs.') %} aria-current="page"{% endif %}>Runs</a>
         {% endif %}
         <a href="{{ url_for('prompts.library') }}"{% if ep.startswith('prompts.') %} aria-current="page"{% endif %}>Prompts</a>
+        <a href="{{ url_for('wiki.index') }}"{% if ep.startswith('wiki.') %} aria-current="page"{% endif %}>Wiki
+          <span class="notify-badge" data-wiki-review-badge{% if not shell.wiki_review_pending %} hidden{% endif %}>{{ shell.wiki_review_pending }}</span></a>
         <a href="{{ url_for('notifications.index') }}"{% if ep.startswith('notifications.') %} aria-current="page"{% endif %}>Notifications
           <span class="notify-badge" data-notify-badge{% if not shell.unread_notifications %} hidden{% endif %}>{{ shell.unread_notifications }}</span></a>
         <a href="{{ url_for('settings.index') }}"{% if ep.startswith('settings.') %} aria-current="page"{% endif %}>Settings</a>

@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}Wiki review queue - AgentFlow{% endblock %}
+{% macro entry_link(e) %}{% if e.slug %}<a href="{{ url_for('wiki.view_entry', slug=e.slug) }}">{{ e.title }}</a>{% else %}<a href="{{ url_for('knowledge.view_entry', entry_id=e.id) }}">{{ e.title }}</a>{% endif %}{% endmacro %}
+{% block content %}
+  <a href="{{ url_for('wiki.index') }}">&larr; Back to wiki</a>
+  <h1>Review queue</h1>
+
+  <h2>Proposed changes ({{ items|length }})</h2>
+  <ul class="needs-review-list">
+    {% for item in items %}
+      <li class="needs-review-item" data-row>
+        <strong>{{ item.change_type|capitalize }}</strong>
+        {% if item.slug %}<code>{{ item.slug }}</code>{% endif %}
+        &mdash; {{ item.title or "(untitled)" }}
+        {% if item.reason %}<p class="form-hint">{{ item.reason }}</p>{% endif %}
+        {% if item.content %}<p>{{ item.content[:200] }}{% if item.content|length > 200 %}&hellip;{% endif %}</p>{% endif %}
+        <div class="row-actions">
+          <button type="button" class="btn-primary" data-ajax-action="{{ url_for('wiki.approve_review_item', item_id=item.id) }}" data-on-removed="wiki-review-resolved">Approve</button>
+          <button type="button" class="link-danger" data-ajax-action="{{ url_for('wiki.reject_review_item', item_id=item.id) }}" data-confirm="Reject this proposal?" data-on-removed="wiki-review-resolved">Reject</button>
+        </div>
+      </li>
+    {% else %}
+      <li class="form-hint">Nothing pending review.</li>
+    {% endfor %}
+  </ul>
+
+  <h2>Stale entries <span class="form-hint">(not read within their freshness window)</span></h2>
+  <table class="table-compact">
+    <thead><tr><th>Title</th><th>Last read</th><th>Freshness (days)</th></tr></thead>
+    <tbody>
+      {% for e in report.stale %}
+        <tr><td>{{ entry_link(e) }}</td><td>{{ e.last_read_at or "never" }}</td><td>{{ e.freshness_days }}</td></tr>
+      {% else %}
+        <tr><td colspan="3" class="form-hint">No stale entries.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h2>Unused entries <span class="form-hint">(use_count = 0)</span></h2>
+  <table class="table-compact">
+    <thead><tr><th>Title</th><th>Created</th></tr></thead>
+    <tbody>
+      {% for e in report.unused %}
+        <tr><td>{{ entry_link(e) }}</td><td>{{ e.created_at }}</td></tr>
+      {% else %}
+        <tr><td colspan="2" class="form-hint">No unused entries.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h2>Possible duplicates</h2>
+  <table class="table-compact">
+    <thead><tr><th>Entry A</th><th>Entry B</th><th>Similarity</th></tr></thead>
+    <tbody>
+      {% for a, b, ratio in report.duplicates %}
+        <tr><td>{{ entry_link(a) }}</td><td>{{ entry_link(b) }}</td><td>{{ "%.0f"|format(ratio * 100) }}%</td></tr>
+      {% else %}
+        <tr><td colspan="3" class="form-hint">No likely duplicates found.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h2>Missing cross-links</h2>
+  <table class="table-compact">
+    <thead><tr><th>Entry</th><th>Mentions but doesn't link to</th></tr></thead>
+    <tbody>
+      {% for entry, target_slug in report.missing_backlinks %}
+        <tr><td>{{ entry_link(entry) }}</td><td><code>[[{{ target_slug }}]]</code></td></tr>
+      {% else %}
+        <tr><td colspan="2" class="form-hint">No missing cross-links detected.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}

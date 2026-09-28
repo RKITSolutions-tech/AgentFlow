@@ -586,3 +586,77 @@ document.addEventListener("change", function (event) {
       .catch(function () {});
   }, 3000);
 })();
+
+// Wiki [[slug]] link preview popover (app/shell.py's `wiki_links` filter
+// renders each reference as a `.wiki-link` span carrying `data-wiki-slug`).
+// Hover shows it on desktop; a tap (which also fires `click`) shows/hides it
+// on touch, since there is no hover state to rely on there.
+(function () {
+  var activePopover = null;
+
+  function closePopover() {
+    if (activePopover) {
+      activePopover.remove();
+      activePopover = null;
+    }
+  }
+
+  function showPopover(link) {
+    if (activePopover && link.contains(activePopover)) return;
+    closePopover();
+    var slug = link.dataset.wikiSlug;
+    fetch("/wiki/" + encodeURIComponent(slug) + "/preview")
+      .then(function (r) {
+        return r.ok ? r.json() : Promise.reject();
+      })
+      .then(function (data) {
+        var pop = document.createElement("div");
+        pop.className = "wiki-link-preview";
+        var title = document.createElement("strong");
+        title.textContent = data.title;
+        var snippet = document.createElement("span");
+        snippet.textContent = data.snippet;
+        pop.appendChild(title);
+        pop.appendChild(snippet);
+        link.appendChild(pop);
+        activePopover = pop;
+      })
+      .catch(function () {});
+  }
+
+  document.addEventListener("mouseover", function (event) {
+    var link = event.target.closest(".wiki-link");
+    if (link) showPopover(link);
+  });
+  document.addEventListener("mouseout", function (event) {
+    var link = event.target.closest(".wiki-link");
+    if (link && !link.contains(event.relatedTarget)) closePopover();
+  });
+  document.addEventListener("click", function (event) {
+    var link = event.target.closest(".wiki-link");
+    if (link) {
+      event.preventDefault();
+      if (activePopover && link.contains(activePopover)) {
+        closePopover();
+      } else {
+        showPopover(link);
+      }
+      return;
+    }
+    if (!event.target.closest(".wiki-link-preview")) closePopover();
+  });
+  document.addEventListener("keydown", function (event) {
+    if (event.key === "Escape") closePopover();
+  });
+})();
+
+// Wiki sidebar badge: same polling shape as the notifications badge, driven
+// by /wiki/review-queue's pending count via the shell context, refreshed
+// each time a review action succeeds elsewhere on the page.
+window.addEventListener("wiki-review-resolved", function () {
+  var badge = document.querySelector("[data-wiki-review-badge]");
+  if (!badge) return;
+  var next = Math.max(0, (parseInt(badge.textContent, 10) || 0) - 1);
+  badge.textContent = next;
+  badge.hidden = next === 0;
+});

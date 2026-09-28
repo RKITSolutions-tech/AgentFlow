@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}{{ entry.title }} - Wiki - AgentFlow{% endblock %}
+{% block content %}
+  <nav class="wiki-breadcrumb" aria-label="Breadcrumb">
+    <a href="{{ url_for('wiki.index') }}">Wiki</a>
+    {% if entry.language %}<span>/ {{ entry.language }}</span>{% endif %}
+    {% if entry.library %}<span>/ {{ entry.library }}</span>{% endif %}
+    {% if entry.version %}<span>/ {{ entry.version }}</span>{% endif %}
+    <span>/ {{ entry.title }}</span>
+  </nav>
+
+  <h1>{{ entry.title }}</h1>
+  <dl class="run-meta">
+    <dt>Slug</dt><dd>{{ entry.slug }}</dd>
+    {% if entry.aliases %}<dt>Aliases</dt><dd>{{ entry.aliases|join(', ') }}</dd>{% endif %}
+    <dt>Confidence</dt><dd>{{ entry.confidence }}</dd>
+    <dt>Used</dt><dd>{{ entry.use_count }} time{{ '' if entry.use_count == 1 else 's' }}</dd>
+    <dt>Updated</dt><dd>{{ entry.updated_at }}</dd>
+    {% if entry.tags %}<dt>Tags</dt><dd>{{ entry.tags|join(', ') }}</dd>{% endif %}
+  </dl>
+
+  <div class="wiki-layout">
+    <div>
+      <div class="wiki-content">{{ entry.content|wiki_links }}</div>
+
+      <details style="margin-top:1.5rem;">
+        <summary>Propose an edit</summary>
+        <form class="stacked" method="post" action="{{ url_for('wiki.propose', slug=entry.slug) }}" data-ajax-form>
+          <label>Title <input name="title" value="{{ entry.title }}"></label>
+          <label>Content <textarea name="content" rows="6">{{ entry.content }}</textarea></label>
+          <label>Reason <input name="reason" placeholder="why this change"></label>
+          <button type="submit" class="btn-primary">Submit for review</button>
+        </form>
+      </details>
+    </div>
+
+    <aside class="wiki-sidebar">
+      <div>
+        <h2>Related entries</h2>
+        {% if forward %}
+          <ul class="wiki-tree-leaves">
+            {% for f in forward %}<li><a href="{{ url_for('wiki.view_entry', slug=f.slug) }}">{{ f.title }}</a></li>{% endfor %}
+          </ul>
+        {% else %}
+          <p class="form-hint">This entry doesn't link to anything yet.</p>
+        {% endif %}
+      </div>
+      <div>
+        <h2>Backlinks</h2>
+        {% if backlinks %}
+          <ul class="wiki-tree-leaves">
+            {% for b in backlinks %}
+              <li>{% if b.source_slug %}<a href="{{ url_for('wiki.view_entry', slug=b.source_slug) }}">{{ b.source_title }}</a>{% else %}{{ b.source_title }}{% endif %}</li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p class="form-hint">Nothing links here yet.</p>
+        {% endif %}
+      </div>
+    </aside>
+  </div>
+{% endblock %}

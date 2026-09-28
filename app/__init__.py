@@ -61,6 +61,10 @@ def create_app(config: Config | None = None) -> Flask:
 
     app.register_blueprint(knowledge_bp)
 
+    from app.knowledge.wiki_views import bp as wiki_bp
+
+    app.register_blueprint(wiki_bp)
+
     app.extensions["run_manager"].reconcile()
 
     from app.pipelines.persistence import seed_builtins

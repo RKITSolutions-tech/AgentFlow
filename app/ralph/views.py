@@ -7,6 +7,7 @@ from app.agents.research_report import ResearchReport
 from app.artifacts import collector as artifact_collector
 from app.artifacts import models as artifact_models
 from app.db import get_db
+from app.knowledge.agent_interface import WikiSearcher
 from app.pipelines import executions, persistence
 from app.projects import models as project_models
 from app.ralph import models
@@ -134,11 +135,23 @@ def view_run(project_id: int, run_id: int):
         for i in iterations if i.research_artifact_id and not i.research_report_presented
     }
     research_reports = {k: v for k, v in research_reports.items() if v is not None}
+    # Wiki suggestions alongside a presented research report (task 50.5,
+    # docs/RUN_AND_RALPH.md §22): the report's own summary is the query, so a
+    # human deciding whether to "Use findings as steering" also sees whatever
+    # the shared KB already says on the topic -- advisory only, same as the
+    # report itself; nothing here is auto-applied.
+    searcher = WikiSearcher(db)
+    wiki_suggestions = {
+        iteration_id: searcher.search(report.summary, limit=3)
+        for iteration_id, report in research_reports.items() if report.summary.strip()
+    }
+    wiki_suggestions = {k: v for k, v in wiki_suggestions.items() if v}
     return render_template(
         "ralph/detail.html", project=project, run=run, iterations=iterations,
         steering=models.list_steering(db, run_id),
         executing=_manager().is_executing(run_id),
         research_reports=research_reports,
+        wiki_suggestions=wiki_suggestions,
         executions={
             i.verification_execution_id: executions.get_execution(db, i.verification_execution_id)
             for i in iterations if i.verification_execution_id

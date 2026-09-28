@@ -813,6 +813,67 @@ CREATE TABLE IF NOT EXISTS knowledge_provenance_history (
     timestamp TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_knowledge_provenance ON knowledge_provenance_history(entry_id, timestamp);
+
+-- Wiki layer on top of the knowledge base (task 50): stable slugs, a topic
+-- tree, [[slug]] backlinks and FTS5 search over the same knowledge_entries
+-- rows -- the wiki is a presentation/indexing layer on existing entries, not
+-- a parallel store, so KnowledgeLookup/ResearchAgent (task 48) keep working
+-- unchanged. `slug`/`topic` live on knowledge_entries via `_ADDED_COLUMNS`
+-- below (the table itself predates them); their indexes are created in
+-- `_migrate()`, after that ALTER TABLE has actually run.
+CREATE TABLE IF NOT EXISTS knowledge_backlinks (
+    source_entry_id INTEGER NOT NULL REFERENCES knowledge_entries(id) ON DELETE CASCADE,
+    target_slug TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (source_entry_id, target_slug)
+);
+CREATE INDEX IF NOT EXISTS idx_knowledge_backlinks_target ON knowledge_backlinks(target_slug);
+
+CREATE TABLE IF NOT EXISTS knowledge_read_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    entry_id INTEGER NOT NULL REFERENCES knowledge_entries(id) ON DELETE CASCADE,
+    accessed_at TEXT NOT NULL,
+    context TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_knowledge_read_log_entry ON knowledge_read_log(entry_id, accessed_at);
+
+-- Review queue for `propose()` (agent-submitted create/update/delete
+-- suggestions) and for the maintenance report's stale/duplicate findings;
+-- `entry_id` is NULL for a proposed *new* entry (nothing to point at yet).
+CREATE TABLE IF NOT EXISTS knowledge_review_queue (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    entry_id INTEGER REFERENCES knowledge_entries(id) ON DELETE CASCADE,
+    slug TEXT,
+    change_type TEXT NOT NULL CHECK(change_type IN ('create', 'update', 'delete')),
+    title TEXT,
+    content TEXT,
+    reason TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'approved', 'rejected')),
+    created_at TEXT NOT NULL,
+    reviewed_at TEXT,
+    reviewed_by TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_knowledge_review_status ON knowledge_review_queue(status, created_at);
+
+-- FTS5 full-text index over title/content, kept in sync with knowledge_entries
+-- by the triggers below (external content table: no duplicated storage,
+-- `rowid` mirrors knowledge_entries.id). Tags stay a separate AND-filter
+-- (knowledge_tags) rather than a FTS column, since they live in their own
+-- join table and searches rarely need free-text ranking over tags.
+CREATE VIRTUAL TABLE IF NOT EXISTS wiki_search USING fts5(
+    title, content,
+    content='knowledge_entries', content_rowid='id'
+);
+CREATE TRIGGER IF NOT EXISTS knowledge_entries_ai AFTER INSERT ON knowledge_entries BEGIN
+    INSERT INTO wiki_search(rowid, title, content) VALUES (new.id, new.title, new.content);
+END;
+CREATE TRIGGER IF NOT EXISTS knowledge_entries_ad AFTER DELETE ON knowledge_entries BEGIN
+    INSERT INTO wiki_search(wiki_search, rowid, title, content) VALUES ('delete', old.id, old.title, old.content);
+END;
+CREATE TRIGGER IF NOT EXISTS knowledge_entries_au AFTER UPDATE ON knowledge_entries BEGIN
+    INSERT INTO wiki_search(wiki_search, rowid, title, content) VALUES ('delete', old.id, old.title, old.content);
+    INSERT INTO wiki_search(rowid, title, content) VALUES (new.id, new.title, new.content);
+END;
 """
 
 # Starter catalog, seeded once (see `_seed_model_catalog`) so the model
@@ -894,6 +955,18 @@ _ADDED_COLUMNS = (
     ("ralph_iterations", "research_session_id", "INTEGER"),
     ("ralph_iterations", "research_artifact_id", "INTEGER"),
     ("ralph_iterations", "research_report_presented", "INTEGER NOT NULL DEFAULT 0"),
+    # Wiki layer on knowledge_entries (task 50): stable slug/aliases for
+    # /wiki/<slug> routing and [[slug]] links, plus the progressive-disclosure
+    # dimensions (language/library/version/topic) the index generator groups
+    # by, and `freshness_days`/`last_read_at` for the staleness report.
+    ("knowledge_entries", "slug", "TEXT"),
+    ("knowledge_entries", "aliases", "TEXT NOT NULL DEFAULT '[]'"),
+    ("knowledge_entries", "topic", "TEXT NOT NULL DEFAULT ''"),
+    ("knowledge_entries", "language", "TEXT NOT NULL DEFAULT ''"),
+    ("knowledge_entries", "library", "TEXT NOT NULL DEFAULT ''"),
+    ("knowledge_entries", "version", "TEXT NOT NULL DEFAULT ''"),
+    ("knowledge_entries", "freshness_days", "INTEGER NOT NULL DEFAULT 30"),
+    ("knowledge_entries", "last_read_at", "TEXT"),
 )
 
 
@@ -911,6 +984,15 @@ def _migrate(db: sqlite3.Connection) -> None:
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_project_locks_scope "
             "ON project_locks(project_id, IFNULL(repository_id, 0)) WHERE status = 'ACTIVE'"
         )
+    # slug/topic only exist on knowledge_entries after the ALTER TABLE loop
+    # above has run, so their indexes can't live in SCHEMA (executescript
+    # runs before _migrate, against the pre-task-50 column set). Guarded like
+    # project_locks above: _migrate() also runs standalone, against a bare
+    # pre-existing database that may not have this table at all yet
+    # (tests/test_project_management.py's test_migration_adds_starred_to_old_database).
+    if db.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'knowledge_entries'").fetchone():
+        db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_knowledge_slug ON knowledge_entries(slug)")
+        db.execute("CREATE INDEX IF NOT EXISTS idx_knowledge_topic ON knowledge_entries(topic)")
     db.commit()
 
 

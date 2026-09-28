@@ -46,6 +46,13 @@
             </ul>
           </details>
         {% endif %}
+        {% if i.id in wiki_suggestions %}
+          <div class="form-hint">Related wiki entries:
+            {% for s in wiki_suggestions[i.id] %}
+              {% if s.slug %}<a href="{{ url_for('wiki.view_entry', slug=s.slug) }}">{{ s.title }}</a>{% else %}{{ s.title }}{% endif %}{% if not loop.last %}, {% endif %}
+            {% endfor %}
+          </div>
+        {% endif %}
         <div class="row-actions">
           <button type="button" class="btn-primary" data-ajax-reload="{{ url_for('ralph.use_research', project_id=project.id, run_id=run.id, iteration_id=i.id) }}">Use findings as steering</button>
           <button type="button" data-ajax-reload="{{ url_for('ralph.dismiss_research', project_id=project.id, run_id=run.id, iteration_id=i.id) }}">Dismiss</button>

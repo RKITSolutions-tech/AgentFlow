@@ -26,6 +26,8 @@ from app.agents import models
 from app.agents.base import AgentAdapter, AgentContext
 from app.agents.research_context import RepositoryContextLoader
 from app.agents.research_report import Finding, ResearchReport, Source
+from app.knowledge import ingestion as knowledge_ingestion
+from app.knowledge.lookup import KnowledgeLookup
 from app.prompts import assembler
 from app.runs.security import redact
 
@@ -41,8 +43,11 @@ DEFAULT_MAX_SOURCES = 20
 
 PROMPT_TEMPLATE = """You are the read-only research agent for a software project. \
 Do not write, edit or commit any file; only report what you find. You have no \
-knowledge base or web access in this session -- answer only from the \
-repository context below, and say plainly what you could not verify.
+web access in this session -- answer only from the context below, which may \
+include relevant entries from a shared knowledge base of prior findings \
+followed by repository context. A knowledge base entry is background, not \
+verified fact: confirm it against the repository before relying on it, and \
+say plainly what you could not verify.
 
 Question: {question}
 
@@ -52,9 +57,10 @@ Reply with ONE JSON object and nothing else:
 {{"summary": "...", "findings": [{{"text": "...", "source_ids": ["S1"], \
 "category": "..."}}], "sources": [{{"id": "S1", "file_path": "...", \
 "line_range": "12-34", "excerpt": "..."}}]}}
-Only give a finding a source id for a source you actually saw content from \
-in the repository context above -- a finding with no source id is reported \
-as unverified. Use at most {max_sources} sources."""
+Only give a finding a source id for a repository source you actually saw \
+content from above (not a knowledge base entry -- those have no file_path/ \
+line_range to cite) -- a finding with no source id is reported as \
+unverified. Use at most {max_sources} sources."""
 
 
 class ReportParseError(ValueError):
@@ -129,6 +135,27 @@ class ResearchAgent:
         discovered = self._context_loader.discover(repo_root, extra_patterns=context_paths)
         return self._context_loader.render(discovered)
 
+    def _kb_context(self, question: str) -> str:
+        """Reviewed shared-knowledge-base entries relevant to `question`
+        (task 48/50), rendered before repository context -- what the
+        `research-use-shared-knowledge-base` skill (app.prompts.defaults)
+        tells the agent to expect. Redacted like everything else this class
+        puts in a prompt, even though ingestion already redacts on the way
+        in (app.knowledge.ingestion): defense in depth, and a KB entry can
+        also come from a human-authored /knowledge note this class never
+        redacted itself."""
+        if self._db is None:
+            return ""
+        entries = KnowledgeLookup(self._db).research(question, limit=5)
+        if not entries:
+            return ""
+        lines = ["Relevant entries from the shared knowledge base (reviewed, but may be "
+                 "stale or incomplete -- verify against the repository before relying on them):"]
+        for entry in entries:
+            ref = f" [[{entry.slug}]]" if entry.slug else ""
+            lines.append(f"- {entry.title}{ref}: {entry.content[:400]}")
+        return redact("\n".join(lines), self._patterns)[0]
+
     def _build_prompt(
         self,
         context: AgentContext,
@@ -137,7 +164,10 @@ class ResearchAgent:
         context_paths: list[str] | None,
         max_sources: int,
     ) -> str:
-        prompt = build_prompt(question, self._repo_context(repo_root, context_paths), max_sources)
+        combined_context = "\n\n".join(
+            part for part in (self._kb_context(question), self._repo_context(repo_root, context_paths)) if part
+        )
+        prompt = build_prompt(question, combined_context, max_sources)
         if self._db is not None:
             agent_type = type(self._adapter).__name__.replace("AgentAdapter", "").replace("Adapter", "").lower()
             skills_text, _ = assembler.skill_context(
@@ -287,12 +317,23 @@ class ResearchAgent:
                     self._db, research_session_id, outcome.report,
                     duration_seconds=duration, cost_usd=cost_usd,
                 )
+                self._ingest_into_knowledge_base(context.project_id, research_session_id, outcome.report)
             else:
                 models.fail_research_session(
                     self._db, research_session_id, outcome.error or outcome.state,
                     duration_seconds=duration, cost_usd=cost_usd,
                 )
         return research_session_id, outcome
+
+    def _ingest_into_knowledge_base(self, project_id: int | None, research_session_id: int, report: ResearchReport) -> None:
+        """Task 50.5: auto-tag a completed session's sourced findings and
+        suggest them as new (unverified) wiki/knowledge-base entries. Never
+        blocks or fails the session -- same "advisory-only" rule
+        `RalphOrchestrator._maybe_research` applies to research itself."""
+        try:
+            knowledge_ingestion.ingest_research_report(self._db, project_id, research_session_id, report)
+        except Exception:
+            pass
 
     def _over_cost_limit(self, session_id: int, cost_limit_usd: float) -> tuple[bool, float]:
         reported_cost = self._reported_cost(session_id)

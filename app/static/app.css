@@ -1002,3 +1002,61 @@ fieldset { min-width: 0; }
 .screenshot-pair figcaption { font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.3rem; }
 .screenshot-pair img { display: block; max-width: 100%; height: auto; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-2); }
 @media (max-width: 860px) { .compare-grid { grid-template-columns: 1fr; } }
+
+/* Wiki (task 50): topic tree, search, entry page and review queue. */
+.wiki-search-bar { display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: flex-end; margin-bottom: 1rem; }
+.wiki-search-bar input[type="search"] { flex: 1 1 16rem; min-width: 0; }
+.wiki-search-bar select { min-height: var(--tap); }
+.wiki-filter-chips { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.75rem; }
+.wiki-filter-chip {
+  display: inline-flex; align-items: center; gap: 0.3rem;
+  padding: 0.2rem 0.6rem; border-radius: 999px;
+  background: var(--surface-3); color: var(--text-muted); font-size: 0.8rem;
+}
+
+.wiki-tree { padding: 0; }
+.wiki-tree-node summary {
+  display: flex; align-items: center; gap: 0.5rem;
+  padding: 0.4rem 0.5rem; min-height: var(--tap);
+  border-radius: var(--radius); cursor: pointer; list-style: none; font-weight: 600;
+}
+.wiki-tree-node summary::-webkit-details-marker { display: none; }
+.wiki-tree-node summary::before { content: "\25B8"; color: var(--text-muted); margin-right: 0.2rem; }
+.wiki-tree-node[open] > summary::before { content: "\25BE"; }
+.wiki-tree-node summary:hover { background: var(--surface-3); }
+.wiki-tree-node .wiki-tree-node { margin-left: 1.1rem; }
+.wiki-tree-leaves { list-style: none; margin: 0 0 0.4rem 1.1rem; padding: 0; }
+.wiki-tree-leaves li { padding: 0.15rem 0; }
+.wiki-tree-leaves a { color: var(--text); text-decoration: none; }
+.wiki-tree-leaves a:hover { color: var(--accent); text-decoration: underline; }
+
+.wiki-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 22rem), 1fr)); gap: 0.75rem; padding: 0; list-style: none; margin: 0 0 1rem; }
+.wiki-card { border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 0.75rem; background: var(--surface-2); display: grid; gap: 0.4rem; }
+.wiki-card h3 { margin: 0; font-size: 1rem; }
+.wiki-card p { margin: 0; color: var(--text-muted); }
+.wiki-card a { color: inherit; text-decoration: none; }
+.wiki-card a:hover { color: var(--accent); }
+
+.wiki-layout { display: grid; gap: 1.25rem; grid-template-columns: 1fr; }
+@media (min-width: 861px) { .wiki-layout { grid-template-columns: minmax(0, 1fr) 18rem; } }
+.wiki-sidebar { display: grid; gap: 1rem; align-content: start; }
+.wiki-sidebar h2 { font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); margin: 0 0 0.4rem; }
+.wiki-content { min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.wiki-breadcrumb { display: flex; flex-wrap: wrap; gap: 0.3rem; color: var(--text-muted); font-size: 0.85rem; margin-bottom: 0.5rem; }
+.wiki-breadcrumb a { color: var(--text-muted); }
+
+/* [[slug]] link + hover/tap preview popover. */
+.wiki-link { color: var(--accent); text-decoration: underline; text-decoration-style: dotted; cursor: pointer; position: relative; }
+.wiki-link-preview {
+  position: absolute; z-index: 20; left: 0; top: 100%; margin-top: 0.3rem;
+  width: min(20rem, 80vw); padding: 0.6rem 0.75rem;
+  background: var(--surface-1); border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3); font-size: 0.85rem;
+}
+.wiki-link-preview[hidden] { display: none; }
+.wiki-link-preview strong { display: block; margin-bottom: 0.25rem; }
+
+.needs-review-list { list-style: none; margin: 0 0 1.25rem; padding: 0; display: grid; gap: 0.5rem; }
+.needs-review-item { border: 1px solid var(--border); border-radius: var(--radius); padding: 0.6rem 0.75rem; background: var(--surface-2); }
+.needs-review-item .row-actions { margin-top: 0.5rem; }
+.needs-review-item .row-actions button { min-height: var(--tap); }

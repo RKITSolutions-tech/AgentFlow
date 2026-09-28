@@ -52,10 +52,10 @@ DEFAULT_INSTRUCTIONS = (
 # Generic skills (docs/AGENT_ADAPTER.md §23.2/23.3, task 54): each is created as
 # an active `prompt_fragments` row by `models.seed_builtin_skills`. Content is
 # grounded in what this codebase actually does today -- no invented tooling,
-# no deployment/CI-CD advice (this app has no deployment pipeline of its own),
-# and no web/knowledge-base research skill (docs/AGENT_ADAPTER.md §23 Phase
-# B/C are proposed, not built; task 45 shipped only Phase A, repository-scoped
-# research).
+# no deployment/CI-CD advice (this app has no deployment pipeline of its own).
+# `research-ground-in-repository-context` predates the shared knowledge base
+# (task 48) and its wiki layer (task 50); `research-use-shared-knowledge-base`
+# below is the follow-up skill covering that surface.
 DEFAULT_SKILLS = [
     {
         "name": "research-ground-in-repository-context",
@@ -68,18 +68,19 @@ DEFAULT_SKILLS = [
             "writing the final summary."
         ),
         "constraints": [
-            "No web or knowledge-base access exists in this session (docs/AGENT_ADAPTER.md §23 Phase "
-            "B/C are proposed, not built) -- never claim to have looked anything up outside the "
-            "repository context provided.",
-            "Every finding needs a source_id pointing at a source you actually saw content from; a "
-            "claim with no source is reported as unverified, not included as if it were checked.",
+            "No web access exists in this session (docs/AGENT_ADAPTER.md §23 Phase C is proposed, not "
+            "built) -- never claim to have looked anything up online.",
+            "Every finding needs a source_id pointing at a repository source you actually saw content "
+            "from; a knowledge base entry above is background, not a citable source, and a claim with "
+            "no source is reported as unverified, not included as if it were checked.",
         ],
         "content": (
-            "This session's context is repository-scoped only (app/agents/research_context."
-            "RepositoryContextLoader): READMEs, CHANGELOGs, docs/**/*.md|*.rst|*.txt, and dependency "
+            "This session's repository context is scoped by app/agents/research_context."
+            "RepositoryContextLoader: READMEs, CHANGELOGs, docs/**/*.md|*.rst|*.txt, and dependency "
             "manifests (requirements*.txt, pyproject.toml, package.json, etc.) are inlined in full; "
             "app/, src/, and tests/ source files are only listed as a path and size, not their "
-            "content.\n\n"
+            "content. It may be preceded by relevant entries from the shared knowledge base -- see "
+            "the research-use-shared-knowledge-base skill for how to treat those.\n\n"
             "Answer from the inlined documents first -- they are where this project records its own "
             "design decisions (e.g. docs/HIGH_LEVEL_DESIGN.md, docs/AGENT_ADAPTER.md), so a question "
             "about how or why something works is very often already answered there without needing "
@@ -308,6 +309,37 @@ DEFAULT_SKILLS = [
             "- A new column on an existing table is added via app/db.py's `_ADDED_COLUMNS` list "
             "(`ALTER TABLE ... ADD COLUMN`), not by editing the original `CREATE TABLE IF NOT "
             "EXISTS` statement, which leaves an already-created table untouched."
+        ),
+    },
+    {
+        "name": "research-use-shared-knowledge-base",
+        "roles": ["research"],
+        "adapter_types": [],
+        "priority": 4,
+        "author": "AgentFlow",
+        "when_to_use": (
+            "At the start of a RESEARCH session, before falling back to repository context alone, "
+            "and whenever a finding might already be documented for another project."
+        ),
+        "constraints": [
+            "Only cite a wiki entry that came back from a real WikiSearcher.search()/get() call in "
+            "this session's context -- never invent a slug or claim an entry exists.",
+            "A KB entry is a starting point, not ground truth: it can be stale or unverified "
+            "(`confidence: unverified`) -- verify against the repository before relying on it, and "
+            "say so in the report when you could not.",
+        ],
+        "content": (
+            "A shared knowledge base (app/knowledge/, task 48) sits alongside repository context: "
+            "reviewed entries relevant to this session's question, if any, are included above before "
+            "the repository context itself. Each carries a `confidence` (`unverified` or `reviewed`) "
+            "and, for wiki-layer entries (task 50), a `slug` for /wiki/<slug> and any `[[slug]]` "
+            "entries it links to or from.\n\n"
+            "Prefer an entry already surfaced in this prompt over re-deriving the same answer from "
+            "source, but always cross-check a `reviewed` entry against the current repository state "
+            "before repeating it as fact -- the KB is not re-verified on every read. When this "
+            "session's own investigation turns up something worth keeping (a pattern, a gotcha, an "
+            "answer likely to recur), say so plainly in the summary; a maintainer decides whether it "
+            "becomes a new KB entry, since a RESEARCH session has no direct write access to the wiki."
         ),
     },
 ]
