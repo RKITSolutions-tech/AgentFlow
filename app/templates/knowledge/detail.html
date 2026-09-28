@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}{{ entry.title }} - Knowledge Base - AgentFlow{% endblock %}
+{% block content %}
+  <a href="{{ url_for('knowledge.list_entries') }}">← Back to list</a>
+  <h1>{{ entry.title }}</h1>
+  <dl class="run-meta">
+    <dt>Kind</dt><dd>{{ entry.kind }}</dd>
+    <dt>Confidence</dt><dd>{{ entry.confidence }}</dd>
+    <dt>Use count</dt><dd>{{ entry.use_count }}</dd>
+    <dt>Tags</dt><dd>{{ entry.tags|join(', ') if entry.tags else 'none' }}</dd>
+  </dl>
+
+  <div class="row-actions" style="margin-bottom: 1rem;">
+    {% if not entry.pinned %}
+      <button type="button" data-ajax-reload="{{ url_for('knowledge.pin_entry', entry_id=entry.id) }}">Pin</button>
+    {% else %}
+      <button type="button" data-ajax-reload="{{ url_for('knowledge.pin_entry', entry_id=entry.id) }}">Unpin</button>
+    {% endif %}
+    {% if entry.confidence != 'reviewed' %}
+      <button type="button" class="btn-primary" data-ajax-reload="{{ url_for('knowledge.promote_entry', entry_id=entry.id) }}">Promote to reviewed</button>
+    {% endif %}
+    <button type="button" class="link-danger" data-ajax-reload="{{ url_for('knowledge.delete_entry', entry_id=entry.id) }}" data-confirm="Delete this entry?">Delete</button>
+  </div>
+
+  <pre class="run-log">{{ entry.content }}</pre>
+
+  {% if provenance %}
+    <h2>History</h2>
+    <ul>
+      {% for h in provenance %}
+        <li><span class="form-hint">{{ h.timestamp }}</span> – {{ h.action }} by {{ h.user }}</li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+{% endblock %}

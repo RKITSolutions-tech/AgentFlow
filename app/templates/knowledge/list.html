@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Knowledge Base - AgentFlow{% endblock %}
+{% block content %}
+  <h1>Knowledge Base</h1>
+  <form class="stacked" style="max-width: 40rem;">
+    <label>Search <input type="text" name="q" value="{{ query }}"></label>
+    <fieldset style="display: flex; gap: 1rem; flex-wrap: wrap;">
+      <label><input type="radio" name="kind" value="" {% if not kind %}checked{% endif %}> All kinds</label>
+      <label><input type="radio" name="kind" value="web_cache" {% if kind == 'web_cache' %}checked{% endif %}> Web cache</label>
+      <label><input type="radio" name="kind" value="note" {% if kind == 'note' %}checked{% endif %}> Notes</label>
+    </fieldset>
+    <fieldset style="display: flex; gap: 1rem; flex-wrap: wrap;">
+      <label><input type="radio" name="confidence" value="reviewed" checked> Reviewed only</label>
+      <label><input type="radio" name="confidence" value=""> All confidence levels</label>
+    </fieldset>
+    <button type="submit">Search</button>
+  </form>
+
+  <ol class="entry-list" style="list-style: none; padding: 0; display: grid; gap: 0.5rem;">
+    {% for r in results %}
+      <li style="padding: 0.75rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-2);">
+        <a href="{{ url_for('knowledge.view_entry', entry_id=r.entry_id) }}" style="text-decoration: none; color: inherit;">
+          <strong>{{ r.title }}</strong>
+          <span class="form-hint">{{ r.confidence }} · used {{ r.use_count }} times</span>
+        </a>
+      </li>
+    {% else %}
+      <li class="form-hint">No entries found.</li>
+    {% endfor %}
+  </ol>
+{% endblock %}

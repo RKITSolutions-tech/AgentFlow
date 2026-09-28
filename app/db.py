@@ -775,6 +775,44 @@ CREATE TABLE IF NOT EXISTS ralph_research_history (
     UNIQUE(run_id, iteration_number)
 );
 CREATE INDEX IF NOT EXISTS idx_ralph_research_run ON ralph_research_history(run_id, iteration_number);
+
+-- Knowledge base (task 48): shared research insights with scoping, search, and metadata
+CREATE TABLE IF NOT EXISTS knowledge_entries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind TEXT NOT NULL CHECK(kind IN ('web_cache', 'note')),
+    title TEXT NOT NULL,
+    content TEXT NOT NULL DEFAULT '',
+    url TEXT,
+    source_project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL,
+    source_session_id INTEGER REFERENCES research_sessions(id) ON DELETE SET NULL,
+    source_step_id INTEGER REFERENCES step_executions(id) ON DELETE SET NULL,
+    confidence TEXT NOT NULL DEFAULT 'unverified' CHECK(confidence IN ('unverified', 'reviewed', 'deleted')),
+    scope TEXT NOT NULL DEFAULT 'global' CHECK(scope IN ('global') OR scope LIKE '%:%'),
+    pinned INTEGER NOT NULL DEFAULT 0,
+    use_count INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_knowledge_kind ON knowledge_entries(kind);
+CREATE INDEX IF NOT EXISTS idx_knowledge_confidence ON knowledge_entries(confidence);
+CREATE INDEX IF NOT EXISTS idx_knowledge_scope ON knowledge_entries(scope);
+CREATE INDEX IF NOT EXISTS idx_knowledge_pinned ON knowledge_entries(pinned DESC, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS knowledge_tags (
+    entry_id INTEGER NOT NULL REFERENCES knowledge_entries(id) ON DELETE CASCADE,
+    tag TEXT NOT NULL,
+    PRIMARY KEY (entry_id, tag)
+);
+CREATE INDEX IF NOT EXISTS idx_knowledge_tags ON knowledge_tags(tag);
+
+CREATE TABLE IF NOT EXISTS knowledge_provenance_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    entry_id INTEGER NOT NULL REFERENCES knowledge_entries(id) ON DELETE CASCADE,
+    action TEXT NOT NULL,
+    user TEXT NOT NULL,
+    timestamp TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_knowledge_provenance ON knowledge_provenance_history(entry_id, timestamp);
 """
 
 # Starter catalog, seeded once (see `_seed_model_catalog`) so the model

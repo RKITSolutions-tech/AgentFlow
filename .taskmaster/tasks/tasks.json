@@ -1330,7 +1330,7 @@
         "description": "Implement a centralized research knowledge base at AGENTFLOW_KNOWLEDGE_DIR with disk-persisted entries (web_cache and note kinds), SQLite metadata and search indexing, repository and project scoping with redaction, and a mobile-responsive UI for viewing, searching, editing, pinning, merging, and promoting entries.",
         "details": "1. **Knowledge base storage and schema** (app/knowledge/ package, new):\n   - Create app/knowledge/models.py with KnowledgeEntry (id, kind, title, content, url, source_project_id, source_session_id, source_step_id, created_at, updated_at, confidence, use_count, scope, tags JSON), KnowledgeTag (entry_id, tag), KnowledgeProvenanceHistory (entry_id, action, user, timestamp)\n   - Extend app/artifacts/models.py or create separate index: KnowledgeSearchIndex (entry_id, title_tokens, content_tokens, tag_tokens, searchable_text)\n   - Add database migrations for new tables\n\n2. **Disk storage and file management** (app/knowledge/storage.py):\n   - Create KnowledgeStore class: write entries to AGENTFLOW_KNOWLEDGE_DIR (default knowledge/ beside DB, configurable via env var, may be a git repo)\n   - File naming: entries/[kind]/[hash(title)]_[entry_id].md with path traversal validation using existing app/security.py helpers\n   - Size caps per entry and per directory; implement disk cleanup (LRU eviction if total exceeds threshold)\n   - Implement redaction (app/security.py REDACT_PATTERNS) before writing to disk; never persist unredacted secrets\n   - Support metadata-only storage for entries referencing external URLs (web_cache kind)\n   - Implement atomic write (temp file + rename) to prevent corruption\n\n3. **RESEARCH agent integration** (app/agents/base.py, app/knowledge/lookup.py):\n   - Extend ResearchSession (task 45) to include knowledge_entries_consulted (JSON list of entry IDs with relevance scores)\n   - Create KnowledgeLookup service: research() queries knowledge base before web (repository-scoped first, then global), returns ranked results with source metadata\n   - RESEARCH agent cites entries by id (e.g., \"per knowledge base entry #42...\") and proposes new entries or updates to existing ones with change justification\n   - Repository-derived notes start unverified (confidence='unverified'); only promoted entries (confidence='reviewed') are visible across projects\n   - Implement use_count increment on lookup; track promotion actions in KnowledgeProvenanceHistory\n\n4. **Search and retrieval** (app/knowledge/search.py):\n   - Full-text search using SQLite FTS5 on KnowledgeSearchIndex (title_tokens, content_tokens, tag_tokens)\n   - Filter by: kind (web_cache/note), confidence (unverified/reviewed), scope (global/specific project_id), tags, date range, use_count\n   - Implement fuzzy matching for tags and typo tolerance\n   - Rank results by relevance (FTS score), use_count, recency, and confidence\n\n5. **UI pages and workflows** (app/knowledge/views.py, templates, static/js):\n   - **Knowledge base browser** (/projects/<project_id>/knowledge or global /knowledge):\n     - List view with filters (kind, confidence, tags, scope, search box), sorting (relevance/date/use_count), pagination\n     - Entry detail page: title, content, source (project/session/step with links), confidence badge, tags, use_count, action buttons\n     - Edit button (if not reviewing): inline or modal edit for title/content/tags/confidence (admin only for confidence promotion)\n     - Pin/unpin (move to top of list, persist in entry.pinned boolean)\n     - Refresh entry (rerun research or reload from source URL if web_cache)\n     - Merge duplicates: select two entries, preview merged result, confirm (keeps higher-confidence version, combines tags and use_count)\n     - Delete entry (soft delete unless admin hard-delete)\n     - Promote entry: unverified → reviewed (admin action, creates history entry, makes visible to all projects)\n   - **Mobile layout** (375px viewport):\n     - Stacked filter bar with collapsible sections\n     - Full-width entry cards with touch-sized buttons (≥44px)\n     - Detail page scrolls vertically; actions in bottom action bar or overflow menu\n     - Search box always accessible (sticky top or slide-up from bottom)\n   - **Desktop layout** (1280px+):\n     - Sidebar filter panel (20% width, sticky scroll)\n     - Main list area (50% width, entry preview on hover)\n     - Detail pane (30% width, pinned when viewing entry)\n   - Use existing app.css design tokens (colors, spacing, tap size) and semantic HTML\n   - AJAX for: search results (filter/sort without reload), tag toggles, pin/unpin, delete, promote, merge confirmation\n\n6. **Integration with existing systems**:\n   - Execution steps link back to knowledge entries used in their context (execution_prompts table, add knowledge_entry_ids JSON field or new link table)\n   - Ralph orchestrator passes knowledge_lookup service to RESEARCH agent\n   - Backlog research action (task 44) surfaces findings in knowledge base UI and allows promoting findings to entries\n   - Prompt library (task 30) templates reference knowledge entries by id when context is relevant\n\n7. **Security and redaction**:\n   - All writes through KnowledgeStore apply AGENTFLOW_REDACT_PATTERNS before disk persistence\n   - Repository-scoped entries (scope=project_id): hidden from other projects until promoted\n   - API endpoints validate project_id membership (user can only see entries for their assigned projects or global entries)\n   - No external web requests from knowledge entry content or metadata (web_cache kind holds cached pages only, not live lookups)\n   - Sensitive file paths (from repository context) redacted before entry creation\n\n8. **Migrations and seeding**:\n   - Create schema.sql or Alembic migration for new tables\n   - Seed with empty knowledge base (no default entries)\n   - Add CLI helper: `agentflow knowledge --import <file>` to bulk-load entries (for testing)",
         "testStrategy": "1. **Unit tests in tests/knowledge/test_models.py**: (a) KnowledgeEntry creation with all fields, persistence to DB, retrieval by id/kind/scope; (b) KnowledgeTag association and filtering; (c) KnowledgeProvenanceHistory logging promotions and edits with timestamps.\n\n2. **Unit tests in tests/knowledge/test_storage.py**: (a) write_entry creates file in AGENTFLOW_KNOWLEDGE_DIR with safe filename (path traversal check); (b) redaction applied to sensitive content before write; (c) size caps enforced (entry max and directory total), LRU cleanup triggered; (d) atomic write (temp + rename); (e) read_entry retrieves stored content and metadata; (f) directory with no write permission raises clear error.\n\n3. **Unit tests in tests/knowledge/test_search.py**: (a) FTS index built correctly for title/content/tags; (b) search() returns ranked results; (c) filter by kind/confidence/scope/tags works; (d) fuzzy tag matching; (e) empty search with filters returns appropriate results; (f) use_count increment on lookup.\n\n4. **Unit tests in tests/knowledge/test_lookup.py**: (a) research_lookup queries repository-scoped entries first, then global; (b) RESEARCH agent receives top-5 results ranked by relevance; (c) lookup without matching entries returns empty or fallback; (d) redaction applied to lookup results; (e) unverified entries hidden from other projects.\n\n5. **Integration tests in tests/knowledge/test_integration.py**: (a) create entry via storage → search finds it → lookup retrieves it; (b) promote unverified entry to reviewed → visible in other projects; (c) merge duplicates combines content and use_counts; (d) edit entry updates DB and disk file atomically.\n\n6. **Playwright tests in tests/test_phase2_ui_verification.py** (add to _pages map): (a) **List page responsive**: filters visible and functional on mobile (375px) and desktop (1280px), search box accessible, entry cards at least 44px tap targets; (b) **No horizontal overflow**: content fits within viewport width; (c) **Filter/sort AJAX**: search updates list without full reload, sort option changes order; (d) **Detail page**: entry content displays, pin/edit/delete/promote buttons present and functional, edit inline or modal works; (e) **Merge workflow**: select two entries, preview merge, confirm; (f) **Promote action** (admin): unverified entry can be promoted to reviewed, appears in other project's view after promotion; (g) **Touch targets**: all action buttons ≥44px on mobile, easily tappable; (h) **Mobile action bar**: edit/delete/promote in sticky bottom bar or overflow menu on narrow screens; (i) **Search UX**: type in search box, results update; clear search resets list; tag filter toggles add/remove tags without page reload.\n\n7. **Security tests in tests/knowledge/test_security.py**: (a) redaction patterns applied to entry content before write; (b) path traversal attempts rejected (e.g., ../../../etc/passwd); (c) repository-scoped entries not leaked to other projects (API returns 403 or empty); (d) no web requests made from entry metadata; (e) unredacted commands never stored to disk.\n\n8. **Performance tests (optional, in tests/knowledge/test_perf.py)**: (a) search 1000+ entries with FTS < 500ms; (b) write entry with redaction < 100ms; (c) merge duplicates with use_count aggregation < 1s.\n\n9. **End-to-end scenario**: (a) RESEARCH agent runs, consults knowledge base, finds two relevant entries (one verified, one unverified); (b) proposes new entry with findings; (c) user navigates to knowledge base, sees new unverified entry and existing verified entry, merges them, promotes merged result; (d) verify merged entry now visible globally and cited by next RESEARCH run.",
-        "status": "pending",
+        "status": "done",
         "dependencies": [
           "45",
           "43",
@@ -1340,7 +1340,78 @@
           "34"
         ],
         "priority": "medium",
-        "subtasks": []
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Create knowledge base models and database schema",
+            "description": "Implement the SQLite schema and SQLAlchemy models for the knowledge base system, including KnowledgeEntry, KnowledgeTag, KnowledgeProvenanceHistory, and KnowledgeSearchIndex tables with proper relationships and constraints.",
+            "dependencies": [],
+            "details": "Create app/knowledge/models.py with: KnowledgeEntry (id, kind, title, content, url, source_project_id, source_session_id, source_step_id, created_at, updated_at, confidence, use_count, scope, tags, pinned), KnowledgeTag (entry_id, tag), KnowledgeProvenanceHistory (entry_id, action, user, timestamp), and KnowledgeSearchIndex (entry_id, title_tokens, content_tokens, tag_tokens, searchable_text). Create database migration for new tables. Implement SQLAlchemy relationships and add proper indexes for search and filtering performance.",
+            "status": "done",
+            "testStrategy": "Unit tests in tests/knowledge/test_models.py: test KnowledgeEntry creation/persistence/retrieval, test KnowledgeTag association and filtering, test KnowledgeProvenanceHistory logging with timestamps, test database relationships and constraints.",
+            "updatedAt": "2026-09-28T16:16:54.060Z",
+            "parentId": "undefined"
+          },
+          {
+            "id": 2,
+            "title": "Implement disk storage and file management for knowledge entries",
+            "description": "Build the KnowledgeStore class to handle persistent file storage of knowledge entries at AGENTFLOW_KNOWLEDGE_DIR with proper path validation, atomic writes, size management, and redaction before disk writes.",
+            "dependencies": [
+              1
+            ],
+            "details": "Create app/knowledge/storage.py with KnowledgeStore class that: writes entries to AGENTFLOW_KNOWLEDGE_DIR (default knowledge/ beside DB, configurable via env var), uses file naming pattern entries/[kind]/[hash(title)]_[entry_id].md, validates paths using app/security.py helpers to prevent traversal attacks, implements LRU eviction when disk usage exceeds threshold, applies REDACT_PATTERNS before writing, supports metadata-only storage for web_cache entries, and uses atomic write (temp file + rename) to prevent corruption. Include disk cleanup and size cap management.",
+            "status": "done",
+            "testStrategy": "Unit tests in tests/knowledge/test_storage.py: test file creation and path validation, test atomic writes and corruption prevention, test redaction applied before persistence, test size caps and LRU eviction, test metadata-only storage for web_cache entries, test configurable directory path via env var.",
+            "parentId": "undefined",
+            "updatedAt": "2026-09-28T16:17:10.202Z"
+          },
+          {
+            "id": 3,
+            "title": "Integrate knowledge lookup with RESEARCH agent and create search service",
+            "description": "Extend ResearchSession to track knowledge entries consulted, implement KnowledgeLookup service for repository-scoped queries, and create full-text search using SQLite FTS5 with filtering and ranking capabilities.",
+            "dependencies": [
+              1,
+              2
+            ],
+            "details": "In app/knowledge/lookup.py create KnowledgeLookup service with research() method that queries knowledge base before web (repository-scoped first, then global), returns ranked results with source metadata. Extend ResearchSession in app/agents/models.py to track knowledge_entries_consulted (JSON list of entry IDs with relevance scores). In app/knowledge/search.py implement full-text search using SQLite FTS5 on KnowledgeSearchIndex, filter by kind/confidence/scope/tags/date/use_count, implement fuzzy matching and typo tolerance, rank by FTS score/use_count/recency/confidence. RESEARCH agent cites entries by id and proposes new entries with justification. Implement use_count increment on lookup and track promotion actions in KnowledgeProvenanceHistory. Repository-derived notes start unverified (confidence='unverified'), only promoted entries (confidence='reviewed') visible across projects.",
+            "status": "done",
+            "testStrategy": "Unit tests in tests/knowledge/test_search.py and tests/knowledge/test_lookup.py: test repository-scoped vs global queries, test FTS search with filters, test fuzzy matching and typo tolerance, test ranking algorithm, test use_count increments, test confidence-based visibility, test RESEARCH agent citation format and entry proposal. Integration test with ResearchSession.",
+            "parentId": "undefined",
+            "updatedAt": "2026-09-28T16:17:25.405Z"
+          },
+          {
+            "id": 4,
+            "title": "Build mobile-responsive knowledge base UI with list, detail, and action workflows",
+            "description": "Create web views and templates for browsing, searching, filtering, editing, pinning, merging, and promoting knowledge entries with responsive design for both mobile (375px) and desktop (1280px) viewports.",
+            "dependencies": [
+              1,
+              2,
+              3
+            ],
+            "details": "In app/knowledge/views.py create routes for /knowledge (global) and /projects/<project_id>/knowledge. Build: knowledge browser list view with filters (kind, confidence, tags, scope, search box), sorting (relevance/date/use_count), pagination; entry detail page showing title/content/source/confidence/tags/use_count/actions; edit modal for title/content/tags; pin/unpin toggle (persist pinned boolean); refresh entry button; merge duplicates workflow with preview; delete (soft delete or hard delete for admin); promote entry workflow (unverified→reviewed, creates history). Mobile layout (375px): stacked filter bar, full-width entry cards, touch-sized buttons (≥44px), detail page scrolls vertically, actions in bottom bar or overflow menu, sticky search. Desktop layout (1280px+): sidebar filter panel (20%), main list (50%), detail pane (30%). Use app.css design tokens and semantic HTML. Implement AJAX for search/filter/sort/tag toggles/pin/delete/promote/merge without page reload.",
+            "status": "done",
+            "testStrategy": "UI tests in tests/test_phase2_ui_verification.py: test mobile viewport (375px) and desktop (1280px) layouts, test touch target sizes (≥44px), test no horizontal overflow, test responsive filter bar and detail pane. AJAX endpoint tests: test search results loading, test filter/sort updates without reload, test pin/unpin/delete/promote/merge workflows. Functional tests for all CRUD operations on knowledge entries.",
+            "parentId": "undefined",
+            "updatedAt": "2026-09-28T16:17:52.451Z"
+          },
+          {
+            "id": 5,
+            "title": "Integrate knowledge base with RESEARCH agent, Ralph orchestrator, backlog research, and prompt library",
+            "description": "Connect the knowledge base to existing systems: pass KnowledgeLookup service to RESEARCH agent, link execution steps to consulted entries, integrate with Ralph failure analysis, surface backlog research findings, and enable prompt library templates to reference knowledge entries.",
+            "dependencies": [
+              1,
+              2,
+              3,
+              4
+            ],
+            "details": "Modify app/agents/base.py to pass knowledge_lookup service to RESEARCH agent sessions. Add knowledge_entry_ids JSON field to execution_prompts table or create link table to track which knowledge entries were consulted during execution steps. Update Ralph orchestrator (app/ralph/orchestrator.py) to pass knowledge_lookup to RESEARCH agent for failure analysis (task 47 integration). In backlog research (task 44) surface findings in knowledge base UI and allow promoting research findings to entries. Modify prompt library (task 30) templates to reference knowledge entries by id when context-relevant. Add execution_prompts table field or link table for knowledge_entry_ids. Implement security validation: API endpoints verify project_id membership (users see entries for their projects or global entries only), no external web requests from entry content, sensitive repository paths redacted before entry creation. Add database migrations for new tables/fields. Create CLI helper: `agentflow knowledge --import <file>` to bulk-load entries for testing. Seed with empty knowledge base (no defaults).",
+            "status": "done",
+            "testStrategy": "Integration tests in tests/knowledge/test_integration.py: test knowledge_lookup passed to RESEARCH agent and consulted entries tracked, test Ralph orchestrator receives knowledge_lookup and uses it for failure analysis, test backlog research surfaces findings and allows promotion, test prompt library can reference entries by id. Security tests: test project_id-based access control, test redaction applied before entry creation, test no external web requests from entry content. Database migration tests. CLI import tests with sample knowledge entries.",
+            "parentId": "undefined",
+            "updatedAt": "2026-09-28T16:18:05.369Z"
+          }
+        ],
+        "updatedAt": "2026-09-28T16:18:05.369Z"
       },
       {
         "id": "49",
@@ -1478,9 +1549,9 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-09-28T16:14:48.527Z",
+      "lastModified": "2026-09-28T16:18:05.369Z",
       "taskCount": 54,
-      "completedCount": 51,
+      "completedCount": 52,
       "tags": [
         "master"
       ]
