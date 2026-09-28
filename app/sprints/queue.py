@@ -135,9 +135,18 @@ def default_pipeline(db: sqlite3.Connection, project_id: int, work: PlannedWorkI
     return enabled[0].name if enabled else ""
 
 
-def promote_next(db: sqlite3.Connection, sprint_id: int, repository_id: int | None = None, pipeline: str = "") -> tuple[int, int]:
+def promote_next(
+    db: sqlite3.Connection, sprint_id: int, repository_id: int | None = None, pipeline: str = "",
+    queue_if_busy: bool = False,
+) -> tuple[int, int]:
     """Create the Ralph run for the next eligible task and mark it IN_PROGRESS.
-    Returns (work_item_id, run_id); the caller starts the run."""
+    Returns (work_item_id, run_id); the caller starts the run (with `wait=True`
+    when `queue_if_busy`, so a busy project queues behind the holder instead of
+    the run being refused outright).
+
+    `queue_if_busy` only skips the busy refusal when this sprint has no task of
+    its own already `IN_PROGRESS` — that stays a hard stop either way, so a
+    sprint never has two tasks in flight at once (§22 "one at a time")."""
     sprint = sprints.get_sprint(db, sprint_id)
     work = eligible_task(db, sprint_id)
     if work is None:
@@ -152,7 +161,9 @@ def promote_next(db: sqlite3.Connection, sprint_id: int, repository_id: int | No
         repository_id = repo.id
     busy = project_busy(db, sprint.project_id, repository_id)
     if busy:
-        raise QueueError(f"Project is busy: {busy}")
+        already_in_flight = any(w.task_state == "IN_PROGRESS" for w in _live(db, sprint_id))
+        if not queue_if_busy or already_in_flight:
+            raise QueueError(f"Project is busy: {busy}")
     pipeline = pipeline or default_pipeline(db, sprint.project_id, work)
     if not pipeline:
         raise QueueError("Choose a verification pipeline: the project has none enabled")
@@ -175,15 +186,19 @@ ADVANCE_AFTER = ("COMPLETED", "FAILED", "TIMED_OUT", "BLOCKED")
 
 
 def advance(db: sqlite3.Connection, sprint_id: int) -> tuple[int, int] | None:
-    """Promote the next eligible task if automatic mode is on and the project is
-    free. Returns (work_item_id, run_id) for the caller to start, else None."""
+    """Promote the next eligible task if automatic mode is on. Returns
+    (work_item_id, run_id) for the caller to start (passing `wait=True` to
+    `RalphManager.start`, task 41) — a busy project queues behind the holder
+    rather than automatic mode stalling until an unrelated event retries it.
+    Still returns None with nothing to do when there is no eligible task, no
+    pipeline configured, or this sprint already has a task in flight."""
     sprint = sprints.get_sprint(db, sprint_id)
     if sprint is None or not sprint.auto_run or sprint.status != "EXECUTING":
         return None
     try:
-        return promote_next(db, sprint_id)
+        return promote_next(db, sprint_id, queue_if_busy=True)
     except QueueError:
-        return None  # nothing eligible, project busy, or no pipeline: wait for a person
+        return None  # nothing eligible, no pipeline, or a task is already in flight
 
 
 def auto_waiting(db: sqlite3.Connection, sprint_id: int) -> str | None:

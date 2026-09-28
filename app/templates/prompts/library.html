@@ -3,7 +3,8 @@
 {% block content %}
   <h1>Prompt library</h1>
   <p class="form-hint">Fragments and templates build the prompts AGENT steps send; Ralph's standing instructions are
-    <a href="{{ url_for('prompts.ralph_blocks') }}">blocks you can switch on and off</a>.</p>
+    <a href="{{ url_for('prompts.ralph_blocks') }}">blocks you can switch on and off</a>, and reusable, versioned
+    agent capabilities are <a href="{{ url_for('prompts.skills') }}">skills</a>.</p>
 
   <h2>Templates</h2>
   <p><a class="btn-primary" href="{{ url_for('prompts.templates') }}">New template</a></p>

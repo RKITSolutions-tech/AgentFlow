@@ -3,6 +3,8 @@ from __future__ import annotations
 from flask import Blueprint, abort, current_app, flash, redirect, render_template, request, url_for
 
 from app.acceptance import models as acceptance_models
+from app.agents.research_report import ResearchReport
+from app.artifacts import collector as artifact_collector
 from app.artifacts import models as artifact_models
 from app.db import get_db
 from app.pipelines import executions, persistence
@@ -93,6 +95,8 @@ def start_run(project_id: int):
             max_iterations=number("max_iterations", models.DEFAULT_MAX_ITERATIONS, int),
             max_runtime_seconds=number("max_runtime_seconds", None, float),
             auto_commit=request.form.get("auto_commit") == "on",
+            research_on_failure=request.form.get("research_on_failure") == "on",
+            failure_threshold=number("failure_threshold", models.DEFAULT_FAILURE_THRESHOLD, int),
         )
     except ValueError as exc:
         return _reply(str(exc), False, back)
@@ -104,16 +108,37 @@ def start_run(project_id: int):
                   _detail(project_id, run_id), run_id=run_id, queued=queued, redirect=_detail(project_id, run_id))
 
 
+def _research_report(db, artifact_id: int) -> ResearchReport | None:
+    """Load a Ralph iteration's research Artifact content back into a
+    `ResearchReport` for display -- the report is stored as this artifact's
+    file content (`RalphOrchestrator._maybe_research`), not duplicated
+    anywhere else."""
+    artifact = artifact_models.get_artifact(db, artifact_id)
+    if artifact is None:
+        return None
+    try:
+        with open(artifact_collector.file_path(_root(), artifact), "r", encoding="utf-8") as fh:
+            return ResearchReport.from_json(fh.read())
+    except (OSError, ValueError):
+        return None
+
+
 @bp.get("/<int:run_id>")
 def view_run(project_id: int, run_id: int):
     project = _project(project_id)
     run = _run(project_id, run_id)
     db = get_db()
     iterations = models.list_iterations(db, run_id)
+    research_reports = {
+        i.id: _research_report(db, i.research_artifact_id)
+        for i in iterations if i.research_artifact_id and not i.research_report_presented
+    }
+    research_reports = {k: v for k, v in research_reports.items() if v is not None}
     return render_template(
         "ralph/detail.html", project=project, run=run, iterations=iterations,
         steering=models.list_steering(db, run_id),
         executing=_manager().is_executing(run_id),
+        research_reports=research_reports,
         executions={
             i.verification_execution_id: executions.get_execution(db, i.verification_execution_id)
             for i in iterations if i.verification_execution_id
@@ -181,6 +206,61 @@ def complete(project_id: int, run_id: int):
 @bp.post("/<int:run_id>/unblock")
 def unblock(project_id: int, run_id: int):
     return _control(project_id, run_id, "unblock", "Continuing", request.form.get("message", ""))
+
+
+def _findings_text(report: ResearchReport) -> str:
+    """Research findings rendered as a steering message -- reuses the existing
+    `ralph_steering` mechanism verbatim (docs/RUN_AND_RALPH.md §22: "Steering
+    is stored per run with the iteration it was written during and injected
+    into the next iteration's prompt exactly once"), so this is the only path
+    a research report can reach a future prompt -- never auto-applied."""
+    lines = [f"Research findings: {report.summary}"] if report.summary else ["Research findings:"]
+    for f in report.findings[:10]:
+        marker = "verified" if f.source_ids else "unverified"
+        lines.append(f"- ({marker}) {f.text}")
+    return "\n".join(lines)
+
+
+def _research_iteration(project_id: int, run_id: int, iteration_id: int):
+    _project(project_id)
+    run = _run(project_id, run_id)
+    it = models.get_iteration(get_db(), iteration_id)
+    if it is None or it.run_id != run_id or not it.research_artifact_id:
+        abort(404)
+    return run, it
+
+
+@bp.post("/<int:run_id>/research/<int:iteration_id>/use")
+def use_research(project_id: int, run_id: int, iteration_id: int):
+    """Advisory-only acceptance (docs/AGENT_ADAPTER.md §23: "A person accepts
+    findings before they change a plan or acceptance criteria"): appends the
+    research findings to the run's steering queue -- the same mechanism the
+    manual "Add steering" form uses -- and marks the report presented so it
+    stops showing as pending. Never applied automatically."""
+    db = get_db()
+    run, it = _research_iteration(project_id, run_id, iteration_id)
+    back = _detail(project_id, run_id)
+    if it.research_report_presented:
+        return _reply("This report was already reviewed", False, back, 409)
+    report = _research_report(db, it.research_artifact_id)
+    if report is None:
+        return _reply("The research report could not be loaded", False, back, 404)
+    if run.status in models.RUN_TERMINAL:
+        return _reply("Steering a finished run has no effect", False, back, 409)
+    models.add_steering(db, run_id, _findings_text(report), run.current_iteration)
+    models.mark_research_presented(db, iteration_id)
+    return _reply("Findings added as steering for the next iteration", True, back)
+
+
+@bp.post("/<int:run_id>/research/<int:iteration_id>/dismiss")
+def dismiss_research(project_id: int, run_id: int, iteration_id: int):
+    db = get_db()
+    _, it = _research_iteration(project_id, run_id, iteration_id)
+    back = _detail(project_id, run_id)
+    if it.research_report_presented:
+        return _reply("This report was already reviewed", False, back, 409)
+    models.mark_research_presented(db, iteration_id)
+    return _reply("Dismissed", True, back)
 
 
 @bp.get("/<int:run_id>/timeline")

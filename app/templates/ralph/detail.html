@@ -29,6 +29,31 @@
     {% endif %}
   </div>
 
+  {% for i in iterations %}
+    {% if i.id in research_reports %}
+      {% set report = research_reports[i.id] %}
+      <div class="research-report">
+        <h2>Research findings &middot; iteration {{ i.number }}</h2>
+        <p class="wrap-cell">{{ report.summary or '(no summary)' }}</p>
+        {% if report.findings %}
+          <details>
+            <summary>{{ report.findings|length }} finding{{ 's' if report.findings|length != 1 }}
+              ({{ report.unverified|length }} unverified)</summary>
+            <ul>
+              {% for f in report.findings %}
+                <li class="wrap-cell">{{ f.text }} <span class="form-hint">({{ f.confidence }}{% if f.category %} &middot; {{ f.category }}{% endif %})</span></li>
+              {% endfor %}
+            </ul>
+          </details>
+        {% endif %}
+        <div class="row-actions">
+          <button type="button" class="btn-primary" data-ajax-reload="{{ url_for('ralph.use_research', project_id=project.id, run_id=run.id, iteration_id=i.id) }}">Use findings as steering</button>
+          <button type="button" data-ajax-reload="{{ url_for('ralph.dismiss_research', project_id=project.id, run_id=run.id, iteration_id=i.id) }}">Dismiss</button>
+        </div>
+      </div>
+    {% endif %}
+  {% endfor %}
+
   {% if run.status == 'WAITING_FOR_HUMAN' and run.awaiting_acceptance %}
     <p>Verification passed. Sign off the acceptance criteria, then complete the run.
       <a href="{{ url_for('acceptance.list_criteria', project_id=project.id, run=run.id) }}">Criteria for this run</a></p>

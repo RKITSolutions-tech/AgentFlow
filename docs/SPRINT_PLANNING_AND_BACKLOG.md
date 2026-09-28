@@ -1048,8 +1048,17 @@ These were made without the owner in the loop while building Phase 2 (tasks
   its id on the sprint; `GET /plan/status` ingests the reply once the session
   completes and the sprint page polls it. Adapters that run synchronously (the
   fake agent) finish within the start call.
-- `AGENTFLOW_PLANNING_AGENT` selects `codex` (default) or `fake`. `fake` is the
-  deterministic FakePlanningAgent of §43 (one task per backlog item) for CI.
+- `AGENTFLOW_PLANNING_AGENT` selects `codex` (default), `claude`, `local`, or
+  `fake`. `fake` is the deterministic FakePlanningAgent of §43 (one task per
+  backlog item) for CI; `claude` runs a `ClaudeAdapter` session the same way
+  `codex` runs a `CodexAdapter` one. `local` drives a Settings model_catalog
+  `local` entry (§17/§18 of docs/AGENT_ADAPTER.md): `AGENTFLOW_PLANNING_MODEL`
+  names the entry's `model_id`, and since that catalog row carries only a
+  base_url/api_key — not which CLI wire protocol it speaks —
+  `AGENTFLOW_PLANNING_LOCAL_ADAPTER` (`codex`, default, or `claude`) says
+  that separately. A missing/disabled/unnamed entry raises
+  `ModelCatalogConfigError` (`app/settings/models.py`) rather than starting
+  a session.
 - Re-planning ("Refine plan") deletes only un-reviewed `SUGGESTED` tasks and
   keeps anything a person touched (PHASE2_PLANNING §3: merge, don't replace).
 - Readiness (`app/sprints/readiness.py`) is a list of explicit checks:
@@ -1156,9 +1165,38 @@ DRAFT/READY_FOR_REVIEW -> READY -> RELEASED -> IN_PROGRESS -> COMPLETE
 - The queue page (`/projects/<id>/sprints/<id>/queue`) shows the §29 progress counts,
   each task's state, what it is waiting on, and the linked run.
 
-## 50. Research Action (proposed)
+## 50. Research Action
 
-Decided in discussion; not yet built. "Research this item" on a Backlog item or planned task starts a `RESEARCH` agent
+Decided in discussion. "Research this item" on a Backlog item or planned task starts a `RESEARCH` agent
 session (AGENT_ADAPTER §23; repository first, then the shared knowledge base, then the web). The report attaches to the item as suggested context with the same provenance rules as
 `SUGGESTED` planned tasks (§9): nothing is accepted automatically, a person accepts or dismisses each finding, and
 accepted findings may seed acceptance criteria or task descriptions. Sources are always listed.
+
+**Backlog items (implemented, task 44).** `app/backlog/research.py`; planned tasks are not wired up here.
+
+- **Trigger.** `POST /projects/<id>/backlog/items/<item_id>/research` (`app/backlog/views.py.research_item`) builds the
+  question from the item's title and text and drives `ResearchAgent` directly -- an ad-hoc call, the same way
+  `app/sprints/planning_agent.PlanningAgent` is driven directly from sprint views, not a one-step pipeline execution.
+  It reuses the project's configured agent (`PLANNING_AGENT`, via `app.pipelines.manager.default_agent_factory` -- the
+  same setting Sprint planning and RESEARCH pipeline steps already use; there is no separate `RESEARCH_AGENT` knob) and
+  the same repository resolution as `POST /projects/<id>/sprints/<id>/plan` (primary repository, else the project's
+  first repository, else the first allowed root). Limits are `time_limit_seconds=300`, `cost_limit_usd=5` (tighter
+  than a pipeline RESEARCH step's $10 default, since a backlog item's question is narrower in scope).
+- **Blocking, by design.** Every adapter today resolves synchronously inside `start()` (AGENT_ADAPTER §23 "Limits"), so
+  the request blocks for the research pass, exactly like Sprint planning's `POST /plan` already does. The trigger is a
+  `data-ajax-reload` button (`app/static/app.js`): disabled while in flight, page reload on completion -- the same
+  control Ralph's research-on-failure report already uses (`app/templates/ralph/detail.html`). The item's status is
+  never touched: research can be requested from any Backlog status.
+- **Storage.** A `backlog_research_links` row (`app/backlog/models.BacklogResearchLink`) links the item to the
+  `research_sessions` row (task 45) and the Artifact Library entry indexing the report JSON
+  (`kind='research_report'`, tagged `backlog-item-<id>`, metadata including `backlog_item_id` -- the same shape and
+  helper pattern `PipelineEngine._register_research_artifact` uses for RESEARCH pipeline steps, task 43). A link table
+  rather than a column on `backlog_items`: the item's own status/lifecycle is unaffected, and an item may accumulate
+  more than one research run, so an append-only row per run (like `backlog_triage_history`) fits better than a single
+  mutable field.
+- **Accept / dismiss.** Each link starts `PENDING`; `POST .../research/<link_id>/accept` appends the report summary to
+  the item's text and logs a `backlog_triage_history` note (status unchanged), then marks the link `ACCEPTED`.
+  `POST .../research/<link_id>/dismiss` marks it `DISMISSED` without changing the item. Both mirror Ralph's
+  `use_research`/`dismiss_research` (`app/ralph/views.py`) for the same report shape. Only the most recent `PENDING`
+  link renders as an actionable report (summary, findings with an "unverified" badge on anything with no source,
+  sources with file path/line range); reviewed links collapse into a compact history table linking to their Artifact.

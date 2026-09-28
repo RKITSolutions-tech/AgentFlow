@@ -66,7 +66,7 @@ def _context(project):
         project.repositories[0] if project.repositories else None
     )
     path = repo.path if repo else current_app.config["ALLOWED_PROJECT_ROOTS"][0]
-    return build_context(current_app.config, project.id, path)
+    return build_context(current_app.config, project.id, path, get_db())
 
 
 def _guard(fn, back: str):
@@ -459,7 +459,7 @@ def auto_run(project_id: int, sprint_id: int):
         promoted = queue.advance(get_db(), sprint_id)
         if promoted:
             try:
-                current_app.extensions["ralph_manager"].start(promoted[1])
+                current_app.extensions["ralph_manager"].start(promoted[1], wait=True)
                 started = promoted[1]
             except ValueError as exc:
                 return _reply(str(exc), False, back, 409)

@@ -18,7 +18,10 @@ from app.runs.security import redact
 
 MAX_ARTIFACT_BYTES = 25 * 1024 * 1024
 MAX_FILES_PER_STEP = 50
-TEXT_KINDS = ("log", "diff", "report")
+# research_report is already redacted upstream (ResearchAgent.collect(), task
+# 56) before it ever reaches here; kept in TEXT_KINDS anyway as a defense-in-
+# depth pass -- re-redacting already-clean text is a harmless no-op.
+TEXT_KINDS = ("log", "diff", "report", "research_report")
 _IMAGE = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp")
 _VIDEO = (".mp4", ".webm", ".mov")
 _LOG = (".log", ".txt", ".out", ".err")
@@ -72,13 +75,18 @@ def store_bytes(
     directory: str,
     patterns: tuple[str, ...] = (),
     kind: str | None = None,
+    extra_metadata: dict | None = None,
+    mime_type: str | None = None,
     **link,
 ) -> int:
     """Write `content` under `directory` (relative to the artifact root) and index it.
 
     Text kinds are redacted before they touch disk. `link` carries the
     originating references (execution_id, step_execution_id, step_name,
-    ralph_run_id, iteration_number, tags).
+    ralph_run_id, iteration_number, tags). `extra_metadata` merges on top of
+    the kind-derived metadata (e.g. a research report's finding/source counts,
+    which cannot be derived from the raw bytes the way an image's width/height
+    can).
     """
     if len(content) > MAX_ARTIFACT_BYTES:
         raise ValueError(f"{name} exceeds {MAX_ARTIFACT_BYTES} bytes")
@@ -97,10 +105,13 @@ def store_bytes(
     os.makedirs(os.path.dirname(target), exist_ok=True)
     with open(target, "wb") as fh:
         fh.write(content)
-    mime = mimetypes.guess_type(safe)[0] or "application/octet-stream"
+    mime = mime_type or mimetypes.guess_type(safe)[0] or "application/octet-stream"
+    metadata = _metadata(kind, content)
+    if extra_metadata:
+        metadata.update(extra_metadata)
     return models.add_artifact(
         db, project_id, kind, safe, relative, mime, len(content), redacted=redacted,
-        metadata=_metadata(kind, content), **link,
+        metadata=metadata, **link,
     )
 
 

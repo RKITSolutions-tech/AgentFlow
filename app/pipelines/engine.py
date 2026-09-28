@@ -537,6 +537,7 @@ class PipelineEngine:
             return self._h_manual
         table = {
             "AGENT": self._h_agent,
+            "RESEARCH": self._h_research,
             "WAIT": self._h_wait,
             "PROCESS_START": self._h_process_start,
             "PROCESS_STOP": self._h_process_stop,
@@ -681,6 +682,13 @@ class PipelineEngine:
         prompt = self._resolve(ex, (element.get("config") or {}).get("prompt", ""))
         return StepResult("WAITING", summary=prompt, input_reference=prompt)
 
+    def _agent_type(self) -> str:
+        """'fake', 'codex', ... from the adapter class, for skills/blocks scoped by adapter type."""
+        if not hasattr(self, "_agent_type_cache"):
+            name = type(self._agent_factory(self._db)).__name__
+            self._agent_type_cache = name.replace("AgentAdapter", "").replace("Adapter", "").lower()
+        return self._agent_type_cache
+
     def _assemble_prompt(self, ex: Execution, config: dict):
         """Effective prompt for an AGENT step from the prompt library: a literal
         `prompt` wins, else the named `prompt_template`; `context_files` globs (and
@@ -698,6 +706,7 @@ class PipelineEngine:
             self._db, template=template, text=text, root=self._workdir(ex),
             context_globs=list(config.get("context_files") or []), project_id=ex.project_id,
             resolver=lambda ref: self._resolve(ex, ref),
+            role=config.get("role", "IMPLEMENTATION"), agent_type=self._agent_type(),
         )
 
     def _h_agent(self, ex, element, step_id, context_id) -> StepResult:
@@ -712,7 +721,7 @@ class PipelineEngine:
         prompt_id = prompt_models.record_prompt(
             self._db, "pipeline_step", step_id, clean_prompt, assembled.template_id, assembled.template_name,
             assembled.resolved_files, assembled.variables_substituted, assembled.blocks_included,
-            redacted=prompt_redacted,
+            redacted=prompt_redacted, skills_included=assembled.skills_included,
         )
         executions.update_step(self._db, step_id, execution_prompt_id=prompt_id)
         adapter = self._agent_factory(self._db)
@@ -723,6 +732,7 @@ class PipelineEngine:
             AgentContext(
                 project_id=ex.project_id, working_directory=self._workdir(ex),
                 execution_provider="host", execution_target=str(context_id),
+                model=self._resolve_step_model(config),
             ),
             prompt, options,
         )
@@ -733,6 +743,153 @@ class PipelineEngine:
         if session.status == "COMPLETED":
             return StepResult("PASSED", **base)
         return StepResult("FAILED", error=f"Agent session ended {session.status.lower()}", **base)
+
+    # -- RESEARCH steps (docs/AGENT_ADAPTER.md §23, docs/PIPELINE_ENGINE.md §23) --------
+
+    # ResearchOutcome.state -> StepResult.status: TIMED_OUT is an existing
+    # terminal step status (reused verbatim, like _h_command's timeout path);
+    # COST_LIMIT_EXCEEDED has no step_executions CHECK-constraint status of
+    # its own, so it maps onto FAILED with the limit named in the error text
+    # rather than inventing a new terminal state for one step type.
+    _RESEARCH_STATUS = {"TIMED_OUT": "TIMED_OUT"}
+
+    def _assemble_research_prompt(self, ex: Execution, config: dict):
+        """Effective prompt (the research "question") for a RESEARCH step.
+        Mirrors `_assemble_prompt` (AGENT steps) exactly, keyed by the
+        RESEARCH config shape instead: a literal `prompt` wins, else the
+        named/numbered `prompt_template_id` (falling back to the shipped
+        `DEFAULT_TEMPLATES` when the library was never seeded, just like
+        AGENT's `prompt_template`); `context` is a dict of extra key/value
+        pairs whose values are resolved through the same strict `${...}`
+        resolver every other step config uses (`self._resolve`) and appended
+        ahead of the question as free text."""
+        literal, ref = config.get("prompt"), config.get("prompt_template_id")
+        template, text = None, literal or ""
+        if not literal and ref not in (None, ""):
+            name = str(ref)
+            template = (
+                prompt_models.get_template(self._db, int(ref))
+                if isinstance(ref, int) or (isinstance(ref, str) and ref.strip().isdigit())
+                else prompt_models.get_template_by_name(self._db, name)
+            )
+            if template is None:
+                if name in DEFAULT_TEMPLATES:  # library never seeded: use the shipped default
+                    text = DEFAULT_TEMPLATES[name]
+                else:
+                    raise ValueError(f"Unknown prompt template {ref!r}")
+        context = config.get("context") or {}
+        resolved_context = {str(k): self._resolve(ex, str(v)) for k, v in context.items()}
+        if resolved_context:
+            block = "\n".join(f"- {k}: {v}" for k, v in resolved_context.items())
+            text = f"{text}\n\nContext:\n{block}" if text.strip() else f"Context:\n{block}"
+        return assembler.assemble_effective_prompt(
+            self._db, template=template, text=text, root=self._workdir(ex),
+            context_globs=list(config.get("context_files") or []), project_id=ex.project_id,
+            resolver=lambda r: self._resolve(ex, r),
+            role="RESEARCH", agent_type=self._agent_type(),
+        )
+
+    def _register_research_artifact(self, ex: Execution, element: dict, step_id: int, report, research_row) -> None:
+        """Index the parsed report JSON in the Artifact Library
+        (kind='research_report'), linked back to this step -- the structured-
+        report analogue of `_register_artifacts`'s log/collect-file indexing.
+        The report is already redacted (`ResearchAgent.collect()`, task 56)
+        before it ever reaches here, so this never re-derives secrets from an
+        unredacted copy; `store_bytes`'s own TEXT_KINDS pass is only a
+        defense-in-depth no-op on top of that. A collection problem never
+        fails the step, matching `_register_artifacts`."""
+        try:
+            content = report.to_json().encode("utf-8")
+            metadata = {
+                "summary_length": len(report.summary),
+                "finding_count": len(report.findings),
+                "source_count": len(report.sources),
+                "unverified_finding_count": len(report.unverified),
+                "cost_usd": research_row.cost_usd if research_row else 0.0,
+                "duration_seconds": research_row.duration_seconds if research_row else None,
+            }
+            collector.store_bytes(
+                self._db, self._root, ex.project_id, f"{element['name']}_report.json", content,
+                collector.step_directory(ex.id, step_id), self._patterns, kind="research_report",
+                extra_metadata=metadata, mime_type="application/json",
+                execution_id=ex.id, step_execution_id=step_id, step_name=element["name"],
+            )
+        except Exception as exc:
+            executions.add_event(self._db, ex.id, "ArtifactCollectionFailed", str(exc)[:300], step_id)
+
+    def _h_research(self, ex, element, step_id, context_id) -> StepResult:
+        """RESEARCH steps hold no `app/projects/lock.py` lock -- neither this
+        handler nor `ResearchAgent.research()` ever calls it (docs/
+        AGENT_ADAPTER.md §23 "Locking"), so a RESEARCH step can run inside an
+        execution alongside other project work already holding the project
+        lock at the PipelineManager level."""
+        if self._agent_factory is None:
+            raise ValueError("No agent is configured for this engine")
+        from app.agents import models as agent_models
+        from app.agents.base import AgentContext
+        from app.agents.research_agent import DEFAULT_COST_LIMIT_USD, DEFAULT_TIME_LIMIT_SECONDS, ResearchAgent
+
+        config = element.get("config") or {}
+        assembled = self._assemble_research_prompt(ex, config)
+        question = assembled.text
+        clean_question, question_redacted = redact(question, self._patterns)
+        prompt_id = prompt_models.record_prompt(
+            self._db, "pipeline_step", step_id, clean_question, assembled.template_id, assembled.template_name,
+            assembled.resolved_files, assembled.variables_substituted, assembled.blocks_included,
+            redacted=question_redacted, skills_included=assembled.skills_included,
+        )
+        executions.update_step(self._db, step_id, execution_prompt_id=prompt_id)
+
+        adapter = self._agent_factory(self._db)
+        context = AgentContext(
+            project_id=ex.project_id, working_directory=self._workdir(ex),
+            execution_provider="host", execution_target=str(context_id),
+            model=self._resolve_step_model(config),
+        )
+        options = {}
+        if config.get("script") is not None:
+            options["script"] = config["script"]
+        agent = ResearchAgent(adapter, db=self._db, extra_patterns=self._patterns)
+        time_limit = float(config.get("time_limit_seconds") or DEFAULT_TIME_LIMIT_SECONDS)
+        cost_limit_raw = config.get("cost_limit_usd")
+        cost_limit = DEFAULT_COST_LIMIT_USD if cost_limit_raw is None else float(cost_limit_raw)
+
+        research_session_id, outcome = agent.research(
+            context, question, time_limit_seconds=time_limit, cost_limit_usd=cost_limit, options=options,
+        )
+        row = agent_models.get_research_session(self._db, research_session_id) if research_session_id else None
+        base = dict(session_id=row.agent_session_id if row else None, input_reference=question)
+
+        if outcome.state == "COMPLETE":
+            report = outcome.report
+            self._register_research_artifact(ex, element, step_id, report, row)
+            return StepResult("PASSED", summary=report.summary[:SUMMARY_CHARS], log=report.to_json(), **base)
+        status = self._RESEARCH_STATUS.get(outcome.state, "FAILED")
+        error = outcome.error or f"Research session ended {outcome.state.lower()}"
+        if outcome.state == "COST_LIMIT_EXCEEDED":
+            error = f"Cost limit exceeded: {error}"
+        return StepResult(status, error=error, **base)
+
+    def _resolve_step_model(self, config: dict) -> str | None:
+        """A `local` catalog model an AGENT step's config names explicitly
+        (`config["model"]`), resolved so it reaches the adapter's own
+        local-model handling -- CodexAdapter's `-c model_providers.local.*`,
+        ClaudeAdapter's `ANTHROPIC_BASE_URL`/`ANTHROPIC_AUTH_TOKEN`, both
+        keyed off `AgentContext.model` -- exactly like `PLANNING_AGENT=local`
+        does for sprint planning sessions
+        (`app.sprints.planning_agent.build_context`). Uses the same
+        `app.settings.models.resolve_local_model` lookup planning uses rather
+        than a second copy of it; raises `ModelCatalogConfigError` (caught by
+        the generic step-handler try/except, engine.py `run()`) if the named
+        model doesn't resolve to a real, enabled `local` catalog entry, so a
+        typo fails the step loudly rather than silently running unmodified."""
+        raw_model = config.get("model")
+        if not raw_model:
+            return None
+        from app.settings.models import resolve_local_model
+
+        entry = resolve_local_model(self._db, str(raw_model), label="AGENT step config.model")
+        return entry.model_id
 
 
 def _now() -> str:

@@ -9,7 +9,7 @@
     <label>Search <input type="search" name="q" value="{{ args.get('q', '') }}" placeholder="name, step, tag"></label>
     <fieldset>
       <legend>Type</legend>
-      {% for k in kinds %}<label class="backlog-select"><input type="checkbox" name="kind" value="{{ k }}"{% if filters.kinds and k in filters.kinds %} checked{% endif %}> {{ k|capitalize }}</label>{% endfor %}
+      {% for k in kinds %}<label class="backlog-select"><input type="checkbox" name="kind" value="{{ k }}"{% if filters.kinds and k in filters.kinds %} checked{% endif %}> {{ k|replace('_', ' ')|capitalize }}</label>{% endfor %}
     </fieldset>
     <div class="run-form-row">
       <label>From <input type="date" name="since" value="{{ args.get('since', '') }}"></label>

@@ -6,9 +6,11 @@ from app.backlog.models import (
     ATTACHMENT_KINDS,
     BACKLOG_PRIORITIES,
     BACKLOG_STATUSES,
+    RESEARCH_LINK_STATUSES,
     TRANSITIONS,
     BacklogAttachment,
     BacklogItem,
+    BacklogResearchLink,
     InvalidTransitionError,
     TriageEntry,
 )
@@ -170,3 +172,56 @@ def get_attachment(
         (attachment_id, item_id),
     ).fetchone()
     return BacklogAttachment(**dict(row)) if row else None
+
+
+def record_note(db: sqlite3.Connection, item_id: int, notes: str, changed_by: str = "") -> None:
+    """Log a `backlog_triage_history` row without changing status -- for
+    actions that touch an item's content but not its lifecycle stage, e.g.
+    accepting a research summary (§50)."""
+    item = get_item(db, item_id)
+    if item is None:
+        raise LookupError(f"Backlog item {item_id} not found")
+    _record(db, item_id, item.status, item.status, notes, changed_by)
+    db.commit()
+
+
+# -- research links (§50, task 44) ------------------------------------------
+
+
+def add_research_link(
+    db: sqlite3.Connection,
+    item_id: int,
+    research_session_id: int,
+    artifact_id: int | None,
+    outcome_state: str,
+) -> int:
+    cur = db.execute(
+        "INSERT INTO backlog_research_links "
+        "(backlog_item_id, research_session_id, artifact_id, outcome_state, created_at) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (item_id, research_session_id, artifact_id, outcome_state, now()),
+    )
+    db.commit()
+    return cur.lastrowid
+
+
+def list_research_links(db: sqlite3.Connection, item_id: int) -> list[BacklogResearchLink]:
+    rows = db.execute(
+        "SELECT * FROM backlog_research_links WHERE backlog_item_id = ? ORDER BY id DESC", (item_id,)
+    ).fetchall()
+    return [BacklogResearchLink(**dict(r)) for r in rows]
+
+
+def get_research_link(db: sqlite3.Connection, link_id: int) -> BacklogResearchLink | None:
+    row = db.execute("SELECT * FROM backlog_research_links WHERE id = ?", (link_id,)).fetchone()
+    return BacklogResearchLink(**dict(row)) if row else None
+
+
+def set_research_link_status(db: sqlite3.Connection, link_id: int, status: str) -> None:
+    if status not in RESEARCH_LINK_STATUSES:
+        raise ValueError(f"Unknown research link status {status!r}")
+    db.execute(
+        "UPDATE backlog_research_links SET status = ?, reviewed_at = ? WHERE id = ?",
+        (status, now(), link_id),
+    )
+    db.commit()

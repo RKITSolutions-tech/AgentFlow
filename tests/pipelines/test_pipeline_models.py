@@ -137,3 +137,43 @@ def test_category_marks_rigging_distinct():
     assert schema.category("PROCESS_START") == "RIGGING"
     assert schema.category("AGENT") == "DEVELOPMENT"
     assert schema.category("MANUAL_APPROVAL") == "HUMAN"
+
+
+def test_category_marks_research_distinct():
+    assert schema.category("RESEARCH") == "RESEARCH"
+
+
+def test_validator_template_resolver_flags_missing_prompt_template_id():
+    definition = _def("p", {"name": "r", "type": "RESEARCH", "config": {"prompt_template_id": "missing"}})
+    errors = validate(definition, template_resolver=lambda ref: False)
+    assert any("prompt_template_id" in e and "missing" in e for e in errors)
+    assert validate(definition, template_resolver=lambda ref: True) == []
+    # No template_resolver given (e.g. a pure-definition check with no db): the
+    # reference is simply not checked, not treated as an error.
+    assert validate(definition) == []
+
+
+def test_research_step_needs_prompt_template_id_or_prompt():
+    errors = validate(_def("p", {"name": "r", "type": "RESEARCH", "config": {}}))
+    assert any("needs config" in e for e in errors)
+
+
+def test_research_step_rejects_unknown_prompt_template_id_at_save_time(db):
+    definition = _def("p", {"name": "r", "type": "RESEARCH", "config": {"prompt_template_id": "ghost-template"}})
+    with pytest.raises(PipelineDefinitionError, match="ghost-template"):
+        persistence.create_pipeline(db, definition, 1)
+
+
+def test_research_step_accepts_existing_prompt_template_id_at_save_time(db):
+    from app.prompts import models as prompt_models
+
+    prompt_models.create_template(db, "research-tmpl", body="Q: ${vars.q}")
+    definition = _def("p", {"name": "r", "type": "RESEARCH", "config": {"prompt_template_id": "research-tmpl"}})
+    pipeline_id = persistence.create_pipeline(db, definition, 1)
+    assert pipeline_id  # does not raise
+
+
+def test_research_step_accepts_builtin_default_prompt_template_id_at_save_time(db):
+    definition = _def("p", {"name": "r", "type": "RESEARCH", "config": {"prompt_template_id": "research-question"}})
+    pipeline_id = persistence.create_pipeline(db, definition, 1)
+    assert pipeline_id  # falls back to DEFAULT_TEMPLATES, does not raise

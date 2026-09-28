@@ -456,6 +456,58 @@ confirm, not settled decisions.
 - Prompts and replies are redacted before storage and flagged
   (`redacted`); the *unredacted* prompt is still what the agent receives.
 
+### Opt-in research on repeated failure (task 47)
+
+A run-level, opt-in trigger sitting alongside the no-progress policy above, not
+replacing it: `ralph_runs.research_on_failure` (default off) and
+`ralph_runs.failure_threshold` (default 2, independent of
+`identical_failure_limit`/`no_change_limit`) are set at run creation
+(`app/ralph/views.py` `start_run`, `app/templates/ralph/list.html`).
+
+- **What counts as "repeated failure" here:** a plain trailing streak of
+  `FAILED`/`NO_PROGRESS` iterations (`RalphOrchestrator._consecutive_failures`),
+  counted independently of `_no_progress`'s failure-*signature* comparison --
+  research does not care whether the failures were identical, only that there
+  have been `failure_threshold` of them in a row. The trigger fires exactly
+  once per streak (`== failure_threshold`, not `>=`); a fresh streak after a
+  `PASSED` iteration can trigger again.
+- **Ordering with the no-progress block:** `RalphOrchestrator._maybe_research`
+  runs *before* `_no_progress` in the same failure-analysis step, so on an
+  iteration boundary where both a research trigger and a no-progress block
+  could fire, research fires first. It never changes whether the run
+  continues, blocks, or fails -- a person reviewing a `BLOCKED` run already
+  has the report waiting for them, but research firing does not itself block
+  or pause a run that would otherwise continue.
+- **Driving the agent:** a `ResearchAgent` (`app/agents/research_agent.py`) is
+  driven ad hoc from `RalphOrchestrator`, the same "not through the pipeline
+  engine" pattern `PlanningAgent` uses for sprint planning -- a Ralph
+  iteration is not a pipeline execution, so this bypasses
+  `PipelineEngine._h_research` entirely. The question reuses
+  `_analyse_failure`'s evidence text (failed step names/output) and the same
+  short attempt history/changed-files fields already fed back into the retry
+  prompt, rather than rebuilding either.
+- **No lock nesting.** Neither `ResearchAgent.research()` nor this trigger
+  ever calls `app/projects/lock.py` (§23 "Locking" of
+  docs/AGENT_ADAPTER.md): the research session runs inside whatever lock
+  `RalphManager.start()` already holds for the run's iteration, not a second
+  acquisition.
+- **Storage.** A completed report is written as a `research_report` Artifact
+  (`app/artifacts/collector.py`), tagged `ralph_research`, `iteration_<n>`,
+  `failure_analysis`, and linked back to the triggering iteration via
+  `ralph_iterations.research_artifact_id` (plus `research_session_id` for the
+  underlying `research_sessions` row). `research_report_presented` starts
+  `false` and stays false until a person acts on it.
+- **Advisory only, never auto-applied** (docs/AGENT_ADAPTER.md §23: "A person
+  accepts findings before they change a plan or acceptance criteria"). The
+  Ralph execution view (`app/templates/ralph/detail.html`) shows any
+  unpresented report (summary + expandable findings) with two AJAX actions:
+  "Use findings as steering" and "Dismiss". Both mark the report presented;
+  only "Use findings as steering" also calls the *existing*
+  `ralph_steering` mechanism (`app/ralph/models.add_steering`) -- the same
+  one the manual "Add steering" form uses -- so the findings are injected into
+  the next iteration's prompt exactly once, per the steering rule already
+  documented above. There is no separate injection path.
+
 ### Project execution lock (task 28)
 
 Implemented in `app/projects/lock.py`, table `project_locks` (plain `sqlite3`, like the
@@ -506,6 +558,10 @@ Assumptions made without the owner in the loop.
   no repository still takes the whole project. Branch-level locks were considered and not
   built: two runs on branches of one repository share a working tree, so a repository is the
   smallest safe unit until worktrees are used per run.
+  **(2026-09-27, task 41) Revisited, decision stands.** No new information changes the
+  conclusion: branch scope still cannot be made safe without per-run worktrees, which is a
+  separate, larger change (§19 execution model) than a locking one. This question is closed;
+  a future worktrees-per-run change is what would reopen it, not another look at the lock.
 - **Overlap rule.** Two locks conflict when either is whole-project or both name the same
   repository. `lock.acquire` reads the rivals and inserts inside `BEGIN IMMEDIATE`, since the
   unique index (now `project_id, IFNULL(repository_id, 0)` on ACTIVE rows) only covers
@@ -517,8 +573,14 @@ Assumptions made without the owner in the loop.
   working, and blocking (or being blocked by) a run would make them unusable while Ralph
   is looping; they are also not owned by a single process the lock could heartbeat. Instead
   the chat and terminal pages show a "Locked ... is executing here; changes you make may
-  collide" warning through the same badge (`lock_status(..., advisory=True)`). Revisit if
-  terminals should be read-only while a run holds the repository.
+  collide" warning through the same badge (`lock_status(..., advisory=True)`).
+  **Decision (task 41): warn-only is final, not revisited further.** Read-only enforcement
+  would need new session-to-lock plumbing (a chat/terminal session is not a single
+  heartbeating process the lock model can own or expire the way a run's worker thread is),
+  for a benefit that is already covered by the advisory badge naming the holder. Both the
+  chat page (`app/templates/sessions/chat.html`) and the terminal page
+  (`app/templates/workspace/terminal.html`) render `lock_status(project.id, advisory=True)`;
+  confirmed still true as of task 41.
 - **Wait instead of fail is per start, opt-in** ("Wait if the project is busy" on the Run,
   Pipeline and Ralph forms; `wait_for_project=on`; `manager.start(id, wait=True)` returns
   True when queued). The default is still to fail with the holder named. A waiting run joins
@@ -534,8 +596,19 @@ Assumptions made without the owner in the loop.
   reason, and a Ralph run stays `CREATED`, flagged needing attention, so it can be resumed.
 - **Dead waiters.** A waiter that has not polled for 60 s (its thread died) is expired, and
   every WAITING entry is expired at app start with the orphan locks, so a crashed process
-  cannot wedge the queue. Sprint automatic mode is unchanged (it still starts a task only
-  when the project is free rather than queueing).
+  cannot wedge the queue.
+- **Sprint automatic mode queues instead of failing (task 41).** `queue.promote_next(...,
+  queue_if_busy=True)` — used only by `queue.advance()` — skips its own early "project busy"
+  refusal when the sprint has no task of its own already `IN_PROGRESS` (that check still
+  applies unconditionally, so a sprint never has two tasks in flight at once); it still
+  creates the Ralph run and marks the task `IN_PROGRESS`. The call sites that start an
+  auto-promoted run (`RalphManager._advance_sprint`, `RalphManager.resume_automatic_sprints`,
+  `sprints.views.auto_run`) pass `wait=True` to `RalphManager.start`, so a genuinely busy
+  project joins `project_lock_queue` (above) instead of the task erroring out and automatic
+  mode stalling until an unrelated event happens to call `advance()` again. A manual "Run
+  next task" click is unaffected (`queue_if_busy` defaults to `False`, so it still fails fast
+  with the holder named).
 - Tests: `tests/projects/test_lock_scopes.py` (overlap, stale takeover per scope, races via
   the index, queue order and fairness, wait/timeout/cancel for Runs, pipelines and Ralph,
-  advisory pages, settings form).
+  advisory pages, settings form); `tests/sprints/test_queue.py` (automatic mode queuing
+  behind a busy project, task 41).

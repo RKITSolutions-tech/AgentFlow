@@ -16,6 +16,7 @@ import time
 from typing import Callable
 
 from app.agents.base import AgentContext
+from app.agents.research_agent import ResearchAgent
 from app.acceptance import service as acceptance
 from app.artifacts import collector
 from app.pipelines import executions
@@ -170,6 +171,7 @@ class RalphOrchestrator:
             db, "ralph_iteration", iteration_id, clean_prompt, blocks_included=self._blocks_used,
             context_files=self._context_used,
             variables_used={"run": run.id, "iteration": number}, redacted=redacted,
+            skills_included=self._skills_used,
         ))
         models.update_run(db, run.id, current_iteration=number)
         models.consume_steering(db, [s.id for s in steering], number)
@@ -220,6 +222,13 @@ class RalphOrchestrator:
             db, iteration_id, status="FAILED", failure_signature=signature, analysis=evidence,
             completed_at=now(),
         )
+        # Opt-in research trigger (docs/RUN_AND_RALPH.md §22 "Opt-in research on
+        # repeated failure"): runs before `_no_progress` so it can fire on the
+        # same iteration boundary a no-progress block also fires on -- research
+        # is purely advisory and never changes whether the run continues or
+        # blocks, so ordering it first just means a person reviewing a BLOCKED
+        # run already has the report waiting for them.
+        self._maybe_research(run, iteration_id, number, evidence, context_id)
         verdict = self._no_progress(run, iteration_id)
         if verdict:
             models.update_iteration(db, iteration_id, status="NO_PROGRESS", next_action="manual_review", analysis=f"{evidence}\n\n{verdict}")
@@ -252,6 +261,11 @@ class RalphOrchestrator:
             parts.append(assembler.context_section(context_root, self._context_used))
         instructions, self._blocks_used = self._instructions(run.project_id)
         parts.append(instructions)
+        skills_text, self._skills_used = assembler.skill_context(
+            self._db, role="IMPLEMENTATION", agent_type=self._agent_type(), project_id=run.project_id,
+        )
+        if skills_text:
+            parts.append(skills_text)
         if steering:
             parts.append("Steering from the user (follow these):\n" + "\n".join(f"- {s.message}" for s in steering))
         if last is not None and last.status in ("FAILED", "NO_PROGRESS"):
@@ -437,6 +451,106 @@ class RalphOrchestrator:
         signature = hashlib.sha256("\n".join(sig_parts).encode()).hexdigest()[:16]
         return "\n\n".join(lines), signature
 
+    def _consecutive_failures(self, run_id: int) -> int:
+        """Trailing run of FAILED/NO_PROGRESS iterations, counted from the most
+        recent iteration backwards until the first non-failure. Independent of
+        `_no_progress`'s signature comparison -- this is a plain streak count,
+        so the research trigger (below) can key off "N failures in a row"
+        without caring whether those failures were identical."""
+        count = 0
+        for it in reversed(models.list_iterations(self._db, run_id)):
+            if it.status in ("FAILED", "NO_PROGRESS"):
+                count += 1
+            else:
+                break
+        return count
+
+    def _research_question(self, run: models.RalphRun, evidence: str) -> str:
+        """The RESEARCH-role question: reuses `_analyse_failure`'s evidence text
+        (docs/RUN_AND_RALPH.md §22 "Failure evidence": failed step names/output)
+        and the same short attempt history `_build_prompt` already feeds back
+        to the agent on retry, rather than rebuilding either."""
+        attempts = models.list_iterations(self._db, run.id)
+        history = "\n".join(f"- Iteration {i.number}: {i.status.lower()}" for i in attempts[-4:])
+        last_changed = attempts[-1].changed_files if attempts else []
+        parts = [
+            f"Ralph has failed verification {run.failure_threshold} time(s) in a row on this task and a "
+            "person has opted in to research before continuing. You are read-only: report findings, do "
+            "not edit or commit anything.",
+            f"Task: {run.title}\n{run.task_text.strip()}",
+            f"Most recent failure evidence:\n{evidence}",
+            f"Files changed so far: {', '.join(last_changed) or 'none'}",
+            f"Previous attempts:\n{history}" if history else "",
+            "Investigate the repository and report the most likely root cause and a concrete fix for "
+            "Ralph's next iteration to try.",
+        ]
+        return "\n\n".join(p for p in parts if p)
+
+    def _maybe_research(
+        self, run: models.RalphRun, iteration_id: int, number: int, evidence: str, context_id: int,
+    ) -> None:
+        """Opt-in diagnostic trigger (docs/RUN_AND_RALPH.md §22): when
+        `research_on_failure` is enabled and the trailing failure streak first
+        reaches `failure_threshold`, drive a RESEARCH-role `ResearchAgent`
+        session ad-hoc -- same pattern as `PlanningAgent`: a Ralph iteration is
+        not a pipeline execution, so this does not go through
+        `PipelineEngine._h_research` -- and store the report as a
+        `research_report` Artifact linked to this iteration. `== threshold`
+        (not `>=`) so this fires exactly once per failure streak; a streak
+        that keeps failing past the threshold does not re-trigger, and a fresh
+        streak after a PASSED iteration can trigger again.
+
+        Never blocks or changes control flow: a problem here is swallowed,
+        matching `_store_diff`'s "evidence capture must not break the run"
+        rule. No `app/projects/lock.py` call anywhere in this path --
+        `ResearchAgent.research()` never acquires one (§23 "Locking") -- so
+        this never nests a second lock attempt on top of whatever
+        `RalphManager.start()` already holds for this run.
+        """
+        if not run.research_on_failure:
+            return
+        consecutive = self._consecutive_failures(run.id)
+        if consecutive != run.failure_threshold:
+            return
+        try:
+            adapter = self._agent_factory(self._db)
+            agent = ResearchAgent(adapter, db=self._db, extra_patterns=self._patterns)
+            context = AgentContext(
+                project_id=run.project_id, working_directory=self._workdir(run),
+                execution_provider="host", execution_target=str(context_id),
+            )
+            options = {"script": run.research_script} if run.research_script is not None else None
+            question = self._research_question(run, evidence)
+            research_session_id, outcome = agent.research(context, question, options=options)
+            if research_session_id is not None:
+                models.update_iteration(self._db, iteration_id, research_session_id=research_session_id)
+            artifact_id = None
+            if outcome.state == "COMPLETE" and outcome.report is not None:
+                report = outcome.report
+                artifact_id = collector.store_bytes(
+                    self._db, self._engine._root, run.project_id, f"iteration_{number}_research.json",
+                    report.to_json().encode("utf-8"),
+                    os.path.join("ralph", str(run.id), f"iteration_{number}"), self._patterns,
+                    kind="research_report", mime_type="application/json",
+                    ralph_run_id=run.id, iteration_number=number, step_name=f"iteration {number} research",
+                    tags=["ralph_research", f"iteration_{number}", "failure_analysis"],
+                    extra_metadata={
+                        "summary_length": len(report.summary),
+                        "finding_count": len(report.findings),
+                        "source_count": len(report.sources),
+                        "unverified_finding_count": len(report.unverified),
+                    },
+                )
+                models.update_iteration(self._db, iteration_id, research_artifact_id=artifact_id)
+            models.log_research_trigger(
+                self._db, run.id, number, "repeated_failures",
+                consecutive_failures=consecutive,
+                research_session_id=research_session_id,
+                artifact_id=artifact_id,
+            )
+        except Exception:  # advisory-only: a research problem must never break the run
+            pass
+
     def _no_progress(self, run: models.RalphRun, iteration_id: int) -> str:
         """Ralph owns no-progress policy across iterations (§10)."""
         recent = models.list_iterations(self._db, run.id)
@@ -449,6 +563,14 @@ class RalphOrchestrator:
             tail = recent[-(m + 1):]
             if len({i.change_signature for i in tail}) == 1:
                 return f"No progress: the working tree did not change for {m} iterations"
+        # Log research trigger for no_progress detected
+        if run.research_on_failure and recent and recent[-1].status == "FAILED":
+            last = recent[-1]
+            if not last.changed_files:
+                models.log_research_trigger(
+                    self._db, run.id, last.number, "no_progress",
+                    consecutive_failures=self._consecutive_failures(run.id),
+                )
         return ""
 
     # -- helpers ----------------------------------------------------------------------------------

@@ -8,6 +8,8 @@ from typing import Callable
 
 from app.pipelines import schema
 from app.pipelines.validator import validate
+from app.prompts import models as prompt_models
+from app.prompts.defaults import DEFAULT_TEMPLATES
 from app.runs.models import now
 
 DEFINITIONS_DIR = os.path.join(os.path.dirname(__file__), "definitions")
@@ -48,12 +50,29 @@ def _resolver(db: sqlite3.Connection, project_id: int | None) -> Callable[[str],
     return resolve
 
 
+def _template_resolver(db: sqlite3.Connection) -> Callable[[object], bool]:
+    """True when a RESEARCH step's `prompt_template_id` names a real prompt
+    library template (by numeric id or by name) or a built-in default -- the
+    same two places `PipelineEngine._assemble_research_prompt` looks."""
+
+    def resolve(ref: object) -> bool:
+        if isinstance(ref, int) or (isinstance(ref, str) and ref.strip().isdigit()):
+            if prompt_models.get_template(db, int(ref)) is not None:
+                return True
+        if prompt_models.get_template_by_name(db, str(ref)) is not None:
+            return True
+        return str(ref) in DEFAULT_TEMPLATES
+
+    return resolve
+
+
 def _check(db, definition: dict, project_id: int | None, own_name: str | None = None) -> None:
     base = _resolver(db, project_id)
     # A pipeline that is not saved yet must still be able to refer to itself
     # so the composer (not the validator) reports the recursion clearly.
     errors = validate(
-        definition, lambda n: base(n) or ({"name": n, "elements": []} if n == own_name else None)
+        definition, lambda n: base(n) or ({"name": n, "elements": []} if n == own_name else None),
+        template_resolver=_template_resolver(db),
     )
     if errors:
         raise PipelineDefinitionError(errors)

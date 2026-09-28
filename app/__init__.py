@@ -62,11 +62,20 @@ def create_app(config: Config | None = None) -> Flask:
 
     from app.db import get_db
 
-    from app.prompts.models import seed_defaults
+    from app.prompts.models import seed_builtin_skills, seed_defaults
+    from app.prompts.skill_sync import seed_skills_from_disk
 
     with app.app_context():
         seed_builtins(get_db())
         seed_defaults(get_db())
+        seed_skills_from_disk(get_db())
+        # Not seeded under TESTING: tests/prompts/test_skill_assembler.py and others
+        # assert an *empty* skill set on a freshly created app (a `db`/`app` fixture
+        # per test), so the built-in skill content is only populated for a real
+        # dev/prod instance, the same way ralph_manager.resume_automatic_sprints()
+        # below is skipped under TESTING.
+        if not app.config.get("TESTING"):
+            seed_builtin_skills(get_db())
 
     from app.pipelines.manager import PipelineManager
 

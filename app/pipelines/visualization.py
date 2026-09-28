@@ -27,6 +27,13 @@ STATES: dict[str, tuple[str, str]] = {
 }
 SUMMARY_CHARS = 140
 
+# A node's `icon` (STATES above) always reflects state, the same for every
+# element type. RESEARCH additionally gets its own small type glyph (distinct
+# from a plain AGENT/TASK node, docs/PIPELINE_ENGINE.md §23) rendered
+# alongside it, since a research question and an implementation task look
+# identical otherwise once their state icon is the same.
+TYPE_ICONS: dict[str, str] = {"RESEARCH": "\U0001F50E"}  # magnifying glass
+
 
 def node_state(element: dict, steps: list[StepExecution]) -> str:
     if not steps:
@@ -179,6 +186,7 @@ def build_graph(
                 "layer": layer,
                 "row": row,
                 "current": execution.status == "RUNNING" and state in ("RUNNING", "RETRYING"),
+                "type_icon": TYPE_ICONS.get(el["type"], ""),
             }
         )
         for dep in el.get("depends_on") or []:
@@ -274,6 +282,7 @@ def step_detail(
             }
         )
     state = node_state(element, attempts)
+    research = _research_report_summary(db, execution, name) if element["type"] == "RESEARCH" else None
     return {
         "name": name,
         "type": element["type"],
@@ -288,7 +297,25 @@ def step_detail(
         "events": events,
         "waiting_step_id": next((s.id for s in attempts if s.status == "WAITING"), None),
         "collapse": name.rsplit(".", 1)[0] if "." in name else None,
+        "research": research,
     }
+
+
+def _research_report_summary(db: sqlite3.Connection, execution: Execution, name: str) -> dict | None:
+    """The most recent research_report Artifact's counts for the inspector
+    (summary/finding/source/unverified counts) -- the full report JSON itself
+    is already shown via the step's ordinary Output section (`last.output`,
+    the same `raw_data_reference` log every step writes), so this only adds
+    the numbers the Artifact Library indexed alongside it."""
+    from app.artifacts import models as artifact_models
+
+    found, _ = artifact_models.search(
+        db, execution.project_id, kinds=["research_report"], execution_id=execution.id, step_name=name, limit=1,
+    )
+    if not found:
+        return None
+    artifact = found[0]
+    return {"artifact_id": artifact.id, **artifact.metadata}
 
 
 def _group_detail(execution: Execution, elements: dict, name: str, all_steps: list[StepExecution]) -> dict | None:

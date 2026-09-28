@@ -14,13 +14,49 @@ from app.runs.security import redact
 
 def default_agent_factory(config, provider):
     """Adapter for AGENT elements: the fake agent under `PLANNING_AGENT=fake`
-    (deterministic CI), otherwise Codex through `provider`."""
+    (deterministic CI), Claude under `PLANNING_AGENT=claude`, a `local`
+    catalog model under `PLANNING_AGENT=local` (validated via
+    `PLANNING_MODEL`, driven by whichever real CLI `PLANNING_LOCAL_ADAPTER`
+    names), otherwise Codex through `provider`.
+
+    Shares its config knobs with the sprint planning agent
+    (app/sprints/planning_agent.py._local_planning_adapter) since both pick a
+    real adapter type the same way. `_h_agent` (app/pipelines/engine.py) is
+    what actually makes `local` do anything: it threads a resolved `local`
+    catalog model onto the `AgentContext` a step names in its own
+    `config["model"]`, which is what engages the adapter's own
+    `local`-catalog handling (both keyed off `context.model`) — this factory
+    only has to make sure a local-capable adapter class (Codex or Claude,
+    both understand `context.model`) is the one driving the session.
+    """
 
     def build(db):
-        if str(config.get("PLANNING_AGENT", "codex")).lower() == "fake":
+        kind = str(config.get("PLANNING_AGENT", "codex")).lower()
+        if kind == "fake":
             from app.agents.fake import FakeAgentAdapter
 
             return FakeAgentAdapter(db)
+        if kind == "claude":
+            from app.agents.claude import ClaudeAdapter
+
+            return ClaudeAdapter(db=db, execution_provider=provider)
+        if kind == "local":
+            from app.settings.models import resolve_local_model
+
+            # Validate early, exactly like PLANNING_AGENT=local
+            # (app/sprints/planning_agent.py._local_planning_adapter): a
+            # misconfigured PLANNING_MODEL fails loudly here rather than
+            # quietly starting a session with no model override applied.
+            resolve_local_model(
+                db, config.get("PLANNING_MODEL", ""), label="AGENTFLOW_PLANNING_MODEL"
+            )
+            if str(config.get("PLANNING_LOCAL_ADAPTER", "codex")).lower() == "claude":
+                from app.agents.claude import ClaudeAdapter
+
+                return ClaudeAdapter(db=db, execution_provider=provider)
+            from app.agents.codex import CodexAdapter
+
+            return CodexAdapter(db=db, execution_provider=provider)
         from app.agents.codex import CodexAdapter
 
         return CodexAdapter(db=db, execution_provider=provider)

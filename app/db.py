@@ -408,6 +408,7 @@ CREATE TABLE IF NOT EXISTS prompt_fragment_versions (
     version INTEGER NOT NULL,
     content TEXT NOT NULL,
     created_at TEXT NOT NULL,
+    changelog TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (fragment_id, version)
 );
 CREATE TABLE IF NOT EXISTS prompt_templates (
@@ -622,7 +623,7 @@ CREATE TABLE IF NOT EXISTS ralph_steering (
 CREATE TABLE IF NOT EXISTS artifact_library (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-    kind TEXT NOT NULL CHECK(kind IN ('screenshot', 'trace', 'log', 'diff', 'report', 'video', 'file')),
+    kind TEXT NOT NULL CHECK(kind IN ('screenshot', 'trace', 'log', 'diff', 'report', 'video', 'file', 'research_report')),
     name TEXT NOT NULL,
     path TEXT NOT NULL,
     mime_type TEXT NOT NULL DEFAULT 'application/octet-stream',
@@ -704,6 +705,50 @@ CREATE TABLE IF NOT EXISTS acceptance_criteria_history (
 );
 CREATE INDEX IF NOT EXISTS idx_acceptance_history_criterion ON acceptance_criteria_history(criterion_id, iteration_number);
 
+-- Research agent role (docs/AGENT_ADAPTER.md §23, Phase A: repository-scoped).
+-- One row per `ResearchAgent.research()` call; `agent_session_id` links to the
+-- underlying agent_sessions row that actually ran the prompt (prompt/reply text
+-- lives there, same as every other role). No exclusive project_locks row is ever
+-- created for a research session (§23 "Locking": advisory, no lock).
+CREATE TABLE IF NOT EXISTS research_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    agent_session_id INTEGER REFERENCES agent_sessions(id) ON DELETE SET NULL,
+    question TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'RUNNING' CHECK(status IN ('RUNNING', 'COMPLETED', 'FAILED')),
+    findings_summary TEXT NOT NULL DEFAULT '',
+    source_references TEXT NOT NULL DEFAULT '[]',
+    report_json TEXT NOT NULL DEFAULT '',
+    error TEXT NOT NULL DEFAULT '',
+    time_limit_seconds REAL NOT NULL DEFAULT 300,
+    cost_limit_usd REAL NOT NULL DEFAULT 10,
+    cost_usd REAL NOT NULL DEFAULT 0,
+    duration_seconds REAL,
+    started_at TEXT NOT NULL DEFAULT (datetime('now')),
+    completed_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_research_sessions_project ON research_sessions(project_id, id);
+
+-- Backlog research action (docs/SPRINT_PLANNING_AND_BACKLOG.md §50, task 44):
+-- links a `research_sessions` row (and the Artifact Library entry indexing its
+-- report) back to the Backlog item that triggered it. A lighter-weight link
+-- table rather than a column on `backlog_items`: an item's status/lifecycle is
+-- untouched by research (it can be triggered from any status), and an item may
+-- accumulate more than one research run over time, so a link row per run (like
+-- `backlog_triage_history`'s append-only rows) fits better than a single
+-- mutable field would.
+CREATE TABLE IF NOT EXISTS backlog_research_links (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    backlog_item_id INTEGER NOT NULL REFERENCES backlog_items(id) ON DELETE CASCADE,
+    research_session_id INTEGER NOT NULL REFERENCES research_sessions(id) ON DELETE CASCADE,
+    artifact_id INTEGER REFERENCES artifact_library(id) ON DELETE SET NULL,
+    outcome_state TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'PENDING' CHECK(status IN ('PENDING', 'ACCEPTED', 'DISMISSED')),
+    reviewed_at TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_backlog_research_links_item ON backlog_research_links(backlog_item_id, id);
+
 CREATE TABLE IF NOT EXISTS sprint_approvals (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     sprint_id INTEGER NOT NULL REFERENCES sprints(id) ON DELETE CASCADE,
@@ -712,6 +757,24 @@ CREATE TABLE IF NOT EXISTS sprint_approvals (
     comment TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL
 );
+
+-- Audit trail for research on failure (task 47, docs/RUN_AND_RALPH.md §22):
+-- logs each research trigger event and steering application for compliance.
+CREATE TABLE IF NOT EXISTS ralph_research_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER NOT NULL REFERENCES ralph_runs(id) ON DELETE CASCADE,
+    iteration_number INTEGER NOT NULL,
+    research_session_id INTEGER REFERENCES research_sessions(id) ON DELETE SET NULL,
+    artifact_id INTEGER REFERENCES artifact_library(id) ON DELETE SET NULL,
+    triggered_reason TEXT NOT NULL CHECK(triggered_reason IN ('no_progress', 'repeated_failures')),
+    consecutive_failures INTEGER NOT NULL DEFAULT 0,
+    steering_applied INTEGER NOT NULL DEFAULT 0,
+    steering_accepted_at TEXT,
+    accepted_by TEXT,
+    created_at TEXT NOT NULL,
+    UNIQUE(run_id, iteration_number)
+);
+CREATE INDEX IF NOT EXISTS idx_ralph_research_run ON ralph_research_history(run_id, iteration_number);
 """
 
 # Starter catalog, seeded once (see `_seed_model_catalog`) so the model
@@ -755,6 +818,44 @@ _ADDED_COLUMNS = (
     ("planned_work_items", "verification_pipeline", "TEXT NOT NULL DEFAULT ''"),
     ("model_catalog", "base_url", "TEXT NOT NULL DEFAULT ''"),
     ("model_catalog", "api_key", "TEXT NOT NULL DEFAULT ''"),
+    # Skills (docs/AGENT_ADAPTER.md §23.2/23.3): a skill is a prompt_fragments row
+    # with skill_status set. Kept as columns on the fragment, not a new table, so
+    # skill content reuses fragment versioning/audit trail rather than duplicating it.
+    ("prompt_fragments", "skill_status", "TEXT NOT NULL DEFAULT ''"),  # '' | draft | active | deprecated
+    ("prompt_fragments", "skill_when_to_use", "TEXT NOT NULL DEFAULT ''"),
+    ("prompt_fragments", "skill_constraints", "TEXT NOT NULL DEFAULT '[]'"),
+    ("prompt_fragments", "skill_depends_on", "TEXT NOT NULL DEFAULT '[]'"),  # JSON list of fragment ids
+    ("prompt_fragments", "skill_roles", "TEXT NOT NULL DEFAULT '[]'"),  # empty = every role
+    ("prompt_fragments", "skill_adapter_types", "TEXT NOT NULL DEFAULT '[]'"),  # empty = every adapter
+    ("prompt_fragments", "skill_priority", "INTEGER NOT NULL DEFAULT 0"),
+    ("prompt_fragments", "skill_author", "TEXT NOT NULL DEFAULT ''"),
+    # Review cadence (docs/AGENT_ADAPTER.md §23.4): a person can record "reviewed,
+    # still correct" without changing content -- prompt_fragment_versions only
+    # captures *changes*, not a no-op review, so that case needs its own columns
+    # rather than a synthetic version bump.
+    ("prompt_fragments", "skill_last_reviewed_at", "TEXT NOT NULL DEFAULT ''"),
+    ("prompt_fragments", "skill_reviewed_by", "TEXT NOT NULL DEFAULT ''"),
+    ("prompt_fragment_versions", "changelog", "TEXT NOT NULL DEFAULT ''"),
+    # Compliance/audit trail for role-based skill injection (task 53,
+    # docs/AGENT_ADAPTER.md §23.2/§23.3 "revisited"): which skills `skill_context()`
+    # selected for the prompt this row records, alongside the existing
+    # `blocks_included`.
+    ("execution_prompts", "skills_included", "TEXT NOT NULL DEFAULT '[]'"),
+    # Opt-in research-on-failure trigger (task 47, docs/RUN_AND_RALPH.md §22):
+    # run-level configuration, alongside the existing `identical_failure_limit`/
+    # `no_change_limit` no-progress settings this sits next to but does not
+    # replace. `research_script` is a FakeAgent script (mirrors the existing
+    # `script` column) so tests can drive the ad-hoc ResearchAgent session
+    # deterministically; unused by real adapters.
+    ("ralph_runs", "research_on_failure", "INTEGER NOT NULL DEFAULT 0"),
+    ("ralph_runs", "failure_threshold", "INTEGER NOT NULL DEFAULT 2"),
+    ("ralph_runs", "research_script", "TEXT"),
+    # Per-iteration link to the research session/Artifact it triggered, and
+    # whether a person has acted on it yet (advisory-only gate, §23 "A person
+    # accepts findings before they change a plan or acceptance criteria").
+    ("ralph_iterations", "research_session_id", "INTEGER"),
+    ("ralph_iterations", "research_artifact_id", "INTEGER"),
+    ("ralph_iterations", "research_report_presented", "INTEGER NOT NULL DEFAULT 0"),
 )
 
 
@@ -780,9 +881,21 @@ def get_db() -> sqlite3.Connection:
         db_path = current_app.config["DATABASE_PATH"]
         if db_path != ":memory:":
             os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
-        g.db = sqlite3.connect(db_path, detect_types=sqlite3.PARSE_DECLTYPES)
+        # `timeout=30` and WAL mode match every other connection factory in the
+        # app (app/execution/host.py, app/pipelines/manager.py, app/runs/executor.py,
+        # app/projects/lock.py, app/workspace/terminal.py) -- this was the one
+        # outlier, opening with sqlite3's default 5s busy timeout and never
+        # requesting WAL, which let a request holding this connection (or the
+        # very first connection to ever touch a fresh database file, racing the
+        # one-time, exclusive-lock-requiring switch to WAL from another thread)
+        # produce spurious "database is locked" errors under the concurrent
+        # thread activity Runs/Ralph/pipeline locking already assumes
+        # (docs/RUN_AND_RALPH.md §22 Heartbeat, tests/projects/test_lock_scopes.py).
+        g.db = sqlite3.connect(db_path, detect_types=sqlite3.PARSE_DECLTYPES, timeout=30)
         g.db.row_factory = sqlite3.Row
         g.db.execute("PRAGMA foreign_keys = ON")
+        if db_path != ":memory:":
+            g.db.execute("PRAGMA journal_mode = WAL")
     return g.db
 
 

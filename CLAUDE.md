@@ -100,7 +100,12 @@ Key modules:
   `.../executions/<id>/replay/`.
 - `app/prompts/` — prompt library (fragments, templates with inheritance, Ralph instruction
   blocks, recorded `execution_prompts`); the pipeline engine and Ralph read it at runtime and
-  `defaults.py` only seeds it.
+  `defaults.py` only seeds it. Skills (docs/AGENT_ADAPTER.md §23.2/23.3) are fragments with
+  `skill_status` set (role/adapter-type targeting, dependencies, versioned) — not a separate
+  model; `assembler.skill_context()` selects and orders them into any prompt that passes a
+  `role`/`agent_type`, including interactive session start (`app/sessions/routes.py`), pipeline
+  AGENT steps, Ralph iterations and sprint planning. `skill_sync.py` mirrors them as JSON under
+  `app/agents/skills/` at startup.
 - `app/projects/` — Project and repository records; `app/security.py`
   validates repository paths against `ALLOWED_PROJECT_ROOTS`.
 

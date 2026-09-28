@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 
 from app.runs.models import now
 
-KINDS = ("screenshot", "trace", "log", "diff", "report", "video", "file")
+KINDS = ("screenshot", "trace", "log", "diff", "report", "video", "file", "research_report")
 
 
 @dataclass

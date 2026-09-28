@@ -166,7 +166,7 @@ def test_advance_moves_on_after_a_run_ends(app, env):
     _, first = queue.advance(env.db, env.sprint_id)
     started = []
     manager = RalphManager(app.extensions["pipeline_manager"])
-    manager.start = lambda run_id: started.append(run_id)
+    manager.start = lambda run_id, wait=False: started.append(run_id)
 
     ralph.update_run(env.db, first, status="CANCELLED")
     queue.sync_from_run(env.db, first)
@@ -180,6 +180,50 @@ def test_advance_moves_on_after_a_run_ends(app, env):
     assert len(started) == 1
     nxt = ralph.get_run(env.db, started[0])
     assert nxt.work_item_id in (env.b, env.c) and _state(env, nxt.work_item_id) == "IN_PROGRESS"
+
+
+def test_advance_queues_behind_a_busy_project_and_runs_once_freed(app, env, monkeypatch):
+    """Task 41: automatic mode joins the project's wait queue instead of just
+    erroring out (and stalling) when the project is busy; the queued task is
+    promoted for real once the holder releases the lock."""
+    from app.projects import lock as project_lock
+    from app.ralph.manager import RalphManager
+
+    monkeypatch.setattr(project_lock, "POLL_SECONDS", 0.05)
+    queue.release_sprint(env.db, env.sprint_id)
+    queue.set_auto_run(env.db, env.sprint_id, True)
+
+    # Something unrelated (a manual Run) holds the project's execution lock.
+    project_lock.acquire(env.db, env.project_id, "manual_run", 999)
+
+    promoted = queue.advance(env.db, env.sprint_id)
+    assert promoted is not None  # busy no longer refuses the promotion outright
+    work_id, run_id = promoted
+    assert _state(env, work_id) == "IN_PROGRESS"
+
+    manager = RalphManager(app.extensions["pipeline_manager"])
+
+    class _StubOrchestrator:
+        """Avoids depending on a real coding-agent CLI: proves the queuing and
+        promotion, not Ralph's own iteration loop (covered elsewhere)."""
+
+        def __init__(self, db):
+            self.db = db
+
+        def run(self, rid):
+            ralph.update_run(self.db, rid, status="COMPLETED")
+            queue.sync_from_run(self.db, rid)
+
+    manager.orchestrator = lambda db: _StubOrchestrator(db)
+
+    assert manager.start(run_id, wait=True) is True  # queued, not refused
+    assert any(w["owner_id"] == run_id for w in project_lock.waiting(env.db, env.project_id))
+
+    project_lock.release(env.db, env.project_id, "manual_run", 999)
+    assert manager.join(run_id, timeout=10)
+    assert ralph.get_run(env.db, run_id).status == "COMPLETED"
+    assert _state(env, work_id) == "COMPLETE"
+    assert project_lock.waiting(env.db, env.project_id) == []  # nothing left queued for us
 
 
 def test_auto_run_endpoint_and_page(client, env):
@@ -201,7 +245,7 @@ def test_restart_blocks_inflight_run_and_auto_mode_moves_on(app, client, env):
     ralph.update_run(env.db, first, status="RUNNING")
     manager = RalphManager(app.extensions["pipeline_manager"])
     started = []
-    manager.start = lambda run_id: started.append(run_id)
+    manager.start = lambda run_id, wait=False: started.append(run_id)
 
     assert manager.reconcile() == [first]
     assert _state(env, env.a) == "BLOCKED"
@@ -220,7 +264,7 @@ def test_restart_with_nothing_eligible_leaves_sprint_waiting(app, client, env):
     _, run_id = queue.advance(env.db, env.sprint_id)
     ralph.update_run(env.db, run_id, status="RUNNING")
     manager = RalphManager(app.extensions["pipeline_manager"])
-    manager.start = lambda run_id: pytest.fail("nothing should start")
+    manager.start = lambda run_id, wait=False: pytest.fail("nothing should start")
     manager.reconcile()
     assert manager.resume_automatic_sprints() == []
     page = client.get(f"/projects/{env.project_id}/sprints/{env.sprint_id}/queue").get_data(as_text=True)

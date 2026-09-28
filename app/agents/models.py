@@ -232,7 +232,8 @@ def _first_prompt_title(db: sqlite3.Connection, session_id: int) -> str:
         (session_id,),
     ).fetchall()
     for row in rows:
-        if row["data"].strip() and row["data"].strip() != PLACEHOLDER_PROMPT:
+        data = row["data"].strip()
+        if data and not data.endswith(PLACEHOLDER_PROMPT):
             return derive_title(row["data"])
     return ""
 
@@ -247,7 +248,7 @@ def auto_title_session(db: sqlite3.Connection, session_id: int, prompt: str) -> 
     session = get_agent_session(db, session_id)
     if session is None or session.metadata.get("title"):
         return
-    if prompt.strip() == PLACEHOLDER_PROMPT:
+    if prompt.strip().endswith(PLACEHOLDER_PROMPT):
         return
     title = derive_title(prompt)
     if title:
@@ -480,6 +481,135 @@ def get_result(db: sqlite3.Connection, session_id: int) -> AgentResult | None:
         test_exit_code=row["test_exit_code"],
         test_output=row["test_output"],
         created_at=row["created_at"],
+    )
+
+
+@dataclass
+class ResearchSession:
+    """Persistence for the RESEARCH role (docs/AGENT_ADAPTER.md §23, Phase A).
+
+    `agent_session_id` links to the `AgentSession` that actually ran the
+    prompt (prompt/reply text lives there, like every other role); this row
+    is the research-specific envelope around it: the question asked, the
+    parsed report, and the limits/usage that bounded the session. See
+    `app/agents/research_agent.py` (builds the prompt, drives the adapter,
+    parses the reply) and `app/agents/research_report.py` (the report shape).
+    """
+
+    id: int
+    project_id: int
+    agent_session_id: int | None
+    question: str
+    status: str  # RUNNING | COMPLETED | FAILED
+    findings_summary: str
+    source_references: list[dict[str, Any]]
+    report_json: str
+    error: str
+    time_limit_seconds: float
+    cost_limit_usd: float
+    cost_usd: float
+    duration_seconds: float | None
+    started_at: str
+    completed_at: str | None
+
+
+def create_research_session(
+    db: sqlite3.Connection,
+    project_id: int,
+    question: str,
+    time_limit_seconds: float = 300.0,
+    cost_limit_usd: float = 10.0,
+) -> int:
+    cur = db.execute(
+        "INSERT INTO research_sessions "
+        "(project_id, question, time_limit_seconds, cost_limit_usd) VALUES (?, ?, ?, ?)",
+        (project_id, question, time_limit_seconds, cost_limit_usd),
+    )
+    db.commit()
+    return cur.lastrowid
+
+
+def set_research_session_agent(
+    db: sqlite3.Connection, research_session_id: int, agent_session_id: int
+) -> None:
+    db.execute(
+        "UPDATE research_sessions SET agent_session_id = ? WHERE id = ?",
+        (agent_session_id, research_session_id),
+    )
+    db.commit()
+
+
+def complete_research_session(
+    db: sqlite3.Connection,
+    research_session_id: int,
+    report: Any,  # app.agents.research_report.ResearchReport; typed loosely to avoid an import cycle
+    duration_seconds: float,
+    cost_usd: float = 0.0,
+) -> None:
+    db.execute(
+        "UPDATE research_sessions SET status = 'COMPLETED', findings_summary = ?, "
+        "source_references = ?, report_json = ?, duration_seconds = ?, cost_usd = ?, "
+        "completed_at = datetime('now') WHERE id = ?",
+        (
+            report.summary,
+            json.dumps([s.to_dict() for s in report.sources]),
+            report.to_json(),
+            duration_seconds,
+            cost_usd,
+            research_session_id,
+        ),
+    )
+    db.commit()
+
+
+def fail_research_session(
+    db: sqlite3.Connection,
+    research_session_id: int,
+    error: str,
+    duration_seconds: float,
+    cost_usd: float = 0.0,
+) -> None:
+    db.execute(
+        "UPDATE research_sessions SET status = 'FAILED', error = ?, duration_seconds = ?, "
+        "cost_usd = ?, completed_at = datetime('now') WHERE id = ?",
+        (error, duration_seconds, cost_usd, research_session_id),
+    )
+    db.commit()
+
+
+def get_research_session(db: sqlite3.Connection, research_session_id: int) -> ResearchSession | None:
+    row = db.execute(
+        "SELECT * FROM research_sessions WHERE id = ?", (research_session_id,)
+    ).fetchone()
+    return _hydrate_research_session(row) if row else None
+
+
+def list_research_sessions_for_project(
+    db: sqlite3.Connection, project_id: int
+) -> list[ResearchSession]:
+    rows = db.execute(
+        "SELECT * FROM research_sessions WHERE project_id = ? ORDER BY id DESC", (project_id,)
+    ).fetchall()
+    return [_hydrate_research_session(r) for r in rows]
+
+
+def _hydrate_research_session(row: sqlite3.Row) -> ResearchSession:
+    return ResearchSession(
+        id=row["id"],
+        project_id=row["project_id"],
+        agent_session_id=row["agent_session_id"],
+        question=row["question"],
+        status=row["status"],
+        findings_summary=row["findings_summary"],
+        source_references=json.loads(row["source_references"]),
+        report_json=row["report_json"],
+        error=row["error"],
+        time_limit_seconds=row["time_limit_seconds"],
+        cost_limit_usd=row["cost_limit_usd"],
+        cost_usd=row["cost_usd"],
+        duration_seconds=row["duration_seconds"],
+        started_at=row["started_at"],
+        completed_at=row["completed_at"],
     )
 
 

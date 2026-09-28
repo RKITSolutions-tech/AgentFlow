@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}{{ skill.name }} - Skills - AgentFlow{% endblock %}
+{% block content %}
+  <p><a href="{{ url_for('prompts.skills') }}">&larr; Skills</a></p>
+  <h1>{{ skill.name }} <small>v{{ skill.version }}</small></h1>
+  <form method="post" action="{{ url_for('prompts.edit_skill', fragment_id=skill.id) }}" class="stacked" data-ajax-form>
+    <div class="run-form-row">
+      <label>Name <input name="name" required maxlength="80" value="{{ skill.name }}"></label>
+      <label>Status
+        <select name="skill_status">{% for s in statuses %}<option value="{{ s }}"{% if s == skill.skill_status %} selected{% endif %}>{{ s|capitalize }}</option>{% endfor %}</select>
+      </label>
+      <label>Priority <input type="number" name="priority" value="{{ skill.skill_priority }}"></label>
+    </div>
+    <label>Content <textarea name="content" rows="4" required>{{ skill.content }}</textarea></label>
+    <label>When to use <textarea name="when_to_use" rows="2">{{ skill.skill_when_to_use }}</textarea></label>
+    <label>Constraints (one per line) <textarea name="constraints" rows="2">{{ skill.skill_constraints|join('\n') }}</textarea></label>
+    <div class="run-form-row">
+      <label>Roles (blank = all)
+        <select name="roles" multiple>
+          {% for r in roles %}<option value="{{ r }}"{% if r|lower in skill.skill_roles %} selected{% endif %}>{{ r|capitalize }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>Adapter types (blank = all) <input name="adapter_types" value="{{ skill.skill_adapter_types|join(', ') }}"></label>
+      <label>Author <input name="author" value="{{ skill.skill_author }}"></label>
+    </div>
+    <div class="run-form-row">
+      <label>Depends on
+        <select name="depends_on" multiple>
+          {% for s in available_skills %}<option value="{{ s.id }}"{% if s.id in skill.skill_depends_on %} selected{% endif %}>{{ s.name }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>Tags <input name="tags" value="{{ skill.tags|join(', ') }}"></label>
+    </div>
+    <label>Changelog (this save, if the content changed) <input name="changelog"></label>
+    <p class="form-hint">Changing the content saves a new version; earlier versions are kept below.</p>
+    <button type="submit" class="btn-primary">Save</button>
+  </form>
+
+  <p><button type="button" id="validate-skill">Validate</button></p>
+  <div id="validate-result" aria-live="polite"></div>
+
+  <h2>Review cadence</h2>
+  <p class="form-hint">
+    {% if skill.skill_last_reviewed_at %}
+      Last reviewed {{ skill.skill_last_reviewed_at[:19] }} by {{ skill.skill_reviewed_by }}.
+    {% else %}
+      Never marked reviewed.
+    {% endif %}
+  </p>
+  <form method="post" action="{{ url_for('prompts.mark_skill_reviewed', fragment_id=skill.id) }}"
+        class="run-form-row" data-ajax-form>
+    <label>Reviewer <input name="reviewer" required placeholder="Your name"></label>
+    <button type="submit">Mark reviewed (no change)</button>
+  </form>
+
+  {% if used_by %}<p class="form-hint">Used by template(s): {% for t in used_by %}<a href="{{ url_for('prompts.edit_template', template_id=t.id) }}">{{ t.name }}</a>{% if not loop.last %}, {% endif %}{% endfor %}</p>{% endif %}
+  {% if dependents %}<p class="form-hint">Depended on by: {% for s in dependents %}<a href="{{ url_for('prompts.edit_skill', fragment_id=s.id) }}">{{ s.name }}</a>{% if not loop.last %}, {% endif %}{% endfor %}</p>{% endif %}
+
+  <h2>History</h2>
+  <table class="table-compact">
+    <thead><tr><th>Version</th><th>Saved</th><th>Changelog</th><th>Content</th></tr></thead>
+    <tbody>{% for v in versions %}<tr><td>v{{ v.version }}</td><td>{{ v.created_at[:19] }}</td><td class="wrap-cell">{{ v.changelog }}</td><td class="wrap-cell">{{ v.content[:200] }}</td></tr>{% endfor %}</tbody>
+  </table>
+
+  <script>
+    (function () {
+      var button = document.getElementById("validate-skill");
+      var output = document.getElementById("validate-result");
+      button.addEventListener("click", function () {
+        button.disabled = true;
+        fetch("{{ url_for('prompts.validate_skill', fragment_id=skill.id) }}", {
+          method: "POST",
+          headers: { "X-Requested-With": "XMLHttpRequest" },
+        })
+          .then(function (response) { return response.json(); })
+          .then(function (data) {
+            var lines = [];
+            lines.push(data.ok ? "Valid." : "Invalid.");
+            (data.errors || []).forEach(function (e) { lines.push("Error: " + e); });
+            (data.warnings || []).forEach(function (w) { lines.push("Warning: " + w); });
+            output.textContent = lines.join("\n");
+          })
+          .finally(function () { button.disabled = false; });
+      });
+    })();
+  </script>
+{% endblock %}

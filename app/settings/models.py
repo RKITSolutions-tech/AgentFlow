@@ -9,6 +9,11 @@ from dataclasses import dataclass
 PROVIDERS = ("openai", "anthropic", "local")
 
 
+class ModelCatalogConfigError(RuntimeError):
+    """A feature was configured (env var/Settings) to use a `local` catalog
+    model that doesn't exist, is disabled, or was never named at all."""
+
+
 @dataclass
 class ModelCatalogEntry:
     id: int
@@ -78,3 +83,29 @@ def delete_model(db: sqlite3.Connection, catalog_id: int) -> None:
 def get_model(db: sqlite3.Connection, catalog_id: int) -> ModelCatalogEntry | None:
     row = db.execute("SELECT * FROM model_catalog WHERE id = ?", (catalog_id,)).fetchone()
     return _hydrate(row) if row else None
+
+
+def resolve_local_model(db: sqlite3.Connection, model_id: str, *, label: str) -> ModelCatalogEntry:
+    """Looks up an enabled `local` catalog entry by `model_id` for a feature that
+    names its model via config/env var rather than a per-session picker (e.g. a
+    PLANNING_AGENT=local role adapter). `label` identifies that setting (e.g.
+    `"AGENTFLOW_PLANNING_MODEL"`) so a `ModelCatalogConfigError` names the exact
+    knob to fix."""
+    model_id = (model_id or "").strip()
+    if not model_id:
+        raise ModelCatalogConfigError(
+            f"{label} must name a model id in the Settings 'local' model catalog"
+        )
+    entry = next(
+        (
+            e
+            for e in list_models(db, provider="local")
+            if e.model_id == model_id and e.enabled
+        ),
+        None,
+    )
+    if entry is None:
+        raise ModelCatalogConfigError(
+            f"{label}={model_id!r} has no enabled entry in the Settings 'local' model catalog"
+        )
+    return entry

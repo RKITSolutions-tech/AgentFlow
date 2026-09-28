@@ -72,3 +72,24 @@ class TriageEntry:
     notes: str
     changed_by: str
     changed_at: str
+
+
+# Backlog research action (docs/SPRINT_PLANNING_AND_BACKLOG.md §50, task 44).
+RESEARCH_LINK_STATUSES = ("PENDING", "ACCEPTED", "DISMISSED")
+
+
+@dataclass
+class BacklogResearchLink:
+    """Links a `research_sessions` row (app/agents/models.ResearchSession) and
+    its Artifact Library entry (kind='research_report') back to the Backlog
+    item that triggered it. Status change stays with `backlog_items.status`;
+    this is a parallel, non-lifecycle trail of research runs for the item."""
+
+    id: int
+    backlog_item_id: int
+    research_session_id: int
+    artifact_id: int | None
+    outcome_state: str  # ResearchOutcome.state: COMPLETE | FAILED | TIMED_OUT | COST_LIMIT_EXCEEDED
+    status: str  # PENDING | ACCEPTED | DISMISSED
+    reviewed_at: str | None
+    created_at: str

@@ -867,6 +867,8 @@ fieldset { min-width: 0; }
 .pipeline-node .node-state { font-size: 0.8rem; font-weight: 600; }
 .cat-rigging { border-style: dashed; border-left-style: solid; }
 .cat-human { border-radius: 999px; }
+.cat-research { background: var(--accent-soft); }
+.cat-research .node-type-icon { color: var(--accent); }
 .node-running, .node-retrying { border-left-color: var(--accent); }
 .node-passed { border-left-color: var(--success); }
 .node-failed, .node-timed_out { border-left-color: var(--danger); }
@@ -886,6 +888,15 @@ fieldset { min-width: 0; }
 }
 .iteration-timeline { display: flex; gap: 0.5rem; overflow-x: auto; padding: 0; list-style: none; margin: 0 0 1rem; }
 .iteration-timeline a { display: inline-flex; flex-direction: column; min-height: var(--tap); min-width: 6rem; padding: 0.4rem 0.7rem; border: 1px solid var(--border); border-radius: var(--radius); text-decoration: none; color: var(--text); }
+
+/* Ralph research-on-failure report (advisory; docs/RUN_AND_RALPH.md §22) */
+.research-report {
+  display: flex; flex-direction: column; gap: 0.5rem; padding: 0.85rem; margin: 0 0 1rem;
+  background: var(--surface-2); border: 1px solid var(--accent); border-radius: var(--radius);
+  overflow-wrap: anywhere;
+}
+.research-report h2 { margin: 0; font-size: 1rem; }
+.research-report .row-actions button { min-height: var(--tap); }
 
 /* Artifact library */
 .artifact-thumb { max-width: 100%; max-height: 8rem; border-radius: var(--radius); display: block; }

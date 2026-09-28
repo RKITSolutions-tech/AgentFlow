@@ -178,3 +178,26 @@ def test_scripted_plan_covers_every_item(db):
     script = scripted_plan(items)
     assert script[-1] == {"action": "complete"}
     assert len(parse_proposal(script[0]["text"], set(ids))) == 2
+
+
+def test_planning_agent_injects_matching_skill_into_the_prompt(db):
+    from app.agents.models import get_agent_session, list_agent_events
+    from app.prompts import models as prompt_models
+
+    prompt_models.create_fragment(
+        db, "plan-thoroughly", "Break work into small, independently shippable tasks.",
+        skill_status="active", skill_roles=["planning"],
+    )
+    sprint_id, ids = _sprint_with_items(db)
+    agent = PlanningAgent(FakeAgentAdapter(db), db, fake_script_from_items=True)
+    ctx = AgentContext(project_id=1, working_directory=".")
+    session_id = workflow.start_planning(db, sprint_id, agent, ctx)
+    prompt = next(e.data for e in list_agent_events(db, session_id) if e.event_type == "PromptSubmitted")
+    assert "Break work into small, independently shippable tasks." in prompt
+    # Compliance/audit trail (task 53): the planning session never touches
+    # execution_prompts, so the injected skill manifest is recorded on the
+    # agent session's own metadata instead.
+    injected = get_agent_session(db, session_id).metadata["injected_context"]
+    assert injected["role"] == "PLANNING"
+    assert injected["skills"] == ["plan-thoroughly"]
+    assert injected["assembled_at"]

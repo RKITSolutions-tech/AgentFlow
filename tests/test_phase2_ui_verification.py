@@ -89,7 +89,7 @@ def world(app, client, tmp_path):
         art = get_db().execute("SELECT id FROM artifact_library ORDER BY id LIMIT 1").fetchone()
         crit = get_db().execute("SELECT id FROM acceptance_criteria ORDER BY id LIMIT 1").fetchone()
     return type("W", (), {
-        "pid": pid, "sprint": sprint_id, "eid": eid, "run": run_id,
+        "pid": pid, "sprint": sprint_id, "eid": eid, "run": run_id, "item": items[0],
         "artifact": art[0] if art else None, "criterion": crit[0] if crit else None,
     })
 
@@ -101,6 +101,7 @@ def _pages(w):
         "backlog inbox": f"{p}/backlog/inbox",
         "backlog triage": f"{p}/backlog/triage",
         "backlog sprint": f"{p}/backlog/sprint",
+        "backlog item": f"{p}/backlog/items/{w.item}",
         "sprints": f"{p}/sprints",
         "sprint detail": f"{p}/sprints/{w.sprint}",
         "sprint queue": f"{p}/sprints/{w.sprint}/queue",

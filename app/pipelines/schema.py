@@ -31,7 +31,12 @@ RIGGING_TYPES = (
 )
 HUMAN_TYPES = ("MANUAL_APPROVAL", "MANUAL_INPUT", "MANUAL_REVIEW")
 COMPOSITION_TYPES = ("SUB_PIPELINE",)
-ELEMENT_TYPES = DEVELOPMENT_TYPES + RIGGING_TYPES + HUMAN_TYPES + COMPOSITION_TYPES
+# A RESEARCH step (docs/AGENT_ADAPTER.md §23, docs/PIPELINE_ENGINE.md §23) is
+# read-only and holds no project lock, unlike ordinary DEVELOPMENT work -- it
+# gets its own category (schema.category()) so the graph/inspector can show
+# it distinctly rather than lumping it in with AGENT/TEST/etc.
+RESEARCH_TYPES = ("RESEARCH",)
+ELEMENT_TYPES = DEVELOPMENT_TYPES + RIGGING_TYPES + HUMAN_TYPES + COMPOSITION_TYPES + RESEARCH_TYPES
 
 COMPENSATION_ACTIONS = ("STOP", "STOP_AND_MESSAGE", "CONTINUE", "RUN_STEP", "LOOP", "START_PIPELINE")
 BACKOFFS = ("fixed", "exponential")
@@ -48,6 +53,7 @@ REQUIRED_CONFIG: dict[str, tuple[tuple[str, ...], ...]] = {
     "DOCKER_COMMAND": (("command",),),
     "SSH_COMMAND": (("command",),),
     "AGENT": (("prompt_template", "prompt"),),
+    "RESEARCH": (("prompt_template_id", "prompt"),),
     "HEALTHCHECK": (("url", "command"),),
     "HTTP_REQUEST": (("url",),),
     "WAIT": (("seconds",),),
@@ -66,4 +72,6 @@ def category(element_type: str) -> str:
         return "HUMAN"
     if element_type in COMPOSITION_TYPES:
         return "COMPOSITION"
+    if element_type in RESEARCH_TYPES:
+        return "RESEARCH"
     return "DEVELOPMENT"

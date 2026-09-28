@@ -11,6 +11,7 @@ Adapters only ever see the finished string. Assembly order:
 from __future__ import annotations
 
 import glob
+import logging
 import os
 import re
 from dataclasses import dataclass, field
@@ -19,6 +20,8 @@ from typing import Callable
 from app.projects import models as project_models
 from app.prompts import models
 from app.prompts.models import LibraryError
+
+logger = logging.getLogger(__name__)
 
 MAX_CONTEXT_FILES = 20
 DISCOVERED_CONTEXT_FILES = ("CLAUDE.md", "AGENTS.md")
@@ -39,13 +42,14 @@ class Assembled:
     variables_substituted: dict = field(default_factory=dict)
     missing_variables: list[str] = field(default_factory=list)
     skipped_files: list[str] = field(default_factory=list)
+    skills_included: list[str] = field(default_factory=list)
 
     def metadata(self) -> dict:
         return {
             "template": self.template_name, "resolved_files": self.resolved_files,
             "blocks_included": self.blocks_included, "fragments_included": self.fragments_included,
             "variables_substituted": self.variables_substituted, "missing_variables": self.missing_variables,
-            "skipped_files": self.skipped_files,
+            "skipped_files": self.skipped_files, "skills_included": self.skills_included,
         }
 
 
@@ -185,11 +189,37 @@ def include_ralph_instructions(blocks: list[models.RalphInstructionBlock], agent
     return text, [b.name for b in chosen]
 
 
+def _skill_block(skill: models.PromptFragment) -> str:
+    lines = [f"### {skill.name}", skill.content.strip()]
+    if skill.skill_when_to_use.strip():
+        lines.append(f"When to use: {skill.skill_when_to_use.strip()}")
+    if skill.skill_constraints:
+        lines.append("Constraints: " + "; ".join(skill.skill_constraints))
+    return "\n".join(lines)
+
+
+def skill_context(db, role: str | None = None, agent_type: str | None = None, project_id: int | None = None) -> tuple[str, list[str]]:
+    """Active skills matching `role`/`agent_type` (empty stored lists on a skill
+    match every role/adapter), dependency- then priority-ordered. Never raises:
+    a broken skill row must not be the reason a prompt fails to assemble
+    (docs/AGENT_ADAPTER.md §23.2 "graceful degradation")."""
+    try:
+        skills = models.list_skills(db, role=role, adapter_type=agent_type, status="active")
+        ordered = models.resolve_skill_order(skills)
+    except Exception:
+        logger.warning("Skill context assembly failed; continuing without skills", exc_info=True)
+        return "", []
+    if not ordered:
+        return "", []
+    text = "Skills:\n\n" + "\n\n".join(_skill_block(s) for s in ordered)
+    return text, [s.name for s in ordered]
+
+
 def assemble_effective_prompt(
     db, template: models.PromptTemplate | str | int | None = None, text: str = "",
     variables: dict | None = None, root: str | None = None, allowed_roots: tuple[str, ...] = (),
     context_globs: list[str] | None = None, resolver: Callable[[str], str] | None = None,
-    project_id: int | None = None,
+    project_id: int | None = None, role: str | None = None, agent_type: str | None = None,
 ) -> Assembled:
     """Build the prompt. `template` may be a row, an id or a name; `text` is a
     literal prompt used when there is no template (or appended to one)."""
@@ -234,8 +264,14 @@ def assemble_effective_prompt(
             merged += "\n\n" + context_section(proot, pfiles)
         files = files + [f for f in pfiles if f not in files]
         skipped = skipped + pskipped
+    skills_text, skill_names = ("", [])
+    if role is not None or agent_type is not None:
+        skills_text, skill_names = skill_context(db, role=role, agent_type=agent_type, project_id=project_id)
+        if skills_text:
+            merged += "\n\n" + skills_text
     return Assembled(
         text=merged, template_id=template.id if template else None, template_name=template.name if template else "",
         resolved_files=files, fragments_included=[f.name for f in fragments],
         variables_substituted=used, missing_variables=missing, skipped_files=skipped,
+        skills_included=skill_names,
     )

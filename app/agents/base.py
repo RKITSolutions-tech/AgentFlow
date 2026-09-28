@@ -6,6 +6,11 @@ from typing import Any
 
 from app.agents.models import AgentEvent, AgentSession
 
+# The canonical role names a skill can target (docs/AGENT_ADAPTER.md §23.2). `role`
+# itself stays a plain string everywhere it's threaded through `options` today;
+# this tuple is only used to validate/filter skill bindings and populate the UI.
+AGENT_ROLES = ("GENERAL", "PLANNING", "IMPLEMENTATION", "RESEARCH", "VERIFICATION")
+
 
 @dataclass
 class AgentContext:

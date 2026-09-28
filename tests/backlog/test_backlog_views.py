@@ -2,6 +2,8 @@ import io
 
 import pytest
 
+from app.agents import models as agent_models
+from app.artifacts import models as artifact_models
 from app.backlog import persistence
 from app.db import get_db
 
@@ -125,3 +127,106 @@ def test_triage_and_sprint_pages(client, project_id):
     sprint = client.get(f"{_base(project_id)}/sprint").get_data(as_text=True)
     assert "chosen" in sprint and "pending triage" not in sprint
     assert client.get(f"{_base(project_id)}/items/{a}").status_code == 200
+
+
+# -- research action (§50, task 44) ------------------------------------------
+
+
+@pytest.fixture
+def fake_researcher(app):
+    app.config["PLANNING_AGENT"] = "fake"
+
+
+def _research_url(pid, item_id):
+    return f"{_base(pid)}/items/{item_id}/research"
+
+
+def test_research_action_completes_and_creates_artifact_and_link(client, app, project_id, fake_researcher):
+    item_id = _add(client, project_id, text="Investigate slow login", title="Slow login")
+    resp = client.post(_research_url(project_id, item_id), headers=AJAX)
+    assert resp.status_code == 200, resp.get_json()
+    body = resp.get_json()
+    assert body["outcome"] == "COMPLETE"
+    assert body["report"]["summary"]
+    assert len(body["report"]["findings"]) == 2
+    assert body["link_id"] and body["research_session_id"]
+
+    with app.app_context():
+        db = get_db()
+        links = persistence.list_research_links(db, item_id)
+        assert len(links) == 1
+        link = links[0]
+        assert link.status == "PENDING"
+        assert link.outcome_state == "COMPLETE"
+        assert link.artifact_id is not None
+
+        session_row = agent_models.get_research_session(db, link.research_session_id)
+        assert session_row.status == "COMPLETED"
+        assert session_row.project_id == project_id
+
+        artifact = artifact_models.get_artifact(db, link.artifact_id)
+        assert artifact.kind == "research_report"
+        assert artifact.metadata["backlog_item_id"] == item_id
+        assert f"backlog-item-{item_id}" in artifact.tags
+
+        # Research never changes the item's status.
+        assert persistence.get_item(db, item_id).status == "INBOX"
+
+
+def test_research_history_renders_on_item_page(client, project_id, fake_researcher):
+    item_id = _add(client, project_id, text="Investigate slow login")
+    client.post(_research_url(project_id, item_id), headers=AJAX)
+    html = client.get(f"{_base(project_id)}/items/{item_id}").get_data(as_text=True)
+    assert "Research findings" in html
+    assert "unverified" in html
+
+
+def test_accept_research_persists_summary_and_marks_accepted(client, app, project_id, fake_researcher):
+    item_id = _add(client, project_id, text="Investigate slow login")
+    resp = client.post(_research_url(project_id, item_id), headers=AJAX)
+    link_id = resp.get_json()["link_id"]
+
+    accept = client.post(f"{_base(project_id)}/items/{item_id}/research/{link_id}/accept", headers=AJAX)
+    assert accept.status_code == 200, accept.get_json()
+    assert "Automated research summary" in accept.get_json()["text"]
+
+    with app.app_context():
+        db = get_db()
+        item = persistence.get_item(db, item_id)
+        assert "Investigate slow login" in item.text
+        assert "Automated research summary" in item.text
+        assert item.status == "INBOX"  # accepting research never changes status
+
+        link = persistence.get_research_link(db, link_id)
+        assert link.status == "ACCEPTED"
+
+        history = persistence.list_history(db, item_id)
+        assert any("research summary" in h.notes.lower() for h in history)
+
+    # A reviewed link cannot be accepted again.
+    again = client.post(f"{_base(project_id)}/items/{item_id}/research/{link_id}/accept", headers=AJAX)
+    assert again.status_code == 409
+
+
+def test_dismiss_research_does_not_persist(client, app, project_id, fake_researcher):
+    item_id = _add(client, project_id, text="Investigate slow login")
+    resp = client.post(_research_url(project_id, item_id), headers=AJAX)
+    link_id = resp.get_json()["link_id"]
+
+    dismiss = client.post(f"{_base(project_id)}/items/{item_id}/research/{link_id}/dismiss", headers=AJAX)
+    assert dismiss.status_code == 200
+
+    with app.app_context():
+        db = get_db()
+        item = persistence.get_item(db, item_id)
+        assert item.text == "Investigate slow login"
+        assert persistence.get_research_link(db, link_id).status == "DISMISSED"
+
+    again = client.post(f"{_base(project_id)}/items/{item_id}/research/{link_id}/dismiss", headers=AJAX)
+    assert again.status_code == 409
+
+
+def test_research_scoped_to_project(client, project_id, fake_researcher):
+    item_id = _add(client, project_id, text="a")
+    other = int(client.post("/projects/new", data={"name": "Other"}).headers["Location"].rsplit("/", 1)[-1])
+    assert client.post(_research_url(other, item_id), headers=AJAX).status_code == 404

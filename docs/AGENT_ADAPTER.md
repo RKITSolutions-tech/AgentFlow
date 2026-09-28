@@ -403,6 +403,29 @@ Requirements and behaviour:
 Gemini and OpenCode remain unimplemented; they should follow the same
 pattern once needed.
 
+The sprint planning agent (`app/sprints/planning_agent.py`,
+docs/SPRINT_PLANNING_AND_BACKLOG.md §31/§49) picks between `CodexAdapter` and
+`ClaudeAdapter` the same way: `AGENTFLOW_PLANNING_AGENT=claude` runs a
+`ClaudeAdapter` session; `AGENTFLOW_PLANNING_AGENT=local` resolves
+`AGENTFLOW_PLANNING_MODEL` against the Settings `local` catalog (raising
+`ModelCatalogConfigError`, `app/settings/models.py`, if it's missing/disabled)
+and hands the resolved `model_id` to whichever of the two adapters
+`AGENTFLOW_PLANNING_LOCAL_ADAPTER` names — a `local` catalog row has no field
+for which CLI's wire protocol it speaks (§17 vs this section), so that has to
+be named separately.
+
+The generic pipeline engine's AGENT step handler (`PipelineEngine._h_agent`,
+`app/pipelines/engine.py`, task 56) reuses the same `resolve_local_model`
+lookup at the step level: an element's `config["model"]` names a `local`
+catalog `model_id`, resolved and set on the `AgentContext` the step builds
+(`ModelCatalogConfigError` fails the step if it's missing/disabled, same as
+planning). `PipelineManager.default_agent_factory` (`app/pipelines/manager.py`)
+picks up the matching global knobs (`PLANNING_AGENT=local`/`PLANNING_MODEL`/
+`PLANNING_LOCAL_ADAPTER`, shared with the planning agent) so the pipeline as a
+whole runs through a local-capable adapter class; the per-step `config["model"]`
+override is independent of that and works with whichever adapter class the
+engine is already using.
+
 ## 19. UI Integration
 
 The Session screen is agent-agnostic and should support:
@@ -500,22 +523,32 @@ whether context-file assembly is purely an AgentFlow-side prompt
   composition step, or partly delegated to adapters with native support
 ```
 
-## 23. Research Agent Role (proposed)
+## 23. Research Agent Role
 
-Decided in discussion; not yet built. A `RESEARCH` role is added to the session roles (§5). It uses the same
-`AgentAdapter` interface as every other role, so all adapters, including `FakeAgentAdapter`, support it.
+Phase A (repository-scoped, task 45) is implemented. `RESEARCH` is one of the session roles (§5,
+`app/agents/base.AGENT_ROLES`), but it is **not** a new `AgentAdapter` method: like the `PLANNING` role
+(`app/sprints/planning_agent.PlanningAgent`), it is a role-agnostic helper --
+`app/agents/research_agent.ResearchAgent` -- that drives any adapter through its existing
+`start()`/`resume()`/`status()`/`stream()`, so `FakeAgentAdapter` supports it exactly the same way Codex and
+Claude do, with no adapter-specific code. Phase B (shared knowledge base, §23.1, task 48) and Phase C (web,
+task 49) are still proposed, not built; Phase A does not depend on either.
 
-- **Read-only.** No file writes, no commits, no project mutation. The adapter must refuse or ignore write tools
-  under this role.
-- **Lookup order: project repository, then the shared knowledge base, then the web (revised).** Each layer is tried
+- **Read-only.** No file writes, no commits, no project mutation. `ResearchAgent` only ever calls the adapter
+  with the prompt built for it; the prompt itself instructs the agent not to write, edit or commit anything.
+- **Lookup order: project repository, then the shared knowledge base, then the web.** Each layer is tried
   before the next, and a report says which layer each finding came from. Many patterns repeat across projects, so
   the web is the last resort, not the default.
-  - *Phase A, repository:* the project's own repository and docs, reusing the context-file path checks
-    (`ALLOWED_PROJECT_ROOTS`, PHASE2_PLANNING §8: relative paths only, symlinks that leave the repository skipped,
-    file count and size limits).
-  - *Phase B, shared knowledge base:* one central store used by every project on the installation.
-  - *Phase C, web:* the agent's own tools (the Claude CLI has them and works on the OS login without an API key)
-    do the searching; AgentFlow mediates fetches so results land in the knowledge base.
+  - *Phase A, repository (implemented):* `app/agents/research_context.RepositoryContextLoader` discovers a
+    bounded set of files under the project's repository root -- `README*`, `docs/**` (design docs like
+    `docs/HIGH_LEVEL_DESIGN.md`/`docs/AGENT_ADAPTER.md` are fed in with full content), dependency manifests, and
+    a path+size listing (not inlined) of `src/`/`app/`/`tests/`. Path safety reuses
+    `app/security.validate_repository_path` for the root and the same glob/symlink-escape technique as
+    `app/prompts/assembler.resolve_context_files` per file (absolute patterns and symlinks that resolve outside
+    the repository are rejected), with its own caps: under 500 files and under 50MB total.
+  - *Phase B, shared knowledge base (proposed, task 48):* one central store used by every project on the
+    installation -- see §23.1.
+  - *Phase C, web (proposed, task 49):* the agent's own tools (the Claude CLI has them and works on the OS login
+    without an API key) do the searching; AgentFlow mediates fetches so results land in the knowledge base.
 - **Shared knowledge base (central, multi-project).** Located by `AGENTFLOW_KNOWLEDGE_DIR` (default `knowledge/`
   beside the database; may be a git repository, which gives history and sharing for free). Plain files on disk
   (path-checked, size-capped) with metadata and search in SQLite. Two entry kinds:
@@ -536,12 +569,50 @@ Decided in discussion; not yet built. A `RESEARCH` role is added to the session 
   sent to the web: only a distilled note, after redaction and (for repository-derived notes) human promotion.
   Entries carry a `scope` (`global` or a project id); the agent only reads `global` entries plus those of the
   current project. A person can view, search, edit, pin, refresh, merge duplicates and delete entries.
-- **Structured report.** The reply is a report: summary, findings, and a source list. A finding with no source is marked
-  `unverified`. The report is redacted like other stored text and indexed in the Artifact Library with a link to the
-  originating session or step.
-- **Limits.** Time and cost limits, like Ralph's iteration and runtime limits.
-- **Locking.** Research holds no exclusive project lock (RUN_AND_RALPH §22), so it can run alongside other work.
-- **Advisory output.** A person accepts findings before they change a plan or acceptance criteria.
+- **Structured report (implemented).** The reply is a report: summary, findings, and a source list
+  (`app/agents/research_report.ResearchReport`/`Finding`/`Source`, JSON-serializable both ways -- an agent's JSON
+  reply parses straight into it, and it serializes straight back out). A finding's `confidence` is derived from
+  whether it has a resolvable `source_id`, never taken at the agent's own word: a finding with no source is
+  `unverified` (`ResearchReport.unverified`). Persisted as `app/agents/models.ResearchSession` (status
+  running/completed/failed, `findings_summary`, `source_references`, the full report JSON, `cost_usd`,
+  `duration_seconds`), linked to the underlying `AgentSession` that ran the prompt.
+- **Pipeline entry point (implemented, task 43).** `ResearchAgent` is not only reachable standalone (as above) --
+  `RESEARCH` is now its own pipeline step type (docs/PIPELINE_ENGINE.md §23), executed by
+  `PipelineEngine._h_research`, a sibling of `_h_agent`. It assembles the question through the same
+  `assemble_effective_prompt(..., role="RESEARCH", agent_type=...)` call AGENT steps use (so project context,
+  skills and `${...}` variables resolve identically, and task 56's local-model support applies for free),
+  records the effective prompt into `execution_prompts` the same way, then constructs a `ResearchAgent(adapter,
+  db=self._db)` and drives it exactly as described above. The completed report is additionally indexed in the
+  Artifact Library as `kind='research_report'`, linked to the step -- the "Artifact Library indexing" this
+  section used to describe as task 43/44 follow-up. Task 44 (a backlog research action, implemented --
+  `app/backlog/research.py`, docs/SPRINT_PLANNING_AND_BACKLOG.md §50) and task 47 (Ralph failure-trigger wiring,
+  implemented) build on this pipeline step and its artifact/execution_prompts shape; task 48 (the knowledge base)
+  still does not.
+- **Redaction (implemented, task 56).** `ResearchAgent` masks secrets in the report itself -- `summary`, every
+  `Finding.text`, every `Source.excerpt` -- before it is ever stored, using the same pipeline applied to Run
+  commands/logs/replies (`app/runs/security.redact`: built-in secret-pattern rules plus whatever
+  `AGENTFLOW_REDACT_PATTERNS` adds, threaded into `ResearchAgent(extra_patterns=...)` the same way
+  `PipelineManager`/`RalphOrchestrator` thread it). Unlike Run artifacts (which keep an unredacted command in
+  memory so a redacted step can restart), there is no unredacted copy of a research report anywhere: it is
+  redacted at the point it is parsed (`ResearchAgent.collect()`), so the same redacted object is both what a
+  caller sees and what lands in `research_sessions`.
+- **Limits (implemented).** `ResearchAgent.research()` takes `time_limit_seconds`/`cost_limit_usd`, the same
+  shape as Ralph's `max_iterations`/`max_runtime_seconds` (docs/RUN_AND_RALPH.md §22): a limit paired with a
+  clear terminal state, stopping the session (or refusing to treat it as a normal completion) once tripped.
+  `time_limit_seconds` is strictly enforced by wall clock (`TIMED_OUT`). `cost_limit_usd` is enforced
+  (`COST_LIMIT_EXCEEDED`) but is deliberately **best-effort only**: it is checked against whatever `cost_usd`
+  figure the adapter itself reports in its session usage metadata, both while a session is still `RUNNING` (an
+  async adapter, checked on each poll) and once it has completed (every adapter today -- Codex, Claude, Fake --
+  resolves synchronously within `start()`, so this is the path that matters in practice). There is deliberately
+  no per-model $/token rate table anywhere in this codebase, and none is planned: adapters shell out to CLIs
+  rather than calling provider APIs directly, rates drift, and a token-based cost estimate would be
+  unmaintainable decorative code for no real benefit today. A session whose adapter never reports real cost
+  telemetry is bounded only by `time_limit_seconds` -- token-based estimation is out of scope until a real need
+  justifies it.
+- **Locking (implemented).** `ResearchAgent.research()` never calls `app/projects/lock.py`: research holds no
+  exclusive project lock (RUN_AND_RALPH §22), so it can run alongside other work.
+- **Advisory output.** A person accepts findings before they change a plan or acceptance criteria (unchanged by
+  Phase A: nothing here writes to a plan or acceptance criteria automatically).
 
 ### 23.1 Knowledge base indexing (wiki-style; proposed)
 
@@ -643,3 +714,109 @@ This two-tier approach ensures resilience: centralized management for optimal be
 - Task: "Integrate skill review agents" — periodic audits and validation of skill definitions.
 - Task: "Decide app-specific skill storage strategy" — resolve centralized vs. decentralized storage trade-offs.
 - Task: "Surface skills in agent prompts and session UI" — ensure agents see available capabilities and can discover them if needed.
+
+### 23.3 Skill management implementation (task 52)
+
+Task 52's own scoping text (a separate `Skill`/`SkillVersion`/`SkillDependency`/`AgentSkillBinding` model
+set with its own persistence, disk storage, REST API and cache) predated this decision and duplicated
+machinery §23.2 already delegates to the prompt library. It was implemented as an **extension of
+`app/prompts/`, not a parallel system**:
+
+- A skill is a `prompt_fragments` row with `skill_status` set (`draft` / `active` / `deprecated`; empty
+  means "an ordinary fragment, not a skill"). It reuses fragment content, tags, and per-content-change
+  versioning (`prompt_fragment_versions`, now with a `changelog` column) rather than a second model.
+- Skill-only fields on the fragment: `skill_when_to_use`, `skill_constraints` (advisory, free text — not
+  a machine-evaluated constraint DSL), `skill_depends_on` (other skill fragment ids, cycle-checked the
+  same way template inheritance is), `skill_roles` and `skill_adapter_types` (empty list = applies to
+  everything), `skill_priority`, `skill_author`.
+- `AGENT_ROLES` (`app/agents/base.py`) is a plain tuple (`GENERAL`, `PLANNING`, `IMPLEMENTATION`,
+  `RESEARCH`, `VERIFICATION`) — the first time this repo names its roles as anything other than free
+  strings threaded through adapter `options`. Everything that already passed an ad hoc role string keeps
+  working; this only validates/filters skill bindings.
+- `app/prompts/assembler.skill_context(db, role, agent_type, project_id)` selects active skills matching
+  role/adapter type, orders them (dependencies before dependents, then priority), and renders them.
+  It never raises — a broken skill row logs a warning and assembly continues without it. Passing
+  `role`/`agent_type` to `assemble_effective_prompt(...)` appends this automatically.
+- Wired into every prompt-building call site: pipeline AGENT steps and Ralph iterations (already called
+  the assembler), the sprint planning agent (`PlanningAgent` now takes `db` and injects `PLANNING`-role
+  skills), and — the one real gap this closed — interactive chat session start
+  (`app/sessions/routes.py`), which previously never touched the prompt library at all and sent a bare
+  `"Starting session..."` placeholder. `app/agents/models.PLACEHOLDER_PROMPT` matching was changed from
+  an exact match to `.endswith(...)` so a skill-prefixed placeholder still doesn't get used as the
+  session's auto-derived title.
+- Disk storage (`app/prompts/skill_sync.py`) mirrors skills as JSON (not YAML — the codebase has no YAML
+  dependency anywhere else) under `app/agents/skills/<adapter-type-or-"generic">/`, seeded idempotently
+  at startup the same way `seed_defaults` seeds templates/blocks. This is a generated, reviewable mirror;
+  the database stays the source of truth. Syncing skills into project repositories remains the deferred,
+  separately-tracked follow-up ("Decide app-specific skill storage strategy").
+- UI lives in the existing `prompts` blueprint (`/prompts/skills`), following the same AJAX/`_reply()`
+  convention as fragments/templates/blocks — no separate public REST API, matching the rest of the app
+  (no external API consumers, no auth/admin concept to gate on).
+
+**(2026-09-28, task 53) Closed: compliance/audit trail for role-based injection.** Task 53's own scoping
+text asked for a separate `RoleContextAssembler` with its own fallback-to-native-discovery step; that
+machinery was already rejected in favour of `skill_context()` above (§23.2's "graceful degradation" —
+a broken or unreachable skill source just returns `("", [])`, so the agent's own native discovery, e.g.
+reading a repo's `CLAUDE.md`, still runs independently and needed no explicit "invoke fallback" step).
+The one genuine gap was that `Assembled.metadata()`/`skill_context()`'s skill list was computed and used
+to build the prompt, then discarded, at three of the four call sites — never written anywhere queryable.
+Closed by:
+- `execution_prompts.skills_included` (new column, alongside the existing `blocks_included`): pipeline
+  AGENT steps and Ralph iterations now pass `assembled.skills_included` / the skills used for that
+  iteration's prompt into `record_prompt()`.
+- `agent_sessions.metadata["injected_context"]` (`{role, agent_type, skills, assembled_at}`, via the
+  existing `update_session_metadata()` merge — no new column): interactive chat session start
+  (`app/sessions/routes.py`) and the sprint planning agent (`app/sprints/planning_agent.py`) both start
+  an ordinary `AgentSession` rather than a pipeline step or Ralph iteration, so they had no
+  `execution_prompts` row to record against; the session's own metadata is the natural place, matching
+  how it already carries other per-session facts (e.g. `repo_id`).
+- The research agent (`app/agents/research_agent.py`, task 45) selects `RESEARCH`-role skills the same
+  way but was left untouched here (out of scope for this pass); it has the same gap and would want the
+  same `injected_context` treatment.
+Every role-based injection site now has a durable, queryable record of which skills were actually
+selected for a given session or step.
+
+### 23.4 Initial generic skill content and review cadence (task 54)
+
+Task 54's own scoping text proposed a second parallel model set — `app/skills/governance.py`'s
+`SkillReviewSchedule`/`SkillReviewTemplate`/`SkillAuditLog`, `app/skills/proposals.py`'s
+`SkillProposal` — for content and process that §23.3 already put inside `app/prompts/`. Same trap as
+§23.3 itself, one level up. Not built; instead:
+
+- **Content.** Eight generic skills (`app/prompts/defaults.DEFAULT_SKILLS`) are seeded active by
+  `models.seed_builtin_skills()`: one `RESEARCH`-role skill grounding answers in the repository
+  context `RepositoryContextLoader` actually assembles (docs/AGENT_ADAPTER.md §23, Phase A); two
+  `IMPLEMENTATION`/`VERIFICATION` testing skills (mobile/desktop viewport conventions from this file's
+  own "Temporary UI and Mobile Rules"; this repo's pytest/`FakeAgentAdapter` scripting conventions);
+  two `VERIFICATION`/`GENERAL` code-review checklists (correctness; security, scoped to this app's
+  actual attack surface — no auth, host command execution, path handling — rather than generic
+  OWASP boilerplate); one `IMPLEMENTATION` skill grounding Ralph failure diagnosis in the exact
+  fields the retry prompt is built from (docs/RUN_AND_RALPH.md §22 "Failure evidence"); one
+  `IMPLEMENTATION` skill on this codebase's own sqlite3-without-an-ORM persistence conventions. A
+  web/knowledge-base search-strategy skill was deliberately **not** written: docs/AGENT_ADAPTER.md §23
+  Phase B (shared knowledge base) and Phase C (web) are proposed, not built, so a skill describing them
+  would describe capability that doesn't exist. A deployment/CI-CD skill was likewise skipped — this
+  app has no deployment pipeline of its own to ground one in.
+- **Seeding is deliberately not automatic under `TESTING`.** `seed_defaults`/`seed_skills_from_disk`
+  already run unconditionally in `create_app()`, but several `tests/prompts/` tests assert an *empty*
+  skill set on a freshly created app (e.g. `test_skill_context_empty_when_no_skills`). Rather than
+  rewrite that documented invariant, `seed_builtin_skills()` is called from `create_app()` guarded on
+  `not app.config.get("TESTING")` — the same guard already used a few lines below for
+  `ralph_manager.resume_automatic_sprints()` — so a real dev/prod instance gets the built-in skills at
+  startup (idempotently: an existing name is never overwritten) while the test suite's database stays
+  exactly as empty as before. `tests/prompts/test_skill_seed_content.py` calls `seed_builtin_skills()`
+  directly to exercise the content itself.
+- **Review cadence.** `prompt_fragment_versions.changelog` (§23.3) already answers "when did this
+  skill's *content* last change, and why" — that needed no new machinery. It cannot express "a person
+  looked at this and it's still correct", which a content-change-only history has no row for. Two new
+  columns close that gap: `skill_last_reviewed_at`, `skill_reviewed_by` (both on `prompt_fragments`,
+  `models.mark_skill_reviewed()`, `POST /prompts/skills/<id>/reviewed`) — updated independently of
+  `version`, so marking a skill reviewed never fabricates a content-change history entry. Cadence
+  itself is a **documented convention, not enforced**: review a skill when its `skill_when_to_use`
+  stops matching how an adapter/role is actually used (change-triggered), or at least once a quarter
+  for an `active` skill with no review in that window (time-triggered) — the `skills.html` list plus
+  each skill's "Last reviewed" line is the whole mechanism for spotting either; no scheduler, no
+  automated audit job. "Approves" a change means a person edits or deprecates the skill fragment
+  directly (`update_fragment`/`deprecate_skill`) or clicks "Mark reviewed" — this app has no
+  authentication or admin-role concept to gate that on (§23.3's own note), so `skill_reviewed_by` and
+  `skill_author` are both free text, not an account reference.

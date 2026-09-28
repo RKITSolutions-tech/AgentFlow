@@ -91,9 +91,9 @@ class RalphManager:
             db.close()
         if promoted:
             try:
-                self.start(promoted[1])
+                self.start(promoted[1], wait=True)
             except ValueError:
-                pass  # lock taken meanwhile: the run stays CREATED and can be resumed
+                pass  # already executing (a race with another starter): resumable later
 
     def is_executing(self, run_id: int) -> bool:
         return run_id in self._threads
@@ -167,10 +167,10 @@ class RalphManager:
         started = []
         for _, run_id in promoted:
             try:
-                self.start(run_id)
+                self.start(run_id, wait=True)
                 started.append(run_id)
             except ValueError:
-                pass  # lock taken meanwhile: the run stays CREATED and can be resumed
+                pass  # already executing (a race with another starter): resumable later
         return started
 
 

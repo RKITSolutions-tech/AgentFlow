@@ -6,12 +6,19 @@ import json
 import sqlite3
 from dataclasses import dataclass, field
 
-from app.prompts.defaults import DEFAULT_INSTRUCTIONS, DEFAULT_TEMPLATES
+from app.agents.base import AGENT_ROLES
+from app.prompts.defaults import (
+    DEFAULT_INSTRUCTIONS,
+    DEFAULT_SKILLS,
+    DEFAULT_TEMPLATE_DESCRIPTIONS,
+    DEFAULT_TEMPLATES,
+)
 from app.runs.models import now
 
 CATEGORIES = ("instruction", "context", "example")
 NAME_MAX = 80
 CONTENT_MAX = 20_000
+SKILL_STATUSES = ("draft", "active", "deprecated")
 
 
 class LibraryError(ValueError):
@@ -28,6 +35,25 @@ class PromptFragment:
     tags: list[str]
     created_at: str
     updated_at: str
+    # Skill fields (docs/AGENT_ADAPTER.md §23.2/23.3): a skill is a fragment with
+    # skill_status set to 'draft'/'active'/'deprecated'; '' means "not a skill".
+    skill_status: str = ""
+    skill_when_to_use: str = ""
+    skill_constraints: list[str] = field(default_factory=list)
+    skill_depends_on: list[int] = field(default_factory=list)
+    skill_roles: list[str] = field(default_factory=list)
+    skill_adapter_types: list[str] = field(default_factory=list)
+    skill_priority: int = 0
+    skill_author: str = ""
+    # Review cadence (docs/AGENT_ADAPTER.md §23.4): set by `mark_skill_reviewed`,
+    # independent of `version`/`prompt_fragment_versions` -- a review with no
+    # content change leaves those untouched.
+    skill_last_reviewed_at: str = ""
+    skill_reviewed_by: str = ""
+
+    @property
+    def is_skill(self) -> bool:
+        return bool(self.skill_status)
 
 
 @dataclass
@@ -70,6 +96,7 @@ class ExecutionPrompt:
     blocks_included: list[str]
     redacted: bool
     assembled_at: str
+    skills_included: list[str] = field(default_factory=list)
     extra: dict = field(default_factory=dict)
 
 
@@ -108,24 +135,71 @@ def _tags(tags) -> list[str]:
 def _fragment(row: sqlite3.Row) -> PromptFragment:
     d = dict(row)
     d["tags"] = json.loads(d["tags"])
+    d["skill_constraints"] = json.loads(d["skill_constraints"])
+    d["skill_depends_on"] = json.loads(d["skill_depends_on"])
+    d["skill_roles"] = json.loads(d["skill_roles"])
+    d["skill_adapter_types"] = json.loads(d["skill_adapter_types"])
     return PromptFragment(**d)
 
 
-def create_fragment(db, name: str, content: str, category: str = "instruction", tags=None) -> int:
+def _skill_status(value: str | None) -> str:
+    value = (value or "").strip().lower()
+    if value and value not in SKILL_STATUSES:
+        raise LibraryError(f"Skill status must be one of {', '.join(SKILL_STATUSES)}")
+    return value
+
+
+def _check_skill_dependencies(db, fragment_id: int | None, depends_on: list[int]) -> None:
+    """Every dependency must exist and be a skill; no direct or indirect cycle."""
+    for dep_id in depends_on:
+        dep = get_fragment(db, dep_id)
+        if dep is None or not dep.is_skill:
+            raise LibraryError(f"Skill dependency {dep_id} does not exist")
+
+    def walk(current_id: int, seen: set[int]) -> None:
+        if current_id in seen:
+            raise LibraryError("A skill cannot depend on itself, directly or indirectly")
+        seen = seen | {current_id}
+        current = get_fragment(db, current_id)
+        for dep_id in (current.skill_depends_on if current else []):
+            walk(dep_id, seen)
+
+    start = {fragment_id} if fragment_id else set()
+    for dep_id in depends_on:
+        walk(dep_id, start)
+
+
+def create_fragment(
+    db, name: str, content: str, category: str = "instruction", tags=None, *,
+    skill_status: str | None = None, skill_when_to_use: str = "", skill_constraints=None,
+    skill_depends_on=None, skill_roles=None, skill_adapter_types=None, skill_priority: int = 0,
+    skill_author: str = "", changelog: str = "",
+) -> int:
     if category not in CATEGORIES:
         raise LibraryError(f"Category must be one of {', '.join(CATEGORIES)}")
+    status = _skill_status(skill_status)
+    depends_on = [int(d) for d in skill_depends_on or []]
+    if status:
+        _check_skill_dependencies(db, None, depends_on)
     stamp = now()
     try:
         cur = db.execute(
-            "INSERT INTO prompt_fragments (name, category, content, tags, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (_name(name), category, _content(content), json.dumps(_tags(tags)), stamp, stamp),
+            "INSERT INTO prompt_fragments (name, category, content, tags, created_at, updated_at, "
+            "skill_status, skill_when_to_use, skill_constraints, skill_depends_on, skill_roles, "
+            "skill_adapter_types, skill_priority, skill_author) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                _name(name), category, _content(content), json.dumps(_tags(tags)), stamp, stamp,
+                status, (skill_when_to_use or "").strip(), json.dumps(list(skill_constraints or [])),
+                json.dumps(depends_on), json.dumps(_tags(skill_roles)), json.dumps(_tags(skill_adapter_types)),
+                int(skill_priority), (skill_author or "").strip(),
+            ),
         )
     except sqlite3.IntegrityError:
         raise LibraryError(f"A fragment named {name.strip()!r} already exists") from None
     db.execute(
-        "INSERT INTO prompt_fragment_versions (fragment_id, version, content, created_at) VALUES (?, 1, ?, ?)",
-        (cur.lastrowid, _content(content), stamp),
+        "INSERT INTO prompt_fragment_versions (fragment_id, version, content, created_at, changelog) "
+        "VALUES (?, 1, ?, ?, ?)",
+        (cur.lastrowid, _content(content), stamp, (changelog or "").strip()),
     )
     db.commit()
     return cur.lastrowid
@@ -148,8 +222,13 @@ def list_fragments(db, category: str | None = None) -> list[PromptFragment]:
     return [_fragment(r) for r in db.execute(sql + " ORDER BY category, name", params)]
 
 
-def update_fragment(db, fragment_id: int, name=None, content=None, category=None, tags=None) -> PromptFragment:
-    """A content change makes a new version (history is kept); other edits do not."""
+def update_fragment(
+    db, fragment_id: int, name=None, content=None, category=None, tags=None, *,
+    skill_status=-1, skill_when_to_use=None, skill_constraints=None, skill_depends_on=None,
+    skill_roles=None, skill_adapter_types=None, skill_priority=None, skill_author=None, changelog: str = "",
+) -> PromptFragment:
+    """A content change makes a new version (history is kept); other edits do not.
+    `skill_status=-1` (the sentinel) leaves the skill status unchanged."""
     current = get_fragment(db, fragment_id)
     if current is None:
         raise LookupError(f"Fragment {fragment_id} not found")
@@ -157,22 +236,38 @@ def update_fragment(db, fragment_id: int, name=None, content=None, category=None
         raise LibraryError(f"Category must be one of {', '.join(CATEGORIES)}")
     new_content = current.content if content is None else _content(content)
     version = current.version + (1 if new_content != current.content else 0)
+    new_status = current.skill_status if skill_status == -1 else _skill_status(skill_status)
+    new_depends_on = current.skill_depends_on if skill_depends_on is None else [int(d) for d in skill_depends_on]
+    if new_status:
+        _check_skill_dependencies(db, fragment_id, new_depends_on)
     stamp = now()
     try:
         db.execute(
             "UPDATE prompt_fragments SET name = ?, category = ?, content = ?, version = ?, tags = ?, "
-            "updated_at = ? WHERE id = ?",
+            "updated_at = ?, skill_status = ?, skill_when_to_use = ?, skill_constraints = ?, "
+            "skill_depends_on = ?, skill_roles = ?, skill_adapter_types = ?, skill_priority = ?, "
+            "skill_author = ? WHERE id = ?",
             (
                 current.name if name is None else _name(name), category or current.category, new_content,
-                version, json.dumps(current.tags if tags is None else _tags(tags)), stamp, fragment_id,
+                version, json.dumps(current.tags if tags is None else _tags(tags)), stamp,
+                new_status,
+                current.skill_when_to_use if skill_when_to_use is None else skill_when_to_use.strip(),
+                json.dumps(current.skill_constraints if skill_constraints is None else list(skill_constraints)),
+                json.dumps(new_depends_on),
+                json.dumps(current.skill_roles if skill_roles is None else _tags(skill_roles)),
+                json.dumps(current.skill_adapter_types if skill_adapter_types is None else _tags(skill_adapter_types)),
+                current.skill_priority if skill_priority is None else int(skill_priority),
+                current.skill_author if skill_author is None else skill_author.strip(),
+                fragment_id,
             ),
         )
     except sqlite3.IntegrityError:
         raise LibraryError(f"A fragment named {name.strip()!r} already exists") from None
     if version != current.version:
         db.execute(
-            "INSERT INTO prompt_fragment_versions (fragment_id, version, content, created_at) VALUES (?, ?, ?, ?)",
-            (fragment_id, version, new_content, stamp),
+            "INSERT INTO prompt_fragment_versions (fragment_id, version, content, created_at, changelog) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (fragment_id, version, new_content, stamp, (changelog or "").strip()),
         )
     db.commit()
     return get_fragment(db, fragment_id)
@@ -180,7 +275,7 @@ def update_fragment(db, fragment_id: int, name=None, content=None, category=None
 
 def fragment_versions(db, fragment_id: int) -> list[dict]:
     return [dict(r) for r in db.execute(
-        "SELECT version, content, created_at FROM prompt_fragment_versions WHERE fragment_id = ? "
+        "SELECT version, content, created_at, changelog FROM prompt_fragment_versions WHERE fragment_id = ? "
         "ORDER BY version DESC", (fragment_id,))]
 
 
@@ -188,12 +283,114 @@ def templates_using_fragment(db, fragment_id: int) -> list[PromptTemplate]:
     return [t for t in list_templates(db) if fragment_id in t.fragments]
 
 
+def skills_depending_on(db, fragment_id: int) -> list[PromptFragment]:
+    return [s for s in list_skills(db) if fragment_id in s.skill_depends_on]
+
+
 def delete_fragment(db, fragment_id: int) -> None:
     users = templates_using_fragment(db, fragment_id)
     if users:
         raise LibraryError("In use by template(s): " + ", ".join(t.name for t in users))
+    dependents = skills_depending_on(db, fragment_id)
+    if dependents:
+        raise LibraryError("Depended on by skill(s): " + ", ".join(s.name for s in dependents))
     db.execute("DELETE FROM prompt_fragments WHERE id = ?", (fragment_id,))
     db.commit()
+
+
+# -- skills --------------------------------------------------------------------------------
+# A skill is a prompt fragment with `skill_status` set. See docs/AGENT_ADAPTER.md §23.2/23.3
+# for why this extends the fragment model instead of a parallel one.
+
+
+def list_skills(db, role: str | None = None, adapter_type: str | None = None, status: str | None = None) -> list[PromptFragment]:
+    skills = [f for f in list_fragments(db) if f.is_skill]
+    if status:
+        skills = [s for s in skills if s.skill_status == status]
+    if role:
+        role = role.lower()
+        skills = [s for s in skills if not s.skill_roles or role in s.skill_roles]
+    if adapter_type:
+        adapter_type = adapter_type.lower()
+        skills = [s for s in skills if not s.skill_adapter_types or adapter_type in s.skill_adapter_types]
+    return skills
+
+
+def resolve_skill_order(skills: list[PromptFragment]) -> list[PromptFragment]:
+    """Dependencies before dependents (topological sort), ties broken by priority
+    (higher first) then name. Cycle-safe: a hand-edited database must not hang
+    assembly, so an already-seen id is simply not revisited."""
+    by_id = {s.id: s for s in skills}
+    ordered: list[PromptFragment] = []
+    seen: set[int] = set()
+
+    def visit(skill: PromptFragment, trail: set[int]) -> None:
+        if skill.id in seen or skill.id in trail:
+            return
+        trail = trail | {skill.id}
+        for dep_id in skill.skill_depends_on:
+            dep = by_id.get(dep_id)
+            if dep is not None:
+                visit(dep, trail)
+        if skill.id not in seen:
+            seen.add(skill.id)
+            ordered.append(skill)
+
+    for skill in sorted(skills, key=lambda s: (-s.skill_priority, s.name)):
+        visit(skill, set())
+    return ordered
+
+
+def deprecate_skill(db, fragment_id: int) -> PromptFragment:
+    fragment = get_fragment(db, fragment_id)
+    if fragment is None or not fragment.is_skill:
+        raise LibraryError("Not a skill")
+    return update_fragment(db, fragment_id, skill_status="deprecated")
+
+
+def mark_skill_reviewed(db, fragment_id: int, reviewer: str) -> PromptFragment:
+    """Record that a person reviewed this skill and judged its content still
+    correct, without necessarily changing it (docs/AGENT_ADAPTER.md §23.4).
+    `prompt_fragment_versions` already captures *changes* with a changelog;
+    this covers the "looked at it, still fine" case that leaves no change
+    behind. Advisory only -- `reviewer` is free text, not tied to any account
+    (this app has no auth/admin concept, §23.3)."""
+    fragment = get_fragment(db, fragment_id)
+    if fragment is None or not fragment.is_skill:
+        raise LibraryError("Not a skill")
+    reviewer = (reviewer or "").strip()
+    if not reviewer:
+        raise LibraryError("A reviewer name is required")
+    db.execute(
+        "UPDATE prompt_fragments SET skill_last_reviewed_at = ?, skill_reviewed_by = ? WHERE id = ?",
+        (now(), reviewer, fragment_id),
+    )
+    db.commit()
+    return get_fragment(db, fragment_id)
+
+
+def validate_skill(db, fragment_id: int) -> dict:
+    """Schema/dependency/role checks for the "validate" action. Errors mean the
+    skill is broken (shouldn't happen via the normal write path, but a
+    hand-edited database must be checkable); warnings are advisory."""
+    fragment = get_fragment(db, fragment_id)
+    errors, warnings = [], []
+    if fragment is None or not fragment.is_skill:
+        return {"ok": False, "errors": ["Not a skill"], "warnings": []}
+    for dep_id in fragment.skill_depends_on:
+        dep = get_fragment(db, dep_id)
+        if dep is None or not dep.is_skill:
+            errors.append(f"Dependency {dep_id} does not exist")
+    try:
+        _check_skill_dependencies(db, fragment_id, fragment.skill_depends_on)
+    except LibraryError as exc:
+        errors.append(str(exc))
+    for role in fragment.skill_roles:
+        if role.upper() not in AGENT_ROLES:
+            warnings.append(f"Role {role!r} is not one of {', '.join(AGENT_ROLES)}")
+    if not fragment.skill_when_to_use.strip():
+        warnings.append("No 'when to use' guidance set")
+    return {"ok": not errors, "errors": errors, "warnings": warnings}
 
 
 # -- templates ---------------------------------------------------------------------------
@@ -377,13 +574,15 @@ def delete_block(db, block_id: int) -> None:
 
 def record_prompt(
     db, source_type: str, source_id: int, effective_prompt: str, template_id=None, template_name="",
-    context_files=None, variables_used=None, blocks_included=None, redacted=False,
+    context_files=None, variables_used=None, blocks_included=None, redacted=False, skills_included=None,
 ) -> int:
     cur = db.execute(
         "INSERT INTO execution_prompts (source_type, source_id, template_id, template_name, effective_prompt, "
-        "context_files, variables_used, blocks_included, redacted, assembled_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+        "context_files, variables_used, blocks_included, redacted, assembled_at, skills_included) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
         (source_type, source_id, template_id, template_name, effective_prompt, json.dumps(context_files or []),
-         json.dumps(variables_used or {}), json.dumps(blocks_included or []), int(redacted), now()),
+         json.dumps(variables_used or {}), json.dumps(blocks_included or []), int(redacted), now(),
+         json.dumps(skills_included or [])),
     )
     db.commit()
     return cur.lastrowid
@@ -397,6 +596,7 @@ def get_execution_prompt(db, prompt_id: int) -> ExecutionPrompt | None:
     d["context_files"] = json.loads(d["context_files"])
     d["variables_used"] = json.loads(d["variables_used"])
     d["blocks_included"] = json.loads(d["blocks_included"])
+    d["skills_included"] = json.loads(d["skills_included"]) if d.get("skills_included") else []
     d["redacted"] = bool(d["redacted"])
     return ExecutionPrompt(**d)
 
@@ -646,7 +846,37 @@ def seed_defaults(db) -> None:
     edited or not, are never overwritten."""
     for name, body in DEFAULT_TEMPLATES.items():
         if get_template_by_name(db, name) is None:
-            create_template(db, name, body=body, description="Built-in AGENT step prompt")
+            create_template(
+                db, name, body=body,
+                description=DEFAULT_TEMPLATE_DESCRIPTIONS.get(name, "Built-in AGENT step prompt"),
+            )
     if not list_blocks(db):
         for name, content in DEFAULT_INSTRUCTIONS:
             create_block(db, name, content, description="Standard Ralph instruction")
+
+
+def seed_builtin_skills(db) -> int:
+    """Idempotent, additive-only (same contract as `seed_defaults`): a skill in
+    `DEFAULT_SKILLS` whose name isn't already a fragment is created active;
+    existing skills, edited or not, are never overwritten. Returns the count
+    created.
+
+    Deliberately **not** called from `seed_defaults` or wired into every
+    `create_app()` the way `seed_defaults`/`seed_skills_from_disk` are --
+    `tests/prompts/test_skill_assembler.py` (and others) assert an *empty*
+    skill set on a freshly created app, so this is invoked separately (see
+    `app/__init__.py`, guarded on `not TESTING`, and directly by
+    `tests/prompts/test_skill_seed_content.py`)."""
+    created = 0
+    for skill in DEFAULT_SKILLS:
+        if get_fragment_by_name(db, skill["name"]) is not None:
+            continue
+        create_fragment(
+            db, skill["name"], skill["content"], "instruction",
+            skill_status="active", skill_when_to_use=skill.get("when_to_use", ""),
+            skill_constraints=skill.get("constraints"), skill_roles=skill.get("roles"),
+            skill_adapter_types=skill.get("adapter_types"), skill_priority=skill.get("priority", 0),
+            skill_author=skill.get("author", "AgentFlow"),
+        )
+        created += 1
+    return created

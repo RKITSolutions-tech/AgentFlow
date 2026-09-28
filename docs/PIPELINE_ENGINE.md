@@ -134,6 +134,15 @@ MANUAL_INPUT
 MANUAL_REVIEW
 ```
 
+### Research steps (§23)
+
+```text
+RESEARCH
+```
+
+Read-only: never writes, edits or commits, and holds no repository lock (§23). Its own category (not
+"development"), so the graph/inspector show it distinctly from AGENT/TASK work.
+
 ## 6. Initial Step Types
 
 ```text
@@ -159,6 +168,7 @@ MANUAL_APPROVAL
 MANUAL_INPUT
 MANUAL_REVIEW
 SUB_PIPELINE
+RESEARCH
 ```
 
 ## 7. Agent Steps and Prompt Library
@@ -565,16 +575,72 @@ recommendations to confirm.
   as the step's `input_reference`** and the reply as its result. Until the
   prompt library exists (P2.9) `prompt_template` names come from a small
   built-in table (`implement-task`, `verify-acceptance`).
+- `config.model` (optional, task 56) names a Settings `local` catalog `model_id`
+  (docs/AGENT_ADAPTER.md §17/§18); `PipelineEngine._h_agent` resolves it via
+  `app.settings.models.resolve_local_model` (the same lookup
+  `PLANNING_AGENT=local` uses) and threads it onto the step's `AgentContext`, so
+  whichever adapter the engine is running (Codex/Claude) applies that entry's
+  `base_url`/`api_key` exactly as it would for an interactive session against
+  the same model. An unresolvable model id fails the step (`ModelCatalogConfigError`)
+  rather than silently running unmodified.
 - Outputs are redacted before storage; full logs are files under
   `<artifact root>/pipelines/<execution>/`, referenced by `raw_data_reference`.
 - `STOP_AND_MESSAGE` sets `needs_attention` and records an
   `InterventionRequested` event. The existing notification table is
   session-scoped, so wiring these into notifications waits for the UI (task 24).
 
-## 23. Research Step (proposed)
+## 23. Research Step (implemented, task 43)
 
-Decided in discussion; not yet built. An `AGENT` step with `config.role: RESEARCH` (AGENT_ADAPTER §23), driven by a
-prompt-library template. It records its effective prompt like any AGENT step and stores the report as an artifact.
-Typical uses: before planning (to inform task suggestions), before a Ralph iteration (background or an answer), and
-after repeated Ralph failures (opt-in: the report reaches the next iteration as steering, never automatically applied).
-A research step needs no repository lock and never changes the working tree.
+`RESEARCH` is its own element type (`app/pipelines/schema.py` `RESEARCH_TYPES`, category `RESEARCH` -- not folded
+into `AGENT`/DEVELOPMENT the way the earlier proposal in this section had it), executed by
+`PipelineEngine._h_research` (a sibling of `_h_agent`). It drives `app/agents/research_agent.ResearchAgent`
+(AGENT_ADAPTER §23) rather than calling an `AgentAdapter` directly.
+
+Config:
+
+```text
+prompt_template_id   optional; a prompt library template by name or numeric id (assemble_effective_prompt's
+                      existing `template` param), falling back to the shipped DEFAULT_TEMPLATES the same way
+                      AGENT's prompt_template does when the library was never seeded
+prompt                optional literal question text; wins over prompt_template_id when both are given
+context               optional dict of extra key/value pairs; each value is resolved through the same strict
+                      `${...}` resolver every other step config uses (`self._resolve`) and appended ahead of
+                      the question as free text
+context_files          optional globs (as AGENT's), resolved under the repository root into the question
+time_limit_seconds     optional; ResearchAgent.research()'s wall-clock budget (default 300s)
+cost_limit_usd         optional; ResearchAgent.research()'s best-effort cost budget (default $10)
+model                  optional; a Settings `local` catalog model id, resolved the same way as AGENT's
+                      config.model (§22, task 56)
+```
+
+At least one of `prompt_template_id`/`prompt` is required (schema.py `REQUIRED_CONFIG`); role is never
+user-set -- `ResearchAgent` always drives the underlying `AgentAdapter` session with `role=RESEARCH`.
+
+Execution: the question is assembled with `assembler.assemble_effective_prompt(..., role="RESEARCH",
+agent_type=self._agent_type())` -- the same call `_h_agent` makes for AGENT steps, so RESEARCH steps resolve
+project context files, skills and `${...}` variables identically, and get task 56's local-model support "for
+free" via the existing `_resolve_step_model`/`_agent_factory` machinery. The effective prompt (question) is
+recorded into `execution_prompts` exactly like an AGENT step's (`source_type='pipeline_step'`, including
+`skills_included`). `ResearchAgent(adapter, db=self._db).research(context, question, time_limit_seconds=...,
+cost_limit_usd=...)` then drives the session and parses/redacts the reply into a `ResearchReport`.
+
+`ResearchOutcome.state` maps onto the step's terminal `StepResult.status`: `COMPLETE` -> `PASSED` (with the
+report's `summary` as the step's result and the full report JSON as its log/output); `TIMED_OUT` -> `TIMED_OUT`
+(an existing step status, reused verbatim); `FAILED`/`COST_LIMIT_EXCEEDED` -> `FAILED` (no dedicated
+step_executions status exists for a cost overrun, so it is reported as a FAILED step whose error text names the
+limit). A completed step also indexes the report JSON in the Artifact Library as `kind='research_report'`
+(`app/artifacts/collector.py`, linked to the step like any other artifact), with metadata `summary_length`,
+`finding_count`, `source_count`, `unverified_finding_count`, `cost_usd` and `duration_seconds` -- everything
+task 44 (backlog research action), task 47 (Ralph failure-trigger wiring) and task 48 (knowledge base) build on.
+
+A research step needs no repository lock and never changes the working tree: neither `_h_research` nor
+`ResearchAgent.research()` ever calls `app/projects/lock.py` (RUN_AND_RALPH §22, AGENT_ADAPTER §23
+"Locking") -- the project/repository lock in this engine is acquired once per *execution* by
+`PipelineManager.start()`, never per step, so this only matters in that a RESEARCH step introduces no new
+lock-acquiring code path of its own, and a pipeline made up only of RESEARCH steps is no more likely to
+conflict with other work than any other execution.
+
+Typical uses: before planning (to inform task suggestions), before a Ralph iteration (background or an
+answer), and after repeated Ralph failures (opt-in: the report reaches the next iteration as steering, never
+automatically applied) -- none of that wiring is built here (task 44/47/48), only the step type and its
+artifact/execution_prompts shape.

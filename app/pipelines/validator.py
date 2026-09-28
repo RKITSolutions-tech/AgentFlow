@@ -7,9 +7,17 @@ from typing import Callable
 from app.pipelines import schema
 
 
-def validate(definition: dict, resolver: Callable[[str], dict | None] | None = None) -> list[str]:
+def validate(
+    definition: dict,
+    resolver: Callable[[str], dict | None] | None = None,
+    template_resolver: Callable[[object], bool] | None = None,
+) -> list[str]:
     """Check one definition. `resolver(name)` returns another definition (or
-    None) so SUB_PIPELINE / START_PIPELINE references can be checked."""
+    None) so SUB_PIPELINE / START_PIPELINE references can be checked.
+    `template_resolver(ref)` says whether a RESEARCH step's
+    `config.prompt_template_id` names a real prompt library template (or a
+    built-in default) -- omitted (None) skips the check, since callers without
+    a database (e.g. a pure-definition unit test) cannot look one up."""
     errors: list[str] = []
     if not isinstance(definition, dict):
         return ["A pipeline definition must be an object"]
@@ -36,7 +44,7 @@ def validate(definition: dict, resolver: Callable[[str], dict | None] | None = N
         if ename in names:
             errors.append(f"{label} is defined twice")
         names.append(ename)
-        errors += _check_element(label, el)
+        errors += _check_element(label, el, template_resolver)
 
     known = set(names)
     graph: dict[str, set[str]] = {}
@@ -73,7 +81,7 @@ def validate(definition: dict, resolver: Callable[[str], dict | None] | None = N
     return errors
 
 
-def _check_element(label: str, el: dict) -> list[str]:
+def _check_element(label: str, el: dict, template_resolver: Callable[[object], bool] | None = None) -> list[str]:
     errors = []
     etype = el.get("type")
     if etype not in schema.ELEMENT_TYPES:
@@ -88,6 +96,10 @@ def _check_element(label: str, el: dict) -> list[str]:
     for group in schema.REQUIRED_CONFIG.get(etype, ()):
         if not any(config.get(key) not in (None, "") for key in group):
             errors.append(f"{label} ({etype}) needs config: {' or '.join(group)}")
+    if etype == "RESEARCH" and template_resolver is not None:
+        ref = config.get("prompt_template_id")
+        if ref not in (None, "") and not template_resolver(ref):
+            errors.append(f"{label}: prompt_template_id {ref!r} does not exist")
     comp = el.get("compensation", {})
     if not isinstance(comp, dict):
         return errors + [f"{label}: compensation must be an object"]

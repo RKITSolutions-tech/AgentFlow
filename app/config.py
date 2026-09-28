@@ -27,9 +27,21 @@ class Config:
     # Where Run artifact content and large logs live; defaults to
     # `artifacts/` beside the database.
     ARTIFACT_DIR: str = ""
-    # Agent used for sprint planning: "codex" (real) or "fake" (deterministic,
-    # one task per backlog item; AGENTFLOW_PLANNING_AGENT).
+    # Agent used for sprint planning: "codex"/"claude" (real), "local" (a
+    # Settings model_catalog "local" entry, driven through whichever of those
+    # two CLIs PLANNING_LOCAL_ADAPTER names), or "fake" (deterministic, one
+    # task per backlog item; AGENTFLOW_PLANNING_AGENT).
     PLANNING_AGENT: str = "codex"
+    # model_id of the Settings "local" catalog entry PLANNING_AGENT=local uses
+    # (AGENTFLOW_PLANNING_MODEL). A `local` catalog row only carries a
+    # base_url/api_key (app/settings/models.py), not which CLI wire protocol
+    # it speaks, so PLANNING_LOCAL_ADAPTER says that separately.
+    PLANNING_MODEL: str = ""
+    # Which real adapter's wire protocol a PLANNING_AGENT=local model speaks:
+    # "codex" (default, OpenAI-compatible `-c model_providers.local...`) or
+    # "claude" (Anthropic-API-compatible, ANTHROPIC_BASE_URL/ANTHROPIC_AUTH_TOKEN).
+    # AGENTFLOW_PLANNING_LOCAL_ADAPTER.
+    PLANNING_LOCAL_ADAPTER: str = "codex"
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -70,4 +82,8 @@ class Config:
             REDACT_PATTERNS=extra_patterns_from_env(),
             ARTIFACT_DIR=os.environ.get("AGENTFLOW_ARTIFACT_DIR", ""),
             PLANNING_AGENT=os.environ.get("AGENTFLOW_PLANNING_AGENT", "codex").lower(),
+            PLANNING_MODEL=os.environ.get("AGENTFLOW_PLANNING_MODEL", ""),
+            PLANNING_LOCAL_ADAPTER=os.environ.get(
+                "AGENTFLOW_PLANNING_LOCAL_ADAPTER", "codex"
+            ).lower(),
         )

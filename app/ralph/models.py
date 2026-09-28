@@ -16,6 +16,7 @@ RUN_STATUSES = (
 DEFAULT_MAX_ITERATIONS = 8
 DEFAULT_IDENTICAL_FAILURE_LIMIT = 2
 DEFAULT_NO_CHANGE_LIMIT = 2
+DEFAULT_FAILURE_THRESHOLD = 2
 
 
 @dataclass
@@ -48,6 +49,9 @@ class RalphRun:
     completed_at: str | None
     created_at: str
     elapsed_seconds: float = 0.0
+    research_on_failure: bool = False
+    failure_threshold: int = 2
+    research_script: list | None = None
 
 
 @dataclass
@@ -69,6 +73,9 @@ class Iteration:
     started_at: str | None
     completed_at: str | None
     execution_prompt_id: int | None = None
+    research_session_id: int | None = None
+    research_artifact_id: int | None = None
+    research_report_presented: bool = False
 
 
 @dataclass
@@ -85,7 +92,11 @@ def _run(row: sqlite3.Row) -> RalphRun:
     d = dict(row)
     d["acceptance"] = json.loads(d["acceptance"])
     d["script"] = json.loads(d["script"]) if d["script"] else None
-    for key in ("auto_commit", "pause_requested", "cancel_requested", "needs_attention", "awaiting_acceptance"):
+    d["research_script"] = json.loads(d["research_script"]) if d["research_script"] else None
+    for key in (
+        "auto_commit", "pause_requested", "cancel_requested", "needs_attention", "awaiting_acceptance",
+        "research_on_failure",
+    ):
         d[key] = bool(d[key])
     return RalphRun(**d)
 
@@ -106,20 +117,27 @@ def create_run(
     no_change_limit: int = DEFAULT_NO_CHANGE_LIMIT,
     auto_commit: bool = True,
     script: list | None = None,
+    research_on_failure: bool = False,
+    failure_threshold: int = DEFAULT_FAILURE_THRESHOLD,
+    research_script: list | None = None,
 ) -> int:
     if not verification_pipeline:
         raise ValueError("A Ralph run needs a verification pipeline: the agent saying it is done is not enough")
     if max_iterations < 1 or identical_failure_limit < 1 or no_change_limit < 1:
         raise ValueError("Iteration and no-progress limits must be at least 1")
+    if failure_threshold < 1:
+        raise ValueError("failure_threshold must be at least 1")
     cur = db.execute(
         "INSERT INTO ralph_runs (project_id, repository_id, work_item_id, sprint_id, title, task_text, "
         "acceptance, verification_pipeline, max_iterations, max_runtime_seconds, identical_failure_limit, "
-        "no_change_limit, auto_commit, script, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "no_change_limit, auto_commit, script, research_on_failure, failure_threshold, research_script, "
+        "created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (
             project_id, repository_id, work_item_id, sprint_id, title.strip() or f"Task {work_item_id}",
             task_text, json.dumps(acceptance or []), verification_pipeline, max_iterations,
             max_runtime_seconds, identical_failure_limit, no_change_limit, int(auto_commit),
-            json.dumps(script) if script is not None else None, now(),
+            json.dumps(script) if script is not None else None, int(research_on_failure), failure_threshold,
+            json.dumps(research_script) if research_script is not None else None, now(),
         ),
     )
     db.commit()
@@ -158,6 +176,7 @@ def _iteration(row: sqlite3.Row) -> Iteration:
     d = dict(row)
     d["changed_files"] = json.loads(d["changed_files"])
     d["redacted"] = bool(d["redacted"])
+    d["research_report_presented"] = bool(d["research_report_presented"])
     return Iteration(**d)
 
 
@@ -176,9 +195,20 @@ def update_iteration(db: sqlite3.Connection, iteration_id: int, **fields) -> Non
         fields["changed_files"] = json.dumps(fields["changed_files"])
     if "redacted" in fields:
         fields["redacted"] = int(fields["redacted"])
+    if "research_report_presented" in fields:
+        fields["research_report_presented"] = int(fields["research_report_presented"])
     assignments = ", ".join(f"{k} = ?" for k in fields)
     db.execute(f"UPDATE ralph_iterations SET {assignments} WHERE id = ?", [*fields.values(), iteration_id])
     db.commit()
+
+
+def mark_research_presented(db: sqlite3.Connection, iteration_id: int) -> None:
+    """A person has acted on the iteration's research report (used it as
+    steering or dismissed it) -- advisory-only gate (docs/RUN_AND_RALPH.md §22
+    "Opt-in research on repeated failure" / docs/AGENT_ADAPTER.md §23: "A
+    person accepts findings before they change a plan or acceptance
+    criteria"). Idempotent; the caller rejects a second click before this."""
+    update_iteration(db, iteration_id, research_report_presented=True)
 
 
 def add_steering(db: sqlite3.Connection, run_id: int, message: str, iteration_number: int) -> int:
@@ -211,3 +241,60 @@ def consume_steering(db: sqlite3.Connection, steering_ids: list[int], iteration_
         [(iteration_number, i) for i in steering_ids],
     )
     db.commit()
+
+
+@dataclass
+class ResearchHistory:
+    id: int
+    run_id: int
+    iteration_number: int
+    research_session_id: int | None
+    artifact_id: int | None
+    triggered_reason: str
+    consecutive_failures: int
+    steering_applied: bool
+    steering_accepted_at: str | None
+    accepted_by: str | None
+    created_at: str
+
+
+def log_research_trigger(
+    db: sqlite3.Connection,
+    run_id: int,
+    iteration_number: int,
+    triggered_reason: str,
+    consecutive_failures: int = 0,
+    research_session_id: int | None = None,
+    artifact_id: int | None = None,
+) -> int:
+    """Log a research trigger event. Returns the history record ID."""
+    if triggered_reason not in ('no_progress', 'repeated_failures'):
+        raise ValueError(f"Invalid triggered_reason: {triggered_reason}")
+    cur = db.execute(
+        "INSERT INTO ralph_research_history "
+        "(run_id, iteration_number, research_session_id, artifact_id, triggered_reason, "
+        "consecutive_failures, steering_applied, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, 0, ?)",
+        (run_id, iteration_number, research_session_id, artifact_id, triggered_reason, consecutive_failures, now()),
+    )
+    db.commit()
+    return cur.lastrowid
+
+
+def mark_steering_applied(db: sqlite3.Connection, history_id: int, accepted_by: str) -> None:
+    """Mark research steering as applied by a user."""
+    db.execute(
+        "UPDATE ralph_research_history SET steering_applied = 1, steering_accepted_at = ?, "
+        "accepted_by = ? WHERE id = ?",
+        (now(), accepted_by, history_id),
+    )
+    db.commit()
+
+
+def get_research_history(db: sqlite3.Connection, run_id: int) -> list[ResearchHistory]:
+    """Fetch all research history for a run."""
+    rows = db.execute(
+        "SELECT * FROM ralph_research_history WHERE run_id = ? ORDER BY iteration_number",
+        (run_id,),
+    ).fetchall()
+    return [ResearchHistory(**dict(r)) for r in rows]

@@ -11,7 +11,10 @@ import re
 from dataclasses import dataclass, field
 
 from app.agents.base import AgentAdapter, AgentContext
+from app.agents.models import update_session_metadata
 from app.backlog.models import BacklogItem
+from app.prompts import assembler
+from app.runs.models import now
 from app.sprints.models import DocumentRef, Sprint
 
 PLANNING_ROLE = "PLANNING"
@@ -139,8 +142,9 @@ def scripted_plan(items: list[BacklogItem]) -> list[dict]:
 
 
 class PlanningAgent:
-    def __init__(self, adapter: AgentAdapter, fake_script_from_items: bool = False):
+    def __init__(self, adapter: AgentAdapter, db=None, fake_script_from_items: bool = False):
         self._adapter = adapter
+        self._db = db
         self._scripted = fake_script_from_items
 
     def start(
@@ -153,7 +157,28 @@ class PlanningAgent:
         options: dict = {"role": PLANNING_ROLE}
         if self._scripted:
             options["script"] = scripted_plan(items)
-        session = self._adapter.start(context, build_prompt(sprint, items, docs), options)
+        prompt = build_prompt(sprint, items, docs)
+        skill_names: list[str] = []
+        agent_type = ""
+        if self._db is not None:
+            agent_type = type(self._adapter).__name__.replace("AgentAdapter", "").replace("Adapter", "").lower()
+            skills_text, skill_names = assembler.skill_context(
+                self._db, role=PLANNING_ROLE, agent_type=agent_type, project_id=context.project_id,
+            )
+            if skills_text:
+                prompt = f"{prompt}\n\n{skills_text}"
+        session = self._adapter.start(context, prompt, options)
+        if self._db is not None:
+            # Compliance/audit trail (docs/AGENT_ADAPTER.md §23.2, task 53): the
+            # planning session never touches execution_prompts, so the injected
+            # skill manifest is recorded on the agent session itself.
+            update_session_metadata(
+                self._db, session.id,
+                injected_context={
+                    "role": PLANNING_ROLE, "agent_type": agent_type, "skills": skill_names,
+                    "assembled_at": now(),
+                },
+            )
         return session.id
 
     def collect(self, session_id: int, valid_item_ids: set[int]) -> PlanOutcome:
@@ -171,15 +196,54 @@ class PlanningAgent:
             return PlanOutcome("FAILED", error=str(exc))
 
 
-def build_planning_agent(app_config, db) -> PlanningAgent:
-    """The configured planning agent ("fake" for deterministic CI runs)."""
-    if str(app_config.get("PLANNING_AGENT", "codex")).lower() == "fake":
-        from app.agents.fake import FakeAgentAdapter
+def _planning_kind(app_config) -> str:
+    return str(app_config.get("PLANNING_AGENT", "codex")).lower()
 
-        return PlanningAgent(FakeAgentAdapter(db), fake_script_from_items=True)
+
+def _local_planning_model(app_config, db):
+    """Resolves the Settings 'local' catalog entry PLANNING_AGENT=local names
+    via PLANNING_MODEL, raising `ModelCatalogConfigError` if it's missing,
+    disabled, or was never configured."""
+    from app.settings.models import resolve_local_model
+
+    return resolve_local_model(
+        db, app_config.get("PLANNING_MODEL", ""), label="AGENTFLOW_PLANNING_MODEL"
+    )
+
+
+def _local_planning_adapter(app_config, db):
+    """Builds the real adapter backing PLANNING_AGENT=local: which CLI wire
+    protocol the catalog entry speaks is named separately by
+    PLANNING_LOCAL_ADAPTER, since the catalog row itself only carries a
+    base_url/api_key (app/settings/models.py)."""
+    _local_planning_model(app_config, db)  # validate early; raises if unusable
+    if str(app_config.get("PLANNING_LOCAL_ADAPTER", "codex")).lower() == "claude":
+        from app.agents.claude import ClaudeAdapter
+
+        return ClaudeAdapter(db=db, execution_provider=_host_provider(app_config))
     from app.agents.codex import CodexAdapter
 
-    return PlanningAgent(CodexAdapter(db=db, execution_provider=_host_provider(app_config)))
+    return CodexAdapter(db=db, execution_provider=_host_provider(app_config))
+
+
+def build_planning_agent(app_config, db) -> PlanningAgent:
+    """The configured planning agent ("fake" for deterministic CI runs)."""
+    kind = _planning_kind(app_config)
+    if kind == "fake":
+        from app.agents.fake import FakeAgentAdapter
+
+        return PlanningAgent(FakeAgentAdapter(db), db, fake_script_from_items=True)
+    if kind == "claude":
+        from app.agents.claude import ClaudeAdapter
+
+        return PlanningAgent(
+            ClaudeAdapter(db=db, execution_provider=_host_provider(app_config)), db
+        )
+    if kind == "local":
+        return PlanningAgent(_local_planning_adapter(app_config, db), db)
+    from app.agents.codex import CodexAdapter
+
+    return PlanningAgent(CodexAdapter(db=db, execution_provider=_host_provider(app_config)), db)
 
 
 def _host_provider(app_config):
@@ -188,17 +252,25 @@ def _host_provider(app_config):
     return HostExecutionProvider(app_config["DATABASE_PATH"], app_config["ALLOWED_PROJECT_ROOTS"])
 
 
-def build_context(app_config, project_id: int, repository_path: str) -> AgentContext:
+def build_context(app_config, project_id: int, repository_path: str, db=None) -> AgentContext:
     """Where the agent runs. Only real adapters need an execution context
-    (created once per planning run, not per status poll)."""
-    if str(app_config.get("PLANNING_AGENT", "codex")).lower() == "fake":
+    (created once per planning run, not per status poll). For
+    PLANNING_AGENT=local, `db` resolves the configured catalog entry and its
+    model_id is set on the context so the adapter's own local-model handling
+    (CodexAdapter's `-c model_providers.local...`/ClaudeAdapter's
+    ANTHROPIC_BASE_URL, both keyed off `context.model`) applies exactly as it
+    would for a session started interactively against that same model."""
+    kind = _planning_kind(app_config)
+    if kind == "fake":
         return AgentContext(project_id=project_id, working_directory=repository_path)
     exec_context = _host_provider(app_config).create_context(
         {"working_directory": repository_path, "environment": {}, "target": ""}
     )
+    model = _local_planning_model(app_config, db).model_id if kind == "local" else None
     return AgentContext(
         project_id=project_id,
         working_directory=repository_path,
         execution_provider="host",
         execution_target=str(exec_context.id),
+        model=model,
     )

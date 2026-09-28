@@ -5,6 +5,7 @@ import json
 
 from flask import Blueprint, Response, abort, current_app, flash, redirect, render_template, request, url_for
 
+from app.agents.base import AGENT_ROLES
 from app.db import get_db
 from app.projects import models as project_models
 from app.prompts import assembler, models
@@ -38,8 +39,8 @@ def _form_ints(name: str) -> list[int]:
 def library():
     db = get_db()
     return render_template(
-        "prompts/library.html", fragments=models.list_fragments(db), templates=models.list_templates(db),
-        categories=models.CATEGORIES, usage=models.template_usage(db),
+        "prompts/library.html", fragments=[f for f in models.list_fragments(db) if not f.is_skill],
+        templates=models.list_templates(db), categories=models.CATEGORIES, usage=models.template_usage(db),
     )
 
 
@@ -86,6 +87,102 @@ def delete_fragment(fragment_id: int):
     except LibraryError as exc:
         return _reply(str(exc), False, _library(), 409)
     return _reply("Fragment deleted", True, _library())
+
+
+def _skills_page() -> str:
+    return url_for("prompts.skills")
+
+
+def _skill_fields() -> dict:
+    constraints = [c.strip() for c in request.form.get("constraints", "").splitlines() if c.strip()]
+    return {
+        "content": request.form.get("content", ""),
+        "skill_status": request.form.get("skill_status", "active"),
+        "skill_when_to_use": request.form.get("when_to_use", ""),
+        "skill_constraints": constraints,
+        "skill_depends_on": _form_ints("depends_on"),
+        "skill_roles": request.form.getlist("roles"),
+        "skill_adapter_types": request.form.get("adapter_types", ""),
+        "skill_priority": int(request.form.get("priority") or 0),
+        "skill_author": request.form.get("author", ""),
+        "tags": request.form.get("tags", ""),
+        "changelog": request.form.get("changelog", ""),
+    }
+
+
+@bp.get("/skills")
+def skills():
+    db = get_db()
+    role = request.args.get("role", "")
+    adapter_type = request.args.get("adapter_type", "")
+    status = request.args.get("status", "")
+    return render_template(
+        "prompts/skills.html",
+        skills=models.list_skills(db, role=role or None, adapter_type=adapter_type or None, status=status or None),
+        roles=AGENT_ROLES, statuses=models.SKILL_STATUSES,
+        filter_role=role, filter_adapter_type=adapter_type, filter_status=status,
+    )
+
+
+@bp.post("/skills")
+def create_skill():
+    try:
+        fid = models.create_fragment(get_db(), request.form.get("name", ""), **_skill_fields())
+    except LibraryError as exc:
+        return _reply(str(exc), False, _skills_page())
+    target = url_for("prompts.edit_skill", fragment_id=fid)
+    return _reply("Skill created", True, target, skill_id=fid, redirect=target)
+
+
+@bp.route("/skills/<int:fragment_id>", methods=["GET", "POST"])
+def edit_skill(fragment_id: int):
+    db = get_db()
+    skill = models.get_fragment(db, fragment_id)
+    if skill is None or not skill.is_skill:
+        abort(404)
+    if request.method == "GET":
+        return render_template(
+            "prompts/skill_form.html", skill=skill, roles=AGENT_ROLES, statuses=models.SKILL_STATUSES,
+            versions=models.fragment_versions(db, fragment_id),
+            available_skills=[s for s in models.list_skills(db) if s.id != fragment_id],
+            used_by=models.templates_using_fragment(db, fragment_id),
+            dependents=models.skills_depending_on(db, fragment_id),
+        )
+    try:
+        models.update_fragment(db, fragment_id, request.form.get("name"), **_skill_fields())
+    except LibraryError as exc:
+        return _reply(str(exc), False, request.url)
+    return _reply("Skill saved", True, request.url)
+
+
+@bp.route("/skills/<int:fragment_id>/delete", methods=["POST", "DELETE"])
+def deprecate_skill(fragment_id: int):
+    if models.get_fragment(get_db(), fragment_id) is None:
+        abort(404)
+    try:
+        models.deprecate_skill(get_db(), fragment_id)
+    except LibraryError as exc:
+        return _reply(str(exc), False, _skills_page(), 409)
+    return _reply("Skill deprecated", True, _skills_page())
+
+
+@bp.post("/skills/<int:fragment_id>/validate")
+def validate_skill(fragment_id: int):
+    if models.get_fragment(get_db(), fragment_id) is None:
+        abort(404)
+    return models.validate_skill(get_db(), fragment_id)
+
+
+@bp.post("/skills/<int:fragment_id>/reviewed")
+def mark_skill_reviewed(fragment_id: int):
+    """Record a review with no content change (docs/AGENT_ADAPTER.md §23.4)."""
+    if models.get_fragment(get_db(), fragment_id) is None:
+        abort(404)
+    try:
+        models.mark_skill_reviewed(get_db(), fragment_id, request.form.get("reviewer", ""))
+    except LibraryError as exc:
+        return _reply(str(exc), False, url_for("prompts.edit_skill", fragment_id=fragment_id))
+    return _reply("Review recorded", True, url_for("prompts.edit_skill", fragment_id=fragment_id))
 
 
 def _template_fields() -> dict:

@@ -12,7 +12,8 @@ from flask import (
     url_for,
 )
 
-from app.backlog import attachments, persistence
+from app.agents import models as agent_models
+from app.backlog import attachments, persistence, research
 from app.backlog.models import (
     BACKLOG_PRIORITIES,
     BACKLOG_STATUSES,
@@ -196,9 +197,85 @@ def view_item(project_id: int, item_id: int):
         item=item,
         files=persistence.list_attachments(db, item_id),
         history=persistence.list_history(db, item_id),
+        research_history=research.item_research_history(db, item_id),
         next_statuses=TRANSITIONS[item.status],
         priorities=BACKLOG_PRIORITIES,
     )
+
+
+@bp.post("/items/<int:item_id>/research")
+def research_item(project_id: int, item_id: int):
+    """Ask a RESEARCH-role agent about this item (§50, task 44). Blocks for the
+    research pass -- see app/backlog/research.py's module docstring for why
+    that matches this app's existing sprint-planning precedent -- so the
+    trigger button is a `data-ajax-reload` (disabled while in flight, page
+    reload on completion shows the new report), the same control Ralph's
+    research-on-failure report already uses (app/templates/ralph/detail.html)."""
+    project = _project(project_id)
+    item = _item(project_id, item_id)
+    db = get_db()
+    back = url_for("backlog.view_item", project_id=project_id, item_id=item_id)
+    try:
+        result = research.run_item_research(current_app.config, db, _root(), project, item)
+    except (ValueError, RuntimeError) as exc:
+        return _reply(f"Research could not start: {exc}", False, back, 502)
+
+    outcome = result.outcome
+    if outcome.state == "COMPLETE":
+        return _reply(
+            "Research complete", True, back,
+            link_id=result.link_id, research_session_id=result.research_session_id, outcome=outcome.state,
+            report=outcome.report.to_dict(),
+        )
+    message = outcome.error or f"Research ended {outcome.state.lower()}"
+    return _reply(message, False, back, 502)
+
+
+def _research_link(project_id: int, item_id: int, link_id: int):
+    _item(project_id, item_id)
+    link = persistence.get_research_link(get_db(), link_id)
+    if link is None or link.backlog_item_id != item_id:
+        abort(404)
+    return link
+
+
+@bp.post("/items/<int:item_id>/research/<int:link_id>/accept")
+def accept_research(project_id: int, item_id: int, link_id: int):
+    """Advisory-only acceptance (docs/AGENT_ADAPTER.md §23: "A person accepts
+    findings before they change a plan or acceptance criteria"): appends the
+    report summary to the item's text and logs a triage-history note, mirroring
+    Ralph's `use_research` (app/ralph/views.py) for the same report shape."""
+    _project(project_id)
+    item = _item(project_id, item_id)
+    db = get_db()
+    back = url_for("backlog.view_item", project_id=project_id, item_id=item_id)
+    link = _research_link(project_id, item_id, link_id)
+    if link.status != "PENDING":
+        return _reply("This report was already reviewed", False, back, 409)
+    session_row = agent_models.get_research_session(db, link.research_session_id)
+    if session_row is None or session_row.status != "COMPLETED" or not session_row.findings_summary.strip():
+        return _reply("There is no completed research summary to accept", False, back, 409)
+    block = f"Research summary ({session_row.completed_at or 'n/a'}):\n{session_row.findings_summary}".strip()
+    text = f"{item.text}\n\n{block}".strip() if item.text.strip() else block
+    persistence.update_item(db, item_id, text=text)
+    persistence.record_note(db, item_id, f"Accepted research summary (session #{link.research_session_id})", changed_by=_actor())
+    persistence.set_research_link_status(db, link_id, "ACCEPTED")
+    return _reply("Research summary added to the item", True, back, text=text)
+
+
+@bp.post("/items/<int:item_id>/research/<int:link_id>/dismiss")
+def dismiss_research(project_id: int, item_id: int, link_id: int):
+    """Marks the report reviewed without changing the item -- mirrors Ralph's
+    `dismiss_research`."""
+    _project(project_id)
+    _item(project_id, item_id)
+    db = get_db()
+    back = url_for("backlog.view_item", project_id=project_id, item_id=item_id)
+    link = _research_link(project_id, item_id, link_id)
+    if link.status != "PENDING":
+        return _reply("This report was already reviewed", False, back, 409)
+    persistence.set_research_link_status(db, link_id, "DISMISSED")
+    return _reply("Dismissed", True, back)
 
 
 def _apply_update(project_id: int, item_id: int, values) -> tuple[str, bool, int]:

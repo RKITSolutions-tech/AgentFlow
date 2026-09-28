@@ -101,8 +101,24 @@
     inspector.appendChild(section("Summary", summary));
 
     if (last && last.error) inspector.appendChild(section("Failure", pre(last.error)));
-    if (last && last.input) inspector.appendChild(section(d.type === "AGENT" ? "Prompt (effective)" : "Input", pre(last.input)));
-    if (last && (last.output || last.result)) inspector.appendChild(section(d.type === "AGENT" ? "Agent reply" : "Output", pre(last.output || last.result)));
+    if (last && last.input) {
+      if (d.type === "RESEARCH") {
+        // Collapsed by default (task 43): the question can be long once
+        // resolved context/skills are folded in, and it is rarely the first
+        // thing worth reading -- the report below is.
+        var promptDetails = el("details");
+        promptDetails.appendChild(el("summary", "", "Question (effective prompt)"));
+        promptDetails.appendChild(pre(last.input));
+        inspector.appendChild(promptDetails);
+      } else {
+        inspector.appendChild(section(d.type === "AGENT" ? "Prompt (effective)" : "Input", pre(last.input)));
+      }
+    }
+    if (d.type === "RESEARCH") {
+      inspector.appendChild(researchSection(d, last));
+    } else if (last && (last.output || last.result)) {
+      inspector.appendChild(section(d.type === "AGENT" ? "Agent reply" : "Output", pre(last.output || last.result)));
+    }
     if (last && last.redacted) inspector.appendChild(el("p", "form-hint", "Secrets were redacted from this step."));
 
     var config = pre(JSON.stringify(d.configuration, null, 2));
@@ -153,6 +169,41 @@
       location.href = url.toString();
     });
     return b;
+  }
+
+  function researchSection(d, last) {
+    // Sources/findings come from the step's own output text (the same JSON
+    // the Artifact Library indexed as a research_report), parsed here only
+    // for display; the counts in `d.research` are the Artifact's own
+    // metadata, so they still show even if the output text is unavailable.
+    var report = null;
+    if (last && last.output) {
+      try { report = JSON.parse(last.output); } catch (e) { report = null; }
+    }
+    var wrap = el("section", "inspector-section");
+    wrap.appendChild(el("h3", "", "Research report"));
+    if (report && report.summary) {
+      wrap.appendChild(el("p", "", report.summary));
+    } else if (last && last.error) {
+      wrap.appendChild(el("p", "form-hint", "No report: " + last.error));
+    }
+    var meta = d.research || {};
+    var dl = el("dl", "run-meta");
+    function row(k, v) { dl.appendChild(el("dt", "", k)); dl.appendChild(el("dd", "", v)); }
+    row("Findings", String(meta.finding_count != null ? meta.finding_count : (report ? report.findings.length : "–")));
+    row("Unverified", String(meta.unverified_finding_count != null ? meta.unverified_finding_count : "–"));
+    row("Sources", String(meta.source_count != null ? meta.source_count : (report ? report.sources.length : "–")));
+    if (meta.cost_usd != null) row("Cost", "$" + Number(meta.cost_usd).toFixed(4));
+    if (meta.duration_seconds != null) row("Duration", fmt(meta.duration_seconds));
+    wrap.appendChild(dl);
+    if (report && report.sources && report.sources.length) {
+      var list = el("ul");
+      report.sources.forEach(function (s) {
+        list.appendChild(el("li", "", s.file_path + (s.line_range ? " (" + s.line_range + ")" : "")));
+      });
+      wrap.appendChild(section("Sources", list));
+    }
+    return wrap;
   }
 
   function groupSection(d) {

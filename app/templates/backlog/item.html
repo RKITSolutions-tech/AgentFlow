@@ -26,6 +26,71 @@
   <h2>Attachments</h2>
   {{ file_list(project, item, files) }}
   {% if not files %}<p class="form-hint">None.</p>{% endif %}
+
+  <h2>Research</h2>
+  <p class="form-hint">Ask a read-only research agent about this item (docs/SPRINT_PLANNING_AND_BACKLOG.md §50).
+    Nothing is added to the item until you accept a finding.</p>
+  <div class="row-actions">
+    <button type="button" class="btn-primary" data-ajax-reload="{{ url_for('backlog.research_item', project_id=project.id, item_id=item.id) }}">Research this item</button>
+  </div>
+  {% for entry in research_history if entry.link.status == 'PENDING' %}
+    <div class="research-report">
+      <h2>Research findings &middot; {{ entry.link.created_at }}</h2>
+      {% if entry.link.outcome_state == 'COMPLETE' and entry.report %}
+        <p class="wrap-cell">{{ entry.report.summary or '(no summary)' }}</p>
+        {% if entry.report.findings %}
+          <details open>
+            <summary>{{ entry.report.findings|length }} finding{{ 's' if entry.report.findings|length != 1 }}
+              ({{ entry.report.unverified|length }} unverified)</summary>
+            <ul>
+              {% for f in entry.report.findings %}
+                <li class="wrap-cell">{{ f.text }}
+                  {% if f.source_ids %}<span class="form-hint">verified{% if f.category %} &middot; {{ f.category }}{% endif %}</span>
+                  {% else %}<span class="badge badge-danger">unverified</span>{% endif %}
+                </li>
+              {% endfor %}
+            </ul>
+          </details>
+        {% endif %}
+        {% if entry.report.sources %}
+          <details>
+            <summary>{{ entry.report.sources|length }} source{{ 's' if entry.report.sources|length != 1 }}</summary>
+            <ul>
+              {% for s in entry.report.sources %}
+                <li class="wrap-cell">{{ s.file_path }}{% if s.line_range %}:{{ s.line_range }}{% endif %}{% if s.excerpt %} &mdash; <code>{{ s.excerpt }}</code>{% endif %}</li>
+              {% endfor %}
+            </ul>
+          </details>
+        {% endif %}
+        <div class="row-actions">
+          <button type="button" class="btn-primary" data-ajax-reload="{{ url_for('backlog.accept_research', project_id=project.id, item_id=item.id, link_id=entry.link.id) }}">Accept</button>
+          <button type="button" data-ajax-reload="{{ url_for('backlog.dismiss_research', project_id=project.id, item_id=item.id, link_id=entry.link.id) }}">Dismiss</button>
+        </div>
+      {% else %}
+        <p class="wrap-cell">Research ended {{ entry.link.outcome_state|lower|replace('_', ' ') }}{% if entry.session and entry.session.error %}: {{ entry.session.error }}{% endif %}</p>
+        <div class="row-actions">
+          <button type="button" data-ajax-reload="{{ url_for('backlog.dismiss_research', project_id=project.id, item_id=item.id, link_id=entry.link.id) }}">Dismiss</button>
+        </div>
+      {% endif %}
+    </div>
+  {% endfor %}
+  {% set reviewed = research_history|rejectattr('link.status', 'equalto', 'PENDING')|list %}
+  {% if reviewed %}
+    <table class="table-compact">
+      <thead><tr><th>When</th><th>Outcome</th><th>Status</th><th>Report</th></tr></thead>
+      <tbody>
+        {% for entry in reviewed %}
+          <tr>
+            <td>{{ entry.link.created_at }}</td>
+            <td>{{ entry.link.outcome_state|capitalize }}</td>
+            <td>{{ entry.link.status|capitalize }}</td>
+            <td class="row-actions">{% if entry.link.artifact_id %}<a href="{{ url_for('artifacts.detail', project_id=project.id, artifact_id=entry.link.artifact_id) }}">View</a>{% endif %}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+
   <h2>History</h2>
   <table class="table-compact">
     <thead><tr><th>When</th><th>Change</th><th>Notes</th></tr></thead>

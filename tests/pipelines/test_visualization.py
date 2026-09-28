@@ -76,6 +76,32 @@ def test_rigging_is_a_distinct_category_and_teardown_trails(setup):
     assert by["clean"]["layer"] > by["work"]["layer"]
 
 
+def test_research_step_is_a_distinct_category_with_report_summary(setup):
+    from app.agents.research_agent import scripted_report
+    from app.agents.research_report import Finding, ResearchReport, Source
+
+    report = ResearchReport(
+        summary="Found it.",
+        findings=[Finding(text="a", source_ids=["S1"]), Finding(text="b", source_ids=[])],
+        sources=[Source(id="S1", file_path="README.md")],
+    )
+    eid = _run(
+        setup,
+        {"name": "r", "type": "RESEARCH", "config": {"prompt": "Q?", "script": scripted_report(report)}},
+    )
+    g = _graph(setup, eid)
+    node = next(n for n in g["nodes"] if n["id"] == "r")
+    assert node["category"] == "RESEARCH" and node["type"] == "RESEARCH"
+    assert node["type_icon"]  # distinct from a plain AGENT/TASK node
+
+    ex = executions.get_execution(setup.db, eid)
+    detail = visualization.step_detail(setup.db, setup.root, ex, "r")
+    assert detail["category"] == "RESEARCH"
+    assert detail["research"]["finding_count"] == 2
+    assert detail["research"]["unverified_finding_count"] == 1
+    assert detail["research"]["source_count"] == 1
+
+
 def test_compensation_edges_and_retry_state(setup):
     eid = _run(
         setup,

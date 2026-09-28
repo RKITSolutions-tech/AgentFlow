@@ -79,7 +79,7 @@
                 <li>
                   <button type="button" class="pipeline-node node-{{ n.state|lower }} cat-{{ n.category|lower }}{% if n.current %} node-current{% endif %}{% if n.collapsed %} node-group{% endif %}"
                           data-node="{{ n.id }}" aria-pressed="false">
-                    <span class="node-title"><span class="node-icon" aria-hidden="true">{{ n.icon }}</span> {{ n.label }}</span>
+                    <span class="node-title"><span class="node-icon" aria-hidden="true">{{ n.icon }}</span>{% if n.type_icon %} <span class="node-type-icon" aria-hidden="true">{{ n.type_icon }}</span>{% endif %} {{ n.label }}</span>
                     <span class="node-meta">{{ n.type|replace('_', ' ')|capitalize }}{% if n.collapsed %} ({{ n.members|length }} steps){% endif %}{% if n.group %} &middot; {{ n.group }}{% endif %}</span>
                     <span class="node-state">{{ n.state_label }}{% if n.attempts > 1 %} &middot; attempt {{ n.attempt }}{% endif %}</span>
                     {% if n.summary %}<span class="node-summary">{{ n.summary }}</span>{% endif %}

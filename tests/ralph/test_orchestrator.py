@@ -13,6 +13,7 @@ from app.ralph import models
 from app.ralph.manager import RalphManager
 from app.ralph.orchestrator import RalphOrchestrator
 from app.pipelines.manager import PipelineManager
+from app.runs import artifacts as run_artifacts
 from tests.conftest import create_project_with_repo
 
 PY = sys.executable
@@ -36,7 +37,11 @@ def env(app, client, tmp_path):
         db = get_db()
         provider = HostExecutionProvider(app.config["DATABASE_PATH"], app.config["ALLOWED_PROJECT_ROOTS"])
         factory = lambda conn: FakeAgentAdapter(conn)
-        engine = PipelineEngine(db, provider, str(tmp_path / "art"), factory, sleep=lambda s: None)
+        # Same root the app's own routes resolve artifacts against
+        # (app/runs/artifacts.artifact_root), so a research report stored here
+        # is also readable through the web view (tests that POST to the
+        # ralph.use_research/dismiss_research routes need this to line up).
+        engine = PipelineEngine(db, provider, run_artifacts.artifact_root(app.config), factory, sleep=lambda s: None)
         ralph = RalphOrchestrator(db, provider, engine, factory)
         # Verification: a test that passes only when good.txt exists.
         check = f"import os,sys; sys.exit(0 if os.path.exists('good.txt') else 1)"
@@ -261,3 +266,172 @@ def test_manager_background_run_and_reconcile(app, client, tmp_path):
         assert models.get_run(db, stuck).status == "BLOCKED"
         manager.cancel(stuck)
         assert models.get_run(db, stuck).status == "CANCELLED"
+
+
+def _research_report_script():
+    """A FakeAgent script that replies with a fixed, parseable research report
+    (task 47's `research_on_failure` trigger), plus the report itself for
+    assertions."""
+    from app.agents.research_agent import scripted_report
+    from app.agents.research_report import Finding, ResearchReport, Source
+
+    report = ResearchReport(
+        summary="The check script requires good.txt at the repo root.",
+        findings=[Finding(text="good.txt is never written by the earlier attempts", source_ids=["S1"])],
+        sources=[Source(id="S1", file_path="verify.py", excerpt="check good.txt")],
+    )
+    return scripted_report(report), report
+
+
+def test_research_on_failure_off_never_triggers(env):
+    script = _script(("a.txt", "1"), ("b.txt", "2"), ("c.txt", "3"))
+    rid = _run(env, script, identical_failure_limit=5, no_change_limit=5, max_iterations=3,
+               research_on_failure=False, failure_threshold=2)
+    run = env.ralph.run(rid)
+    assert run.status == "FAILED"
+    assert env.db.execute("SELECT COUNT(*) FROM research_sessions").fetchone()[0] == 0
+    assert all(i.research_session_id is None for i in models.list_iterations(env.db, rid))
+
+
+def test_research_triggers_once_at_failure_threshold(env):
+    """docs/RUN_AND_RALPH.md §22: fires exactly once when the trailing failure
+    streak first reaches `failure_threshold`, not on every failing iteration
+    after it, and stores a `research_report` Artifact tagged for Ralph."""
+    from app.artifacts import collector as artifact_collector
+    from app.artifacts import models as artifact_models
+    from app.agents.research_report import ResearchReport
+
+    research_script, report = _research_report_script()
+    script = _script(("a.txt", "1"), ("b.txt", "2"), ("c.txt", "3"))
+    rid = _run(env, script, identical_failure_limit=5, no_change_limit=5, max_iterations=3,
+               research_on_failure=True, failure_threshold=2, research_script=research_script)
+    run = env.ralph.run(rid)
+    assert run.status == "FAILED" and run.current_iteration == 3
+
+    its = models.list_iterations(env.db, rid)
+    assert its[0].research_session_id is None and its[0].research_artifact_id is None
+    assert its[1].research_session_id is not None and its[1].research_artifact_id is not None
+    assert its[1].research_report_presented is False
+    assert its[2].research_session_id is None  # streak passed the threshold: not re-triggered
+
+    assert env.db.execute("SELECT COUNT(*) FROM research_sessions").fetchone()[0] == 1
+    # the main iteration session (resumed) plus one standalone research session
+    assert env.db.execute("SELECT COUNT(*) FROM agent_sessions").fetchone()[0] == 2
+
+    artifact = artifact_models.get_artifact(env.db, its[1].research_artifact_id)
+    assert artifact.kind == "research_report"
+    assert set(artifact.tags) == {"ralph_research", "iteration_2", "failure_analysis"}
+    assert artifact.ralph_run_id == rid and artifact.iteration_number == 2
+
+    with open(artifact_collector.file_path(env.ralph._engine._root, artifact), encoding="utf-8") as fh:
+        stored = ResearchReport.from_json(fh.read())
+    assert stored.summary == report.summary
+
+
+def test_research_triggers_alongside_no_progress_block(env):
+    """When `failure_threshold` and `identical_failure_limit` both trip on the
+    same iteration boundary, research fires (it runs first) and the run still
+    ends up BLOCKED -- research is advisory and never changes that outcome."""
+    research_script, report = _research_report_script()
+    script = _script(("a.txt", "1"), ("b.txt", "2"), ("good.txt", "ok"))
+    rid = _run(env, script, identical_failure_limit=2, no_change_limit=5,
+               research_on_failure=True, failure_threshold=2, research_script=research_script)
+    run = env.ralph.run(rid)
+    assert run.status == "BLOCKED" and run.needs_attention
+    its = models.list_iterations(env.db, rid)
+    assert its[-1].status == "NO_PROGRESS"
+    assert its[1].research_session_id is not None and its[1].research_artifact_id is not None
+
+
+def test_use_research_as_steering_injects_into_next_prompt(env, client):
+    """"Use findings as steering" reuses the existing `ralph_steering`
+    mechanism verbatim: the findings text is injected into the *next*
+    iteration's prompt exactly once, the same as manual steering."""
+    research_script, report = _research_report_script()
+    script = _script(("a.txt", "1"), ("b.txt", "2"), ("good.txt", "ok"))
+    rid = _run(env, script, identical_failure_limit=2, no_change_limit=5,
+               research_on_failure=True, failure_threshold=2, research_script=research_script)
+    run = env.ralph.run(rid)
+    assert run.status == "BLOCKED"
+    it = models.list_iterations(env.db, rid)[1]
+    assert it.research_report_presented is False
+
+    resp = client.post(
+        f"/projects/{env.project_id}/ralph/{rid}/research/{it.id}/use",
+        headers={"X-Requested-With": "XMLHttpRequest"},
+    )
+    assert resp.status_code == 200
+
+    assert models.get_iteration(env.db, it.id).research_report_presented is True
+    steering = models.list_steering(env.db, rid)
+    assert len(steering) == 1 and report.summary in steering[0].message
+
+    env.ralph.unblock(rid)
+    run = env.ralph.run(rid)
+    assert run.status == "COMPLETED"
+    final_prompt = models.list_iterations(env.db, rid)[-1].prompt
+    assert report.summary in final_prompt
+    # injected exactly once: not repeated on an even-later iteration were there one
+    assert steering[0].id in [s.id for s in models.list_steering(env.db, rid) if s.consumed_iteration]
+
+
+def test_dismiss_research_marks_presented_without_steering(env, client):
+    research_script, report = _research_report_script()
+    script = _script(("a.txt", "1"), ("b.txt", "2"), ("good.txt", "ok"))
+    rid = _run(env, script, identical_failure_limit=2, no_change_limit=5,
+               research_on_failure=True, failure_threshold=2, research_script=research_script)
+    run = env.ralph.run(rid)
+    assert run.status == "BLOCKED"
+    it = models.list_iterations(env.db, rid)[1]
+
+    resp = client.post(
+        f"/projects/{env.project_id}/ralph/{rid}/research/{it.id}/dismiss",
+        headers={"X-Requested-With": "XMLHttpRequest"},
+    )
+    assert resp.status_code == 200
+    assert models.get_iteration(env.db, it.id).research_report_presented is True
+    assert models.list_steering(env.db, rid) == []
+
+    env.ralph.unblock(rid)
+    run = env.ralph.run(rid)
+    assert run.status == "COMPLETED"
+    assert report.summary not in models.list_iterations(env.db, rid)[-1].prompt
+
+
+def test_research_trigger_does_not_acquire_project_lock(env):
+    """Mirrors the pipeline RESEARCH-step lock test
+    (tests/pipelines/test_pipeline_engine.py test_research_step_does_not_acquire_project_lock):
+    a rival already holds the project's lock; a research-triggering Ralph run
+    must still complete and never add a lock row of its own. `RalphOrchestrator.run()`
+    itself never touches `app/projects/lock.py` (that happens once, above it,
+    in `RalphManager.start()`) -- the research trigger must not change that."""
+    from app.projects import lock
+
+    lock.acquire(env.db, env.project_id, "manual_run", 999)
+    research_script, _ = _research_report_script()
+    script = _script(("a.txt", "1"), ("b.txt", "2"), ("c.txt", "3"))
+    rid = _run(env, script, identical_failure_limit=5, no_change_limit=5, max_iterations=3,
+               research_on_failure=True, failure_threshold=2, research_script=research_script)
+    run = env.ralph.run(rid)
+    assert run.status == "FAILED"
+    held = lock.active_locks(env.db, env.project_id)
+    assert [h.owner_id for h in held] == [999]
+
+
+def test_active_skill_is_injected_into_the_iteration_prompt(env):
+    """docs/AGENT_ADAPTER.md §23.2/23.3: Ralph iterations pull role/adapter-scoped
+    skills from the prompt library the same way they already pull instruction blocks."""
+    from app.prompts import models as prompt_models
+
+    prompt_models.create_fragment(
+        env.db, "write-tests", "Always add a test for new behaviour.", skill_status="active",
+        skill_roles=["implementation"], skill_adapter_types=["fake"],
+    )
+    rid = _run(env, _script(("good.txt", "ok")))
+    env.ralph.run(rid)
+    it = models.list_iterations(env.db, rid)[0]
+    assert "Always add a test for new behaviour." in it.prompt
+    # Compliance/audit trail (task 53): the skill manifest used for this
+    # iteration's prompt is persisted on its execution_prompts row.
+    recorded = prompt_models.get_execution_prompt(env.db, it.execution_prompt_id)
+    assert recorded.skills_included == ["write-tests"]

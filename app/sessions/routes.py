@@ -28,6 +28,7 @@ from app.sessions import composer
 from app.agents.fake import FakeAgentAdapter
 from app.notifications import models as notification_models
 from app.projects import models as project_models
+from app.runs.models import now
 from app.settings import models as settings_models
 
 bp = Blueprint("sessions", __name__, url_prefix="/sessions")
@@ -196,8 +197,26 @@ def create_session(project_id: int):
             model=model if agent_type in ("codex", "claude") else None,
         )
 
-        session = adapter.start(context, "Starting session...")
+        from app.agents.models import PLACEHOLDER_PROMPT
+        from app.prompts import assembler as prompt_assembler
+
+        skills_text, skill_names = prompt_assembler.skill_context(
+            db, role="GENERAL", agent_type=agent_type, project_id=project_id,
+        )
+        initial_prompt = f"{skills_text}\n\n{PLACEHOLDER_PROMPT}" if skills_text else PLACEHOLDER_PROMPT
+
+        session = adapter.start(context, initial_prompt)
         session_id = session.id
+        # Compliance/audit trail (docs/AGENT_ADAPTER.md §23.2, task 53): interactive
+        # sessions never pass through execution_prompts, so the injected skill
+        # manifest is recorded on the session itself instead.
+        update_session_metadata(
+            db, session_id,
+            injected_context={
+                "role": "GENERAL", "agent_type": agent_type, "skills": skill_names,
+                "assembled_at": now(),
+            },
+        )
 
         flash(f"Session {session_id} started successfully.", "info")
     except Exception as e:
