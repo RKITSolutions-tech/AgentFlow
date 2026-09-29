@@ -8,7 +8,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from app.agents import models
+from app.agents import mcp_config, models
 from app.agents.base import AgentAdapter, AgentContext
 from app.agents.models import AgentEvent, AgentSession
 from app.agents.questions import extract_questions
@@ -26,6 +26,57 @@ PERMISSION_MODES = ("read-only", "workspace-write")
 _LOCAL_MODEL_ENV_KEY = "AGENTFLOW_LOCAL_MODEL_API_KEY"
 
 _VERSION_TIMEOUT_SECONDS = 5.0
+
+_TOOL_CALL_LABEL_MAX_LEN = 80
+
+# Humanized fallback labels for `item.completed` item types the adapter
+# doesn't parse structured detail out of (unconfirmed/rarer shapes); still
+# gives the chat UI's live activity indicator something better than silence.
+_CODEX_ITEM_FALLBACK_LABELS = {
+    "command_execution": "Running a command",
+    "file_change": "Editing files",
+    "mcp_tool_call": "Using a tool",
+    "web_search": "Searching the web",
+    "todo_list": "Updating task list",
+}
+
+
+def _summarize_codex_item(item_type: str, item: dict[str, Any]) -> str | None:
+    """Compact activity label for a non-`agent_message`/`error` `item.completed`
+    item, for the chat UI's live activity indicator. `reasoning` items are
+    deliberately not surfaced here (too noisy; the generic "thinking" state
+    already covers that gap). Falls back to a humanized item-type label when
+    the expected detail field isn't present, rather than showing nothing.
+    """
+    if item_type == "command_execution":
+        command = item.get("command")
+        return f"Running: {command}" if command else _CODEX_ITEM_FALLBACK_LABELS[item_type]
+    if item_type == "file_change":
+        changes = item.get("changes") or []
+        path = changes[0].get("path") if changes and isinstance(changes[0], dict) else None
+        if path:
+            suffix = f" (+{len(changes) - 1} more)" if len(changes) > 1 else ""
+            return f"Editing {path}{suffix}"
+        return _CODEX_ITEM_FALLBACK_LABELS[item_type]
+    if item_type == "mcp_tool_call":
+        tool = item.get("tool") or item.get("server")
+        return f"Using {tool}" if tool else _CODEX_ITEM_FALLBACK_LABELS[item_type]
+    if item_type == "web_search":
+        query = item.get("query")
+        return f"Searching: {query}" if query else _CODEX_ITEM_FALLBACK_LABELS[item_type]
+    if item_type == "todo_list":
+        return _CODEX_ITEM_FALLBACK_LABELS[item_type]
+    if item_type == "reasoning":
+        return None
+    return _CODEX_ITEM_FALLBACK_LABELS.get(item_type)
+
+
+def _truncate_label(label: str) -> str:
+    label = label.replace("\n", " ").strip()
+    if len(label) > _TOOL_CALL_LABEL_MAX_LEN:
+        label = label[: _TOOL_CALL_LABEL_MAX_LEN - 1] + "…"
+    return label
+
 
 # Process states (docs/EXECUTION_PROVIDER.md section 9) that mean a turn's
 # subprocess has exited one way or another and will never emit another event.
@@ -111,12 +162,23 @@ class CodexAdapter(AgentAdapter):
             role=options.get("role", "GENERAL"),
             execution_provider=context.execution_provider,
             execution_target=context.execution_target,
-            metadata={"working_directory": context.working_directory, "model": context.model},
+            metadata={
+                "working_directory": context.working_directory,
+                "model": context.model,
+                "mcp_tools": bool(options.get("mcp_tools")),
+            },
         )
         models.set_session_status(self._db, session_id, "RUNNING")
         models.add_agent_event(self._db, session_id, "PromptSubmitted", data=prompt)
 
-        command = [self._binary, "exec", "--json", *self._model_flags(context.model), prompt]
+        command = [
+            self._binary,
+            "exec",
+            "--json",
+            *self._model_flags(context.model),
+            *self._mcp_flags(bool(options.get("mcp_tools")), context.project_id, session_id),
+            prompt,
+        ]
         exec_options: dict[str, Any] = {"context_id": int(context.execution_target)}
         env = self._local_model_env(context.model)
         if env:
@@ -153,6 +215,9 @@ class CodexAdapter(AgentAdapter):
             "--json",
             *self._model_flags(session.metadata.get("model")),
             *self._permission_flags(session.metadata.get("permission_mode")),
+            *self._mcp_flags(
+                bool(session.metadata.get("mcp_tools")), session.project_id, session_id
+            ),
         ]
         if prompt:
             command.append(prompt)
@@ -197,6 +262,9 @@ class CodexAdapter(AgentAdapter):
             "--json",
             *self._model_flags(session.metadata.get("model")),
             *self._permission_flags(session.metadata.get("permission_mode")),
+            *self._mcp_flags(
+                bool(session.metadata.get("mcp_tools")), session.project_id, session_id
+            ),
             *self._image_flags((options or {}).get("images")),
             content,
         ]
@@ -341,6 +409,12 @@ class CodexAdapter(AgentAdapter):
                     models.add_agent_event(
                         self._db, session_id, "AgentError", data=item.get("message", "")
                     )
+                elif item_type:
+                    summary = _summarize_codex_item(item_type, item)
+                    if summary:
+                        models.add_agent_event(
+                            self._db, session_id, "AgentToolCall", data=_truncate_label(summary)
+                        )
             elif event_type == "turn.completed":
                 self._record_usage(metadata, payload.get("usage"))
                 models.add_agent_event(
@@ -418,6 +492,16 @@ class CodexAdapter(AgentAdapter):
         if local is not None and local.api_key:
             return {_LOCAL_MODEL_ENV_KEY: local.api_key}
         return {}
+
+    def _mcp_flags(self, enabled: bool, project_id: int, session_id: int) -> list[str]:
+        """`-c mcp_servers.<name>.*` overrides declaring AgentFlow's own
+        Backlog/Sprints/Pipelines/Ralph tool server (`app/agents/mcp_config.py`),
+        when this session opted in via `options["mcp_tools"]` at `start()`."""
+        if not enabled:
+            return []
+        return mcp_config.codex_mcp_flags(
+            project_id, session_id, mcp_config.database_path(self._db)
+        )
 
     @staticmethod
     def _permission_flags(mode: str | None) -> list[str]:

@@ -31,6 +31,11 @@ Key modules:
   tool_use block rather than Codex's text-fence convention
   (app/agents/questions.py). A `local` catalog model is applied via
   `ANTHROPIC_BASE_URL`/`ANTHROPIC_AUTH_TOKEN` env vars instead.
+- `app/mcp/` — MCP tool bridge (docs/AGENT_ADAPTER.md §24): an interactive session opted in via
+  the `mcp_tools` checkbox gets a stdio MCP server (`server.py`, spawned by the CLI itself as
+  `python -m app.mcp.server --project-id N`, declared per-adapter by `app/agents/mcp_config.py`)
+  exposing tools (`tools/*.py`) that write directly into Backlog/Sprints/Pipelines/Ralph through
+  the same persistence/workflow functions the UI uses — not a proposal queue like `PlanningAgent`.
 - `app/settings/models.py` — the model catalog (`openai`/`anthropic`/`local`
   providers) offered when starting or switching a session's model
   (`app/templates/settings/index.html`); a `local` entry carries its own

@@ -76,7 +76,11 @@
       <input type="file" id="attachInput" hidden multiple>
       <input type="text" id="promptInput" class="chat-input" placeholder="Message, / for commands, @ for files" autocomplete="off" {% if session.status == 'STOPPED' %}disabled{% endif %}>
       <button type="button" id="scheduleBtn" class="composer-btn" aria-label="Schedule this message" title="Schedule this message" {% if session.status == 'STOPPED' %}disabled{% endif %}>&#9200;</button>
-      <button type="submit" class="chat-send" {% if session.status == 'STOPPED' %}disabled{% endif %}>Send</button>
+      <button type="submit" id="sendBtn" class="chat-send" {% if session.status == 'STOPPED' %}disabled{% endif %}>Send</button>
+      <button type="button" id="stopTurnBtn" class="chat-stop"
+              data-ajax-action="{{ url_for('sessions.stop_session', session_id=session.id) }}"
+              data-confirm="Stop this session? You can resume it afterwards, but the current response will be cut off."
+              hidden>Stop</button>
     </div>
     <label id="modeField" class="composer-mode" hidden>Permissions
       <select id="modeSelect"></select>
@@ -86,11 +90,31 @@
 
   <script>
     const sessionId = {{ session.id }};
+    const initialStatus = {{ session.status|tojson }};
     let lastEventId = 0;
 
     const chatContainer = document.getElementById('chatContainer');
     const promptInput = document.getElementById('promptInput');
     const chatForm = document.getElementById('chatForm');
+
+    let thinkingEl = null;
+    function showThinking(label) {
+      const text = label || 'Thinking…';
+      if (!thinkingEl) {
+        thinkingEl = document.createElement('div');
+        thinkingEl.className = 'chat-message chat-message-assistant chat-message-thinking';
+        thinkingEl.innerHTML = '<span class="thinking-indicator"><span class="thinking-dot" aria-hidden="true"></span><span class="thinking-label"></span></span>';
+        chatContainer.appendChild(thinkingEl);
+      }
+      thinkingEl.querySelector('.thinking-label').textContent = text;
+      chatContainer.scrollTop = chatContainer.scrollHeight;
+    }
+    function hideThinking() {
+      if (thinkingEl) {
+        thinkingEl.remove();
+        thinkingEl = null;
+      }
+    }
 
     function addMessage(content, role) {
       role = role || 'assistant';
@@ -107,18 +131,42 @@
       chatContainer.scrollTop = chatContainer.scrollHeight;
     }
 
+    let turnActive = initialStatus === 'RUNNING' || initialStatus === 'STARTING';
+    let currentActivity = null;
+
+    // The composer swaps Send for Stop while a turn is in flight, so
+    // interrupting one is a single obvious button next to where the user is
+    // already looking, not something buried in the header actions row.
+    const sendBtn = document.getElementById('sendBtn');
+    const stopTurnBtn = document.getElementById('stopTurnBtn');
+    function setTurnActive(active) {
+      turnActive = active;
+      if (sendBtn) sendBtn.hidden = active;
+      if (stopTurnBtn) stopTurnBtn.hidden = !active;
+    }
+    setTurnActive(turnActive);
+
     function handleStreamLine(line) {
       if (!line.startsWith('data: ')) return;
       try {
         const event = JSON.parse(line.substring(6));
+        hideThinking();
         if (event.event_type === 'PromptSubmitted') {
           addMessage(event.data, 'user');
         } else if (event.event_type === 'AgentText') {
           addMessage(event.data, 'assistant');
+          currentActivity = null;
+        } else if (event.event_type === 'AgentToolCall') {
+          currentActivity = event.data;
         } else if (event.event_type === 'ClarifyingQuestion') {
-          showQuestion(JSON.parse(event.data));
+          const question = JSON.parse(event.data);
+          showQuestion(question);
+          if (question.status === 'PENDING') setTurnActive(false);
         } else if (event.event_type === 'AgentError') {
           addMessage(`[${event.data}]`, 'system');
+          setTurnActive(false);
+        } else if (event.event_type === 'AgentComplete') {
+          setTurnActive(false);
         }
         lastEventId = Math.max(lastEventId, event.id || 0);
       } catch (e) {
@@ -131,27 +179,51 @@
         .then(r => r.text())
         .then(text => {
           chatContainer.innerHTML = '';
+          thinkingEl = null;
           text.split('\n').forEach(handleStreamLine);
           if (chatContainer.children.length === 0) {
             chatContainer.innerHTML = '<p class="chat-placeholder">No messages yet. Start by entering a prompt.</p>';
           }
+          if (turnActive) showThinking(currentActivity);
         })
         .catch(err => {
           addMessage(`Error loading history: ${err.message}`, 'error');
         });
     }
 
+    // A single in-flight fetch at a time: the recurring poll (below) and an
+    // immediate poll right after sending a prompt or answering a question
+    // (pollNow) both call this, and without the `polling` guard two
+    // concurrent fetches can each see the same new events and append them
+    // twice (each fetch call captures its own `lastEventId` at call time, so
+    // neither sees the other's in-flight request).
+    let polling = false;
+    let pollTimer = null;
+
     function streamNewEvents() {
+      if (polling) return;
+      polling = true;
       fetch(`/sessions/${sessionId}/stream?after_id=${lastEventId}`)
         .then(r => r.text())
         .then(text => {
           text.split('\n').forEach(handleStreamLine);
-          setTimeout(streamNewEvents, 1000);
+          if (turnActive) showThinking(currentActivity);
+          polling = false;
+          pollTimer = setTimeout(streamNewEvents, 1000);
         })
         .catch(err => {
           console.error('Stream error:', err);
-          setTimeout(streamNewEvents, 2000);
+          polling = false;
+          pollTimer = setTimeout(streamNewEvents, 2000);
         });
+    }
+
+    function pollNow() {
+      if (pollTimer) {
+        clearTimeout(pollTimer);
+        pollTimer = null;
+      }
+      streamNewEvents();
     }
 
     // --- composer: commands, @ mentions, attachments, scheduling ---------------
@@ -400,7 +472,10 @@
             promptInput.value = '';
             attachments = [];
             renderChips();
-            streamNewEvents();
+            setTurnActive(true);
+            currentActivity = null;
+            showThinking();
+            pollNow();
           } else {
             alert(`Error: ${data.error}`);
           }
@@ -546,7 +621,12 @@
           if (data.question) {
             renderQuestionItem(data.question);
             closeQuestionPanel();
-            if (ok) streamNewEvents();
+            if (ok) {
+              setTurnActive(true);
+              currentActivity = null;
+              showThinking();
+              pollNow();
+            }
           }
           if (!ok) {
             questionError.textContent = data.error;
@@ -599,6 +679,6 @@
     });
 
     loadHistory();
-    setTimeout(streamNewEvents, 500);
+    pollTimer = setTimeout(streamNewEvents, 500);
   </script>
 {% endblock %}

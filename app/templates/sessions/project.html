@@ -108,6 +108,14 @@
         </select>
       </label>
     {% endif %}
+    <label class="backlog-select">
+      <input type="checkbox" name="mcp_tools" value="1">
+      Let this session manage Backlog/Sprints/Pipelines/Ralph
+    </label>
+    <p class="form-hint">
+      Gives the agent direct tools to create/update Backlog items, Sprint tasks, and
+      more, writing straight into the project the same way the UI does. Off by default.
+    </p>
     <button type="submit">Start Session</button>
   </form>
   <script>

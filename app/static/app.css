@@ -539,6 +539,12 @@ textarea.editor { width: 100%; font-family: ui-monospace, monospace; padding: 0.
 .chat-message-system { background: var(--warning-soft); color: var(--warning); font-size: 0.9em; font-style: italic; white-space: pre-wrap; }
 .chat-message-error { background: var(--danger-soft); color: var(--danger); white-space: pre-wrap; }
 
+.chat-message-thinking { display: flex; align-items: center; color: var(--text-muted); font-size: 0.9em; font-style: italic; }
+.thinking-indicator { display: inline-flex; align-items: center; gap: 0.5rem; }
+.thinking-dot { width: 0.5rem; height: 0.5rem; border-radius: 50%; background: var(--accent); flex: 0 0 auto; animation: pulse 1.6s ease-in-out infinite; }
+.thinking-label { white-space: pre-wrap; }
+@media (prefers-reduced-motion: reduce) { .thinking-dot { animation: none; opacity: 0.7; } }
+
 .chat-message-question { background: var(--surface-2); border: 1px solid var(--border); max-width: 100%; }
 .chat-message-question ul { list-style: none; padding-left: 0; }
 .chat-message-question li { padding: 0.25rem 0.5rem; border-radius: var(--radius); color: var(--text-muted); }
@@ -576,6 +582,8 @@ textarea.editor { width: 100%; font-family: ui-monospace, monospace; padding: 0.
 .chat-send { padding: 0.6rem 1.2rem; background: var(--accent-strong); color: var(--accent-contrast); border-color: transparent; }
 .chat-send:hover { background: var(--accent); }
 .chat-input:disabled, .chat-send:disabled { opacity: 0.6; cursor: not-allowed; }
+.chat-stop { padding: 0.6rem 1.2rem; background: var(--danger); color: var(--accent-contrast); border-color: transparent; }
+.chat-stop:hover { opacity: 0.9; }
 
 /* Git workspace views */
 .diff-viewer { border: 1px solid var(--border); border-radius: var(--radius); overflow-x: auto; }
@@ -736,7 +744,7 @@ textarea.editor { width: 100%; font-family: ui-monospace, monospace; padding: 0.
 .composer-row { display: flex; gap: 0.5rem; align-items: stretch; }
 .composer-row .chat-input { min-width: 0; min-height: var(--tap); }
 .composer-btn { min-width: var(--tap); min-height: var(--tap); padding: 0; }
-.chat-send { min-height: var(--tap); }
+.chat-send, .chat-stop { min-height: var(--tap); }
 .composer-menu {
   position: absolute;
   bottom: 100%;

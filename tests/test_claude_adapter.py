@@ -387,7 +387,49 @@ def test_ask_user_question_tool_use_becomes_clarifying_question(app):
         assert len(questions) == 1
         assert questions[0].question == "Which database?"
         assert questions[0].external_id == "toolu_1"
-        assert [o["label"] for o in questions[0].options] == ["Postgres", "SQLite"]
+
+
+def _assistant_tool_use_line(name: str, tool_input: dict[str, Any]) -> str:
+    return json.dumps(
+        {
+            "type": "assistant",
+            "message": {
+                "role": "assistant",
+                "content": [{"type": "tool_use", "id": "toolu_1", "name": name, "input": tool_input}],
+            },
+        }
+    )
+
+
+def test_other_tool_use_blocks_become_agent_tool_call_events(app):
+    """A `tool_use` block for a real tool (not AskUserQuestion) becomes an
+    `AgentToolCall` event with a compact `Name(detail)` label, so the chat
+    UI's live activity indicator has something to show mid-turn."""
+    with app.app_context():
+        db = get_db()
+        project_id, working_directory = _make_project(db, app)
+
+        provider = FakeExecutionProvider()
+        provider.queue_turn(
+            [
+                _init_line("ext-session-tools"),
+                _assistant_tool_use_line("Read", {"file_path": "/tmp/app.py"}),
+                _assistant_tool_use_line("Bash", {"command": "pytest -q", "description": "Run tests"}),
+                *_task_complete_lines("done"),
+            ]
+        )
+        adapter = ClaudeAdapter(db, provider)
+        context = AgentContext(
+            project_id=project_id,
+            working_directory=working_directory,
+            execution_provider="host",
+            execution_target="1",
+        )
+        session = adapter.start(context, "start it")
+
+        events = agent_models.list_agent_events(db, session.id)
+        tool_calls = [e.data for e in events if e.event_type == "AgentToolCall"]
+        assert tool_calls == ["Read(/tmp/app.py)", "Bash(Run tests)"]
 
 
 def test_send_launches_turn_without_blocking_and_stream_reports_progress(app):

@@ -212,6 +212,24 @@ def _error_item_line(message: str) -> str:
     )
 
 
+def _command_execution_line(command: str) -> str:
+    return json.dumps(
+        {
+            "type": "item.completed",
+            "item": {"id": "item_0", "type": "command_execution", "command": command},
+        }
+    )
+
+
+def _file_change_line(path: str) -> str:
+    return json.dumps(
+        {
+            "type": "item.completed",
+            "item": {"id": "item_0", "type": "file_change", "changes": [{"path": path, "kind": "update"}]},
+        }
+    )
+
+
 def test_available_false_when_binary_missing(monkeypatch):
     monkeypatch.setattr(shutil, "which", lambda binary: None)
     adapter = CodexAdapter()
@@ -343,6 +361,38 @@ def test_start_happy_path(app):
         assert events[0].data == "do the thing"
         assert events[1].data == "all done"
         assert events[2].data == "all done"
+
+
+def test_start_reports_command_and_file_change_items_as_tool_call_events(app):
+    """`item.completed` items other than agent_message/error (command_execution,
+    file_change, ...) become AgentToolCall events with a compact label, so the
+    chat UI's live activity indicator has something to show mid-turn."""
+    with app.app_context():
+        db = get_db()
+        project_id, working_directory = _make_project(db, app)
+
+        provider = FakeExecutionProvider()
+        provider.queue_turn(
+            [
+                _thread_started_line("ext-session-tools"),
+                _command_execution_line("pytest -q"),
+                _file_change_line("app/foo.py"),
+                *_task_complete_line("done"),
+            ]
+        )
+        adapter = CodexAdapter(db, provider)
+        context = AgentContext(
+            project_id=project_id,
+            working_directory=working_directory,
+            execution_provider="host",
+            execution_target="1",
+        )
+
+        session = adapter.start(context, "do the thing")
+
+        events = agent_models.list_agent_events(db, session.id)
+        tool_calls = [e.data for e in events if e.event_type == "AgentToolCall"]
+        assert tool_calls == ["Running: pytest -q", "Editing app/foo.py"]
 
 
 def test_start_failure_path(app):

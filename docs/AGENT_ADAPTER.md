@@ -349,6 +349,18 @@ task 4.5):
   catalog entry has an API key, `-c model_providers.local.env_key=...` plus
   an `AGENTFLOW_LOCAL_MODEL_API_KEY` environment variable (never a command
   line argument, so it needs no redaction).
+- An `item.completed` item whose type isn't `agent_message`/`error`
+  (`command_execution`, `file_change`, `mcp_tool_call`, `web_search`,
+  `todo_list`) becomes an `AgentToolCall` event via `_summarize_codex_item`,
+  the same event type and compact-label convention `ClaudeAdapter` uses
+  (§18), for the chat UI's live activity indicator. `reasoning` items are
+  deliberately not surfaced (too noisy). The exact field names read off
+  each item type were not confirmed against a live `codex exec --json`
+  stream when this was written (only `agent_message`/`error` were); each
+  branch falls back to a humanized item-type label
+  (`_CODEX_ITEM_FALLBACK_LABELS`) if its expected detail field is absent, so
+  a wrong guess degrades to a generic label rather than silence or garbage —
+  worth re-checking against a real stream if the labels look off.
 
 ## 18. Claude Adapter
 
@@ -384,6 +396,14 @@ Requirements and behaviour:
   `tool_use` block, per §12), and the terminal `result` event
   (`is_error` true/false) maps to `AgentComplete`/`AgentError`, matching
   Codex's `turn.completed`/`turn.failed`.
+- Any other `tool_use` block (`Read`, `Edit`, `Bash`, etc.) becomes an
+  `AgentToolCall` event whose data is a compact `Name(detail)` label built by
+  `_summarize_tool_call` (e.g. `Read(app.py)`, `Bash(pytest -q)`) — the same
+  shape Codex's `AgentToolCall` events use (§17) — so the chat UI's live
+  activity indicator (`app/templates/sessions/chat.html`) has something to
+  show between a prompt being sent and the next `AgentText`/`AgentComplete`.
+  `tool_result` content in the CLI's `user`-role echo lines is not parsed;
+  only the call itself is surfaced.
 - `--permission-mode` accepts `default`, `plan` and `acceptEdits`;
   `bypassPermissions` is deliberately not offered from the UI, mirroring
   Codex withholding `danger-full-access`.
@@ -820,3 +840,97 @@ Task 54's own scoping text proposed a second parallel model set — `app/skills/
   directly (`update_fragment`/`deprecate_skill`) or clicks "Mark reviewed" — this app has no
   authentication or admin-role concept to gate that on (§23.3's own note), so `skill_reviewed_by` and
   `skill_author` are both free text, not an account reference.
+
+## 24. MCP Tool Bridge (Backlog/Sprints/Pipelines/Ralph)
+
+An interactive `GENERAL`-role chat session (§5) is, by default, confined to editing code in its
+project's working directory: it has no way to read or write Backlog items, Sprint tasks, Pipeline
+executions or Ralph runs. Grooming and planning conversations naturally start in chat, so a session
+may opt into a small set of MCP tools that call directly into those subsystems -- the same
+persistence/workflow functions the UI itself uses, so validation (backlog status transitions,
+readiness gates) and audit history (`backlog_triage_history`, sprint approval history) behave
+identically whether a person clicked a button or an agent called a tool. This is a **direct-write**
+bridge, not a proposal queue like `PlanningAgent` (§below) -- writes take effect immediately.
+
+- **Opt-in per session, off by default.** The session-start form (`app/templates/sessions/project.html`)
+  has an "mcp_tools" checkbox; `create_session` (`app/sessions/routes.py`) passes it into
+  `adapter.start(context, initial_prompt, options={"mcp_tools": ...})`. Each adapter persists it on the
+  session's `metadata["mcp_tools"]` (alongside `model`) so `resume()`/`send()` keep declaring the MCP
+  server on later turns without the caller re-specifying it every call.
+- **One Python subprocess per turn, scoped to one project.** `app/mcp/server.py` (`python -m
+  app.mcp.server --project-id N`) is spawned by the CLI itself, not by Flask -- MCP servers speak stdio
+  JSON-RPC to their parent process. `AGENTFLOW_DATABASE_PATH`/`AGENTFLOW_MCP_SESSION_ID` reach it as
+  subprocess environment variables, the same mechanism `ClaudeAdapter._local_model_env` uses for
+  `ANTHROPIC_BASE_URL`/`ANTHROPIC_AUTH_TOKEN`. The project id is fixed at process startup, not a
+  per-call tool argument: every tool in `app/mcp/tools/` re-validates that the item/task it's given
+  belongs to that project (mirroring the 404-on-mismatch check `app/backlog/views.py`'s `_item()` does
+  for the UI), so a confused or compromised agent cannot address another project's data even though the
+  wrapped persistence functions take a bare `item_id`.
+- **`PYTHONPATH` must be set explicitly in the server's own env, not just AgentFlow's.** Confirmed as a
+  real production failure, not a theoretical one: the CLI's (and therefore the MCP server child
+  process's) working directory is `AgentContext.working_directory` -- the *target project's* repository
+  (e.g. `/home/devadmin/git/SAM6`), never AgentFlow's own install directory. `python -m app.mcp.server`
+  run with that cwd cannot find the `app` package and the CLI reports the server as `"status":"failed"`
+  in its own init event -- silently, with no AgentFlow-visible error, leaving the agent to improvise
+  with whatever other tools it has (observed: it edited the target repo's own `.taskmaster/tasks/tasks.json`
+  and called that "adding to the backlog"). `mcp_config.server_command()` sets
+  `env["PYTHONPATH"] = <repo root>` (computed from `__file__`, not `sys.path`/cwd at call time) so the
+  module lookup works regardless of the spawning CLI's cwd. Testing this requires actually spawning
+  from a different cwd (`tests/agentflow_mcp/test_server_integration.py` runs from the repo root, which
+  would not have caught this) -- verify any future change here live, cwd'd into a *different* project's
+  repository, not just via the `mcp` SDK's own test client from AgentFlow's own directory.
+- **Declared to the CLI differently per adapter** (`app/agents/mcp_config.py`), since the two CLIs read
+  MCP server declarations differently:
+  - Claude reads `--mcp-config <path>`; the helper writes a small, session-stable JSON file
+    (`{"mcpServers": {"agentflow": {"command": ..., "args": [...], "env": {...}}}}`).
+  - Codex has no such flag; the same declaration goes in as `-c mcp_servers.agentflow.*` inline
+    overrides -- the same dotted-TOML-path `-c` mechanism `CodexAdapter._model_flags`/
+    `_permission_flags` already use for `model_providers.local.*`/`sandbox_mode`, so no config file is
+    needed for Codex.
+  - Both `--mcp-config` and Claude's `--allowedTools` (below) are **variadic** flags in their CLI's
+    argument parser -- passed as two separate argv entries (`["--mcp-config", path]`) they silently
+    swallow the prompt positional that follows as another value of the same flag, the identical
+    failure mode `CodexAdapter._image_flags` already guards against for `--image`. Both must be one
+    glued `--flag=value` token; confirmed live against the installed `codex`/`claude` binaries, not
+    just the SDK's own test client.
+- **Declaring the server is not enough -- each tool must be explicitly granted, separately from the
+  session's file-edit/shell permission mode.** Confirmed against real `codex`/`claude` binaries, not
+  just `mcp` SDK-level testing: a session in Claude's `acceptEdits` mode still gets `"Claude requested
+  permissions to use mcp__agentflow__backlog_create_item, but you haven't granted it yet"`, and a
+  Codex session with a plain `sandbox_mode` override still gets `"user cancelled MCP tool call"` (no
+  terminal to answer an interactive approval prompt in non-interactive `codex exec`). Both adapters
+  grant the tools:
+  - Claude: `--allowedTools=mcp__agentflow__<tool>,...` (`mcp_config.claude_allowed_tools_flag()`),
+    scoped to exactly `mcp_config.TOOL_NAMES` -- extend that tuple, not the flag-building code, as
+    Sprint/Pipeline/Ralph tools are added. Everything else (Edit, Bash, ...) still follows whatever
+    `--permission-mode` the session picked; this grant touches nothing beyond AgentFlow's own tools.
+  - Codex: `--approve-for-me` (`mcp_config.codex_mcp_flags()`). Codex has no per-tool or per-server
+    allowlist reachable from `codex exec`/`-c` overrides (only interactive `codex mcp add` persists a
+    server as trusted, which doesn't fit a one-shot non-interactive turn scoped to a single project).
+    `--approve-for-me` routes approval requests through Codex's own automatic review under the
+    `workspace-write` sandbox -- narrower than `--dangerously-bypass-approvals-and-sandbox` (which
+    disables sandboxing entirely) but broader than Claude's exact-tool grant: it also auto-reviews any
+    shell-command approval the turn would otherwise have needed, not just the MCP call. This is a
+    real, session-wide behaviour change from enabling `mcp_tools` on a Codex session, not just an
+    additive capability -- worth keeping in mind if a Codex session's selected sandbox mode was meant
+    to hold the line on what it can do without asking.
+- **Tool catalog wraps existing functions; no new business logic.** `app/mcp/tools/backlog.py` wraps
+  `app/backlog/persistence.py` (create/list/get/update/transition/record_note/list_history --
+  attachments are excluded, binary upload doesn't fit a JSON tool schema). Sprint, Pipeline and Ralph
+  tool modules follow the same wrapping pattern against `app/sprints/`, `app/pipelines/`, `app/ralph/`
+  and `app/sprints/queue.py` and land in the same phased order they were built: Backlog first (lowest
+  blast radius, no locking), then Sprints, then Pipelines/Ralph (which must go through
+  `PipelineManager.start()`/`RalphManager.start()` rather than the engine/orchestrator directly, so
+  `project_locks` (docs/RUN_AND_RALPH.md §19) is still respected).
+- **Attribution.** Tool calls pass `created_by`/`changed_by` as `"agent:<session_id>"`, so triage and
+  approval history distinguish an agent-driven change from a person's UI action without a new column.
+- **Thread safety.** The `mcp` SDK runs each synchronous tool handler via a worker-thread pool rather
+  than one fixed thread; `app/mcp/db.ConnectionPool` hands out one sqlite3 connection per thread
+  (opened lazily), the same fix `HostExecutionProvider._db()` (`app/execution/host.py`) uses for the
+  identical problem.
+- **Testing.** `tests/agentflow_mcp/test_backlog_tools.py` covers the wrapped functions directly (unit,
+  including the cross-project-boundary rejection); `tests/agentflow_mcp/test_server_integration.py`
+  spawns the real `app/mcp/server.py` subprocess and drives it with the `mcp` client SDK end to end.
+  `FakeAgentAdapter` gained a `tool_call` script step (`app/agents/fake.py`) that calls the same
+  `app/mcp/tools/` functions in-process, so `options["mcp_tools"]` -> tool-call wiring has a
+  deterministic test path with no real CLI subprocess required (`tests/test_sessions.py`).

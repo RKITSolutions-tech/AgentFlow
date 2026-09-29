@@ -142,6 +142,7 @@ def create_session(project_id: int):
 
     agent_type = request.form.get("agent_type", "codex").lower()
     model = request.form.get("model", "").strip() or None
+    mcp_tools = request.form.get("mcp_tools") == "1"
 
     # Get repo_id from form, handling both integer IDs and missing values
     repo_id_str = request.form.get("repo_id", "").strip()
@@ -205,7 +206,7 @@ def create_session(project_id: int):
         )
         initial_prompt = f"{skills_text}\n\n{PLACEHOLDER_PROMPT}" if skills_text else PLACEHOLDER_PROMPT
 
-        session = adapter.start(context, initial_prompt)
+        session = adapter.start(context, initial_prompt, options={"mcp_tools": mcp_tools})
         session_id = session.id
         # Compliance/audit trail (docs/AGENT_ADAPTER.md §23.2, task 53): interactive
         # sessions never pass through execution_prompts, so the injected skill
@@ -214,7 +215,7 @@ def create_session(project_id: int):
             db, session_id,
             injected_context={
                 "role": "GENERAL", "agent_type": agent_type, "skills": skill_names,
-                "assembled_at": now(),
+                "mcp_tools": mcp_tools, "assembled_at": now(),
             },
         )
 
@@ -287,8 +288,6 @@ def send_prompt(session_id: int):
 def stream_output(session_id: int):
     import json
 
-    from app.execution.host import HostExecutionProvider
-
     db = get_db()
     session = get_agent_session(db, session_id)
     if session is None:
@@ -296,13 +295,7 @@ def stream_output(session_id: int):
 
     after_id = request.args.get("after_id", type=int, default=0)
 
-    if session.agent_type.lower() == "codex":
-        execution_provider = HostExecutionProvider(
-            current_app.config["DATABASE_PATH"], current_app.config["ALLOWED_PROJECT_ROOTS"]
-        )
-        adapter = CodexAdapter(db=db, execution_provider=execution_provider)
-    else:
-        adapter = FakeAgentAdapter(db=db)
+    adapter = _adapter_for(session)
 
     # adapter.stream() runs _sync_events() first, translating any output the
     # background process has produced since the last poll into AgentEvents —
@@ -342,27 +335,26 @@ def stream_output(session_id: int):
 
 @bp.post("/<int:session_id>/stop")
 def stop_session(session_id: int):
-    from app.execution.host import HostExecutionProvider
-
+    is_ajax = request.headers.get("X-Requested-With") == "XMLHttpRequest"
     db = get_db()
     session = get_agent_session(db, session_id)
     if session is None:
+        if is_ajax:
+            return jsonify({"error": "Session not found"}), 404
         return redirect(url_for("sessions.list_sessions"))
 
     try:
-        if session.agent_type.lower() == "codex":
-            execution_provider = HostExecutionProvider(
-                current_app.config["DATABASE_PATH"], current_app.config["ALLOWED_PROJECT_ROOTS"]
-            )
-            adapter = CodexAdapter(db=db, execution_provider=execution_provider)
-        else:
-            adapter = FakeAgentAdapter(db=db)
-
+        adapter = _adapter_for(session)
         adapter.stop(session_id)
-        flash("Session stopped.", "info")
     except Exception as e:
+        if is_ajax:
+            return jsonify({"error": str(e)}), 400
         flash(f"Error stopping session: {e}", "error")
+        return redirect(url_for("sessions.view_session", session_id=session_id))
 
+    if is_ajax:
+        return jsonify({"status": "stopped", "message": "Session stopped."})
+    flash("Session stopped.", "info")
     return redirect(url_for("sessions.view_session", session_id=session_id))
 
 
@@ -423,8 +415,6 @@ def _wants_json() -> bool:
 
 @bp.post("/<int:session_id>/delete")
 def delete_session(session_id: int):
-    from app.execution.host import HostExecutionProvider
-
     db = get_db()
     session = get_agent_session(db, session_id)
     if session is None:
@@ -436,14 +426,7 @@ def delete_session(session_id: int):
 
     if session.status in ("RUNNING", "STARTING"):
         try:
-            if session.agent_type.lower() == "codex":
-                execution_provider = HostExecutionProvider(
-                    current_app.config["DATABASE_PATH"], current_app.config["ALLOWED_PROJECT_ROOTS"]
-                )
-                adapter = CodexAdapter(db=db, execution_provider=execution_provider)
-            else:
-                adapter = FakeAgentAdapter(db=db)
-            adapter.stop(session_id)
+            _adapter_for(session).stop(session_id)
         except Exception:
             pass
 

@@ -7,6 +7,7 @@ from typing import Any
 from app.agents import models
 from app.agents.base import AgentAdapter, AgentContext
 from app.agents.models import AgentEvent, AgentSession
+from app.mcp.tools import backlog as backlog_tools
 
 FAKE_AGENT_VERSION = "fake-1.0"
 
@@ -56,6 +57,7 @@ class FakeAgentAdapter(AgentAdapter):
                 "script": script,
                 "cursor": 0,
                 "working_directory": context.working_directory,
+                "mcp_tools": bool(options.get("mcp_tools")),
             },
         )
         models.set_session_status(self._db, session_id, "RUNNING")
@@ -93,6 +95,7 @@ class FakeAgentAdapter(AgentAdapter):
         script = session.metadata["script"]
         cursor = session.metadata["cursor"]
         working_directory = session.metadata["working_directory"]
+        mcp_tools = session.metadata.get("mcp_tools", False)
 
         while cursor < len(script):
             step = script[cursor]
@@ -115,6 +118,12 @@ class FakeAgentAdapter(AgentAdapter):
                     self._db, session_id, "AgentToolCall", data=f"write_file {step['path']}"
                 )
                 models.add_agent_event(self._db, session_id, "AgentToolResult", data="ok")
+            elif action == "tool_call":
+                result = self._call_mcp_tool(session, step["tool"], step.get("args", {}))
+                models.add_agent_event(
+                    self._db, session_id, "AgentToolCall", data=f"{step['tool']}({step.get('args', {})})"
+                )
+                models.add_agent_event(self._db, session_id, "AgentToolResult", data=str(result))
             elif action == "fail":
                 models.add_agent_event(
                     self._db,
@@ -126,7 +135,7 @@ class FakeAgentAdapter(AgentAdapter):
                 models.set_session_metadata(
                     self._db,
                     session_id,
-                    {"script": script, "cursor": cursor, "working_directory": working_directory},
+                    {"script": script, "cursor": cursor, "working_directory": working_directory, "mcp_tools": mcp_tools},
                 )
                 models.set_session_status(self._db, session_id, "FAILED")
                 return models.get_agent_session(self._db, session_id)
@@ -136,7 +145,7 @@ class FakeAgentAdapter(AgentAdapter):
                 models.set_session_metadata(
                     self._db,
                     session_id,
-                    {"script": script, "cursor": cursor, "working_directory": working_directory},
+                    {"script": script, "cursor": cursor, "working_directory": working_directory, "mcp_tools": mcp_tools},
                 )
                 models.set_session_status(self._db, session_id, "COMPLETED")
                 return models.get_agent_session(self._db, session_id)
@@ -147,11 +156,48 @@ class FakeAgentAdapter(AgentAdapter):
             models.set_session_metadata(
                 self._db,
                 session_id,
-                {"script": script, "cursor": cursor, "working_directory": working_directory},
+                {"script": script, "cursor": cursor, "working_directory": working_directory, "mcp_tools": mcp_tools},
             )
 
         models.set_session_status(self._db, session_id, "COMPLETED")
         return models.get_agent_session(self._db, session_id)
+
+    def _call_mcp_tool(self, session: AgentSession, tool: str, args: dict[str, Any]) -> Any:
+        """Calls an `app/mcp/tools/` function directly, in-process, instead of
+        going through a real MCP stdio subprocess -- proves the same
+        `options["mcp_tools"]` -> tool-call wiring `CodexAdapter`/`ClaudeAdapter`
+        use (docs/AGENT_ADAPTER.md, MCP tool bridge section) with a
+        deterministic test double, since a scripted `FakeAgentAdapter` run has
+        no real CLI to spawn `app/mcp/server.py` as a child process."""
+        if not session.metadata.get("mcp_tools"):
+            raise ValueError(f"Session {session.id} did not opt into mcp_tools")
+        changed_by = f"agent:{session.id}"
+        dispatch = {
+            "backlog_create_item": lambda: backlog_tools.create_item(
+                self._db, session.project_id, created_by=changed_by, **args
+            ),
+            "backlog_list_items": lambda: backlog_tools.list_items(
+                self._db, session.project_id, **args
+            ),
+            "backlog_get_item": lambda: backlog_tools.get_item(
+                self._db, session.project_id, **args
+            ),
+            "backlog_update_item": lambda: backlog_tools.update_item(
+                self._db, session.project_id, **args
+            ),
+            "backlog_transition_item": lambda: backlog_tools.transition_item(
+                self._db, session.project_id, changed_by=changed_by, **args
+            ),
+            "backlog_record_note": lambda: backlog_tools.record_note(
+                self._db, session.project_id, changed_by=changed_by, **args
+            ),
+            "backlog_list_history": lambda: backlog_tools.list_history(
+                self._db, session.project_id, **args
+            ),
+        }
+        if tool not in dispatch:
+            raise ValueError(f"Unknown MCP tool {tool!r}")
+        return dispatch[tool]()
 
     def _write_fixture_file(
         self, working_directory: str, relative_path: str, content: str

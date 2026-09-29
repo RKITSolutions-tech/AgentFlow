@@ -8,7 +8,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from app.agents import models
+from app.agents import mcp_config, models
 from app.agents.base import AgentAdapter, AgentContext
 from app.agents.models import AgentEvent, AgentSession
 from app.execution.base import ExecutionProvider
@@ -31,6 +31,43 @@ _VERSION_TIMEOUT_SECONDS = 5.0
 # Process states (docs/EXECUTION_PROVIDER.md section 9) that mean a turn's
 # subprocess has exited one way or another and will never emit another event.
 _TERMINAL_PROCESS_STATUSES = frozenset({"COMPLETED", "FAILED", "STOPPED", "TIMED_OUT", "LOST"})
+
+_TOOL_CALL_LABEL_MAX_LEN = 80
+
+
+def _summarize_tool_call(name: str, tool_input: dict[str, Any] | None) -> str:
+    """Compact `Name(detail)` label for a `tool_use` block, mirroring how the
+    Claude Code CLI itself renders in-progress tool calls (e.g. `Read(app.py)`,
+    `Bash(pytest -q)`), for the chat UI's live activity indicator.
+    """
+    tool_input = tool_input or {}
+    detail: Any = None
+    if name in ("Read", "Write", "Edit"):
+        detail = tool_input.get("file_path")
+    elif name == "NotebookEdit":
+        detail = tool_input.get("notebook_path")
+    elif name == "Bash":
+        detail = tool_input.get("description") or tool_input.get("command")
+    elif name in ("Grep", "Glob"):
+        detail = tool_input.get("pattern")
+    elif name == "WebFetch":
+        detail = tool_input.get("url")
+    elif name == "WebSearch":
+        detail = tool_input.get("query")
+    elif name == "Task":
+        detail = tool_input.get("description")
+    elif name == "TodoWrite":
+        return "Updating task list"
+
+    if not detail:
+        detail = next((v for v in tool_input.values() if isinstance(v, str) and v), None)
+    if not detail:
+        return name or "Using a tool"
+
+    detail = str(detail).replace("\n", " ").strip()
+    if len(detail) > _TOOL_CALL_LABEL_MAX_LEN:
+        detail = detail[: _TOOL_CALL_LABEL_MAX_LEN - 1] + "…"
+    return f"{name}({detail})"
 
 
 class ClaudeAdapter(AgentAdapter):
@@ -99,7 +136,11 @@ class ClaudeAdapter(AgentAdapter):
             role=options.get("role", "GENERAL"),
             execution_provider=context.execution_provider,
             execution_target=context.execution_target,
-            metadata={"working_directory": context.working_directory, "model": context.model},
+            metadata={
+                "working_directory": context.working_directory,
+                "model": context.model,
+                "mcp_tools": bool(options.get("mcp_tools")),
+            },
         )
         models.set_session_status(self._db, session_id, "RUNNING")
         models.add_agent_event(self._db, session_id, "PromptSubmitted", data=prompt)
@@ -110,6 +151,7 @@ class ClaudeAdapter(AgentAdapter):
             "--output-format", "stream-json",
             "--verbose",
             *self._model_flags(context.model),
+            *self._mcp_flags(bool(options.get("mcp_tools")), context.project_id, session_id),
             prompt,
         ]
         exec_options: dict[str, Any] = {"context_id": int(context.execution_target)}
@@ -148,6 +190,9 @@ class ClaudeAdapter(AgentAdapter):
             "--verbose",
             *self._model_flags(session.metadata.get("model")),
             *self._permission_flags(session.metadata.get("permission_mode")),
+            *self._mcp_flags(
+                bool(session.metadata.get("mcp_tools")), session.project_id, session_id
+            ),
         ]
         if prompt:
             command.append(prompt)
@@ -192,6 +237,9 @@ class ClaudeAdapter(AgentAdapter):
             "--verbose",
             *self._model_flags(session.metadata.get("model")),
             *self._permission_flags(session.metadata.get("permission_mode")),
+            *self._mcp_flags(
+                bool(session.metadata.get("mcp_tools")), session.project_id, session_id
+            ),
             content,
         ]
         exec_options: dict[str, Any] = {"context_id": int(session.execution_target)}
@@ -330,6 +378,13 @@ class ClaudeAdapter(AgentAdapter):
                                 models.create_clarifying_question(self._db, session_id, **spec)
                             except ValueError:
                                 continue
+                    elif block_type == "tool_use" and block.get("name"):
+                        models.add_agent_event(
+                            self._db,
+                            session_id,
+                            "AgentToolCall",
+                            data=_summarize_tool_call(block["name"], block.get("input")),
+                        )
             elif event_type == "result":
                 self._record_usage(metadata, payload.get("usage"))
                 if payload.get("is_error"):
@@ -403,6 +458,25 @@ class ClaudeAdapter(AgentAdapter):
 
     def _model_flags(self, model: str | None) -> list[str]:
         return ["--model", model] if model else []
+
+    def _mcp_flags(self, enabled: bool, project_id: int, session_id: int) -> list[str]:
+        """`--mcp-config=<path>` pointing at AgentFlow's own Backlog/Sprints/
+        Pipelines/Ralph tool server (`app/agents/mcp_config.py`), when this
+        session opted in via `options["mcp_tools"]` at `start()`. `--mcp-config`
+        is variadic (accepts multiple paths), so it must be one `--flag=value`
+        token, not two separate argv entries -- otherwise it swallows the
+        trailing prompt positional as another config path (the same failure
+        mode `_image_flags` in `CodexAdapter` guards against for `--image`)."""
+        if not enabled:
+            return []
+        path = mcp_config.claude_mcp_config_path(
+            project_id, session_id, mcp_config.database_path(self._db)
+        )
+        # `--mcp-config` alone declares the server; the Claude CLI still denies
+        # every call to it ("Claude requested permissions ... you haven't
+        # granted it yet", confirmed against the real CLI) until each tool
+        # name is explicitly allowed, separately from `--permission-mode`.
+        return [f"--mcp-config={path}", mcp_config.claude_allowed_tools_flag()]
 
     def _local_model_entry(self, model: str) -> settings_models.ModelCatalogEntry | None:
         if self._db is None:
