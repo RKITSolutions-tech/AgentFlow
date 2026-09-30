@@ -11,11 +11,13 @@ from flask import (
     url_for,
 )
 
+from app.acceptance import models as acceptance_models
 from app.backlog import persistence as backlog
 from app.db import get_db
 from app.projects import models as project_models
 from app.pipelines import persistence as pipeline_store
 from app.sprints import persistence as sprints
+from app.sprints import qa
 from app.sprints import queue
 from app.sprints import workflow
 from app.sprints.models import PLANNING_PROFILES, NotReadyError, InvalidSprintTransitionError
@@ -137,7 +139,8 @@ def view_sprint(project_id: int, sprint_id: int):
     work = sprints.list_work_items(db, sprint_id)
     candidates = [
         i
-        for i in backlog.list_items(db, project_id, status="TRIAGED", limit=200)
+        for status in ("TRIAGED", "INBOX")
+        for i in backlog.list_items(db, project_id, status=status, limit=200)
         if i.sprint_id is None
     ]
     return render_template(
@@ -464,3 +467,70 @@ def auto_run(project_id: int, sprint_id: int):
             except ValueError as exc:
                 return _reply(str(exc), False, back, 409)
     return _reply("Automatic mode " + ("on" if enabled else "off"), True, back, run_id=started)
+
+
+def _repo_id(project) -> int | None:
+    repo = next((r for r in project.repositories if r.is_primary), None) or (
+        project.repositories[0] if project.repositories else None
+    )
+    return repo.id if repo else None
+
+
+def _qa_detail_url(project_id: int, sprint_id: int) -> str:
+    return url_for("sprints.qa_view", project_id=project_id, sprint_id=sprint_id)
+
+
+@bp.get("/<int:sprint_id>/qa")
+def qa_view(project_id: int, sprint_id: int):
+    """Sprint QA checklist (§51): default regression/code-standards checks
+    plus any others added, with a pytest node id per check where one exists."""
+    project = _project(project_id)
+    sprint = _sprint(project_id, sprint_id)
+    db = get_db()
+    qa.default_checklist(db, project_id, sprint_id)
+    checks = acceptance_models.list_criteria(db, project_id, sprint_id=sprint_id)
+    return render_template("sprints/qa.html", project=project, sprint=sprint, checks=checks)
+
+
+@bp.post("/<int:sprint_id>/qa/<int:criterion_id>/toggle")
+def qa_toggle(project_id: int, sprint_id: int, criterion_id: int):
+    """Checked -> re-open a WAIVED/FAILED check; unchecked -> WAIVE it (kept,
+    not deleted, so exclusion stays in the audit trail)."""
+    _project(project_id)
+    _sprint(project_id, sprint_id)
+    db = get_db()
+    back = _qa_detail_url(project_id, sprint_id)
+    c = acceptance_models.get(db, criterion_id)
+    if c is None or c.sprint_id != sprint_id:
+        abort(404)
+    included = request.form.get("included") == "1"
+    actor = request.form.get("by", "user")
+
+    def go():
+        if included:
+            qa.include_check(db, criterion_id, actor)
+        else:
+            qa.waive_check(db, criterion_id, actor)
+
+    _, failed = _guard(go, back)
+    return failed or _reply("Checklist updated", True, back)
+
+
+@bp.post("/<int:sprint_id>/qa/run")
+def qa_run(project_id: int, sprint_id: int):
+    """Run every included checklist check through pytest via the pipeline
+    engine and wait for the result (§51 -- blocking, same tradeoff Research/
+    Planning already accept)."""
+    project = _project(project_id)
+    sprint = _sprint(project_id, sprint_id)
+    db = get_db()
+    back = _qa_detail_url(project_id, sprint_id)
+    manager = current_app.extensions["pipeline_manager"]
+
+    def go():
+        return qa.run_suite(db, manager, project_id, sprint, _repo_id(project))
+
+    execution_id, failed = _guard(go, back)
+    if failed:
+        return failed
+    return _reply("QA suite finished", True, back, execution_id=execution_id)

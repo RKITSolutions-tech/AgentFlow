@@ -208,6 +208,68 @@ def test_accept_research_persists_summary_and_marks_accepted(client, app, projec
     assert again.status_code == 409
 
 
+# -- design action (§51) -----------------------------------------------------
+
+
+def _design_url(pid, item_id):
+    return f"{_base(pid)}/items/{item_id}/design"
+
+
+def test_design_action_creates_pending_test_proposals(client, app, project_id, fake_researcher):
+    item_id = _add(client, project_id, text="Users can log in", title="Login")
+    resp = client.post(_design_url(project_id, item_id), headers=AJAX)
+    assert resp.status_code == 200, resp.get_json()
+    body = resp.get_json()
+    assert body["proposal_ids"]
+    assert body["proposals"][0]["title"]
+
+    with app.app_context():
+        db = get_db()
+        proposals = persistence.list_test_proposals(db, item_id)
+        assert len(proposals) == 1
+        assert proposals[0].status == "PENDING"
+        assert persistence.get_item(db, item_id).status == "INBOX"  # design never changes status
+
+
+def test_design_history_renders_on_item_page(client, project_id, fake_researcher):
+    item_id = _add(client, project_id, text="Users can log in")
+    client.post(_design_url(project_id, item_id), headers=AJAX)
+    html = client.get(f"{_base(project_id)}/items/{item_id}").get_data(as_text=True)
+    assert "Design this item" in html
+
+
+def test_accept_test_proposal_marks_accepted(client, app, project_id, fake_researcher):
+    item_id = _add(client, project_id, text="Users can log in")
+    resp = client.post(_design_url(project_id, item_id), headers=AJAX)
+    proposal_id = resp.get_json()["proposal_ids"][0]
+
+    accept = client.post(f"{_base(project_id)}/items/{item_id}/design/{proposal_id}/accept", headers=AJAX)
+    assert accept.status_code == 200, accept.get_json()
+
+    with app.app_context():
+        db = get_db()
+        proposal = persistence.get_test_proposal(db, proposal_id)
+        assert proposal.status == "ACCEPTED"
+        history = persistence.list_history(db, item_id)
+        assert any("test proposal" in h.notes.lower() for h in history)
+
+    # Already-reviewed proposals cannot be reviewed again.
+    again = client.post(f"{_base(project_id)}/items/{item_id}/design/{proposal_id}/accept", headers=AJAX)
+    assert again.status_code == 409
+
+
+def test_dismiss_test_proposal_marks_dismissed(client, app, project_id, fake_researcher):
+    item_id = _add(client, project_id, text="Users can log in")
+    resp = client.post(_design_url(project_id, item_id), headers=AJAX)
+    proposal_id = resp.get_json()["proposal_ids"][0]
+
+    dismiss = client.post(f"{_base(project_id)}/items/{item_id}/design/{proposal_id}/dismiss", headers=AJAX)
+    assert dismiss.status_code == 200
+
+    with app.app_context():
+        assert persistence.get_test_proposal(get_db(), proposal_id).status == "DISMISSED"
+
+
 def test_dismiss_research_does_not_persist(client, app, project_id, fake_researcher):
     item_id = _add(client, project_id, text="Investigate slow login")
     resp = client.post(_research_url(project_id, item_id), headers=AJAX)

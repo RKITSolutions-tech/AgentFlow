@@ -91,6 +91,43 @@
     </table>
   {% endif %}
 
+  <h2>Tests</h2>
+  <p class="form-hint">Ask an agent to propose tests that would prove this item works (docs/SPRINT_PLANNING_AND_BACKLOG.md §51).
+    Nothing becomes a real acceptance criterion until a Sprint containing this item is approved.</p>
+  <div class="row-actions">
+    <button type="button" class="btn-primary" data-ajax-reload="{{ url_for('backlog.design_item', project_id=project.id, item_id=item.id) }}">Design this item</button>
+  </div>
+  {% set pending_proposals = design_history|selectattr('status', 'equalto', 'PENDING')|list %}
+  {% if pending_proposals %}
+    <table class="table-compact">
+      <thead><tr><th>Title</th><th>Description</th><th>pytest node id</th><th></th></tr></thead>
+      <tbody>
+        {% for p in pending_proposals %}
+          <tr>
+            <td class="wrap-cell">{{ p.title }}</td>
+            <td class="wrap-cell">{{ p.description }}</td>
+            <td class="wrap-cell">{{ p.pytest_node_id or '(none yet)' }}</td>
+            <td class="row-actions">
+              <button type="button" class="btn-primary" data-ajax-reload="{{ url_for('backlog.accept_test_proposal', project_id=project.id, item_id=item.id, proposal_id=p.id) }}">Accept</button>
+              <button type="button" data-ajax-reload="{{ url_for('backlog.dismiss_test_proposal', project_id=project.id, item_id=item.id, proposal_id=p.id) }}">Dismiss</button>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+  {% set reviewed_proposals = design_history|rejectattr('status', 'equalto', 'PENDING')|list %}
+  {% if reviewed_proposals %}
+    <table class="table-compact">
+      <thead><tr><th>When</th><th>Title</th><th>Status</th></tr></thead>
+      <tbody>
+        {% for p in reviewed_proposals %}
+          <tr><td>{{ p.created_at }}</td><td class="wrap-cell">{{ p.title }}</td><td>{{ p.status|capitalize }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+
   <h2>History</h2>
   <table class="table-compact">
     <thead><tr><th>When</th><th>Change</th><th>Notes</th></tr></thead>

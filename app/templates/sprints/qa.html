@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% from "_project_tabs.html" import project_tabs %}
+{% block title %}QA checklist - {{ sprint.name }} - {{ project.name }} - AgentFlow{% endblock %}
+{% block content %}
+  {{ project_tabs(project, none, 'sprints') }}
+  <h1>QA checklist &middot; {{ sprint.name }}</h1>
+  <p class="form-hint">Default regression/code-standards checks, plus any others added from Acceptance
+    (docs/SPRINT_PLANNING_AND_BACKLOG.md §51). Unchecking a check keeps it, marked Waived, rather than
+    deleting it. A check only runs through "Run QA suite" once it has a pytest node id.</p>
+
+  <table class="table-compact">
+    <thead><tr><th></th><th>Check</th><th>pytest node id</th><th>Status</th><th></th></tr></thead>
+    <tbody>
+      {% for c in checks %}
+        <tr data-row>
+          <td><input type="checkbox" disabled {% if c.status != 'WAIVED' %}checked{% endif %} aria-label="Included"></td>
+          <td class="wrap-cell">{{ c.title }}{% if c.description %}<br><span class="form-hint">{{ c.description }}</span>{% endif %}</td>
+          <td>
+            <form method="post" action="{{ url_for('acceptance.update_criterion', project_id=project.id, criterion_id=c.id) }}" class="stacked" data-ajax-form>
+              <input type="hidden" name="title" value="{{ c.title }}">
+              <input type="hidden" name="description" value="{{ c.description }}">
+              {% if c.required %}<input type="hidden" name="required" value="on">{% endif %}
+              <input name="pytest_node_id" value="{{ c.pytest_node_id }}" placeholder="tests/test_x.py::test_y" {% if c.status not in ('DRAFT', 'APPROVED') %}disabled{% endif %}>
+              {% if c.status in ('DRAFT', 'APPROVED') %}<button type="submit">Save</button>{% endif %}
+            </form>
+          </td>
+          <td><span class="run-status">{{ c.status|capitalize }}</span></td>
+          <td class="row-actions">
+            {% if c.status == 'WAIVED' %}
+              <form method="post" action="{{ url_for('sprints.qa_toggle', project_id=project.id, sprint_id=sprint.id, criterion_id=c.id) }}" data-ajax-form>
+                <input type="hidden" name="included" value="1">
+                <button type="submit">Include</button>
+              </form>
+            {% else %}
+              <form method="post" action="{{ url_for('sprints.qa_toggle', project_id=project.id, sprint_id=sprint.id, criterion_id=c.id) }}" data-ajax-form>
+                <input type="hidden" name="included" value="0">
+                <button type="submit" class="link-danger">Waive</button>
+              </form>
+            {% endif %}
+            <a href="{{ url_for('acceptance.view_criterion', project_id=project.id, criterion_id=c.id) }}">Detail</a>
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="5" class="form-hint">No QA checks yet.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <form method="post" action="{{ url_for('sprints.qa_run', project_id=project.id, sprint_id=sprint.id) }}" data-ajax-form>
+    <button type="submit" class="btn-primary">Run QA suite</button>
+  </form>
+  <p class="form-hint">Runs pytest for every included check that has a pytest node id, waits for the result,
+    and links it as evidence -- checks with no node id set are skipped (framework can't grade them yet).</p>
+{% endblock %}

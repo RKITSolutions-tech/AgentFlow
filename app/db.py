@@ -680,6 +680,9 @@ CREATE TABLE IF NOT EXISTS acceptance_criteria (
 );
 CREATE INDEX IF NOT EXISTS idx_acceptance_work_item ON acceptance_criteria(work_item_id);
 CREATE INDEX IF NOT EXISTS idx_acceptance_run ON acceptance_criteria(ralph_run_id);
+-- idx_acceptance_sprint lives in _migrate(): sprint_id only exists on
+-- acceptance_criteria after that function's rebuild step has run (same
+-- reason idx_knowledge_slug/idx_knowledge_topic live there, not here).
 
 CREATE TABLE IF NOT EXISTS acceptance_evidence (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -748,6 +751,26 @@ CREATE TABLE IF NOT EXISTS backlog_research_links (
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_backlog_research_links_item ON backlog_research_links(backlog_item_id, id);
+
+-- Backlog "Design this item" action (docs/SPRINT_PLANNING_AND_BACKLOG.md §51):
+-- draft test proposals, mirroring backlog_research_links' shape. A backlog
+-- item has no planned_work_items row yet (that only exists after Sprint
+-- planning), so proposals cannot be acceptance_criteria rows directly; an
+-- ACCEPTED proposal is promoted into a real acceptance_criteria row later,
+-- at sprint-approval time, by the same path sync_from_work_items() already
+-- uses for planned_work_items.acceptance (app/acceptance/service.py).
+CREATE TABLE IF NOT EXISTS backlog_test_proposals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    backlog_item_id INTEGER NOT NULL REFERENCES backlog_items(id) ON DELETE CASCADE,
+    design_session_id INTEGER REFERENCES agent_sessions(id) ON DELETE SET NULL,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    pytest_node_id TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'PENDING' CHECK(status IN ('PENDING', 'ACCEPTED', 'DISMISSED')),
+    reviewed_at TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_backlog_test_proposals_item ON backlog_test_proposals(backlog_item_id, id);
 
 CREATE TABLE IF NOT EXISTS sprint_approvals (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -967,6 +990,14 @@ _ADDED_COLUMNS = (
     ("knowledge_entries", "version", "TEXT NOT NULL DEFAULT ''"),
     ("knowledge_entries", "freshness_days", "INTEGER NOT NULL DEFAULT 30"),
     ("knowledge_entries", "last_read_at", "TEXT"),
+    # Sprint QA checklist (docs/SPRINT_PLANNING_AND_BACKLOG.md §51): a criterion
+    # not owned by one work item, and the exact pytest test that proves it
+    # (rather than the fuzzy keyword matching suggest_evidence() otherwise
+    # relies on). The CHECK constraint allowing sprint_id-only rows is fixed
+    # up separately, by the table-rebuild step below -- ALTER TABLE ADD COLUMN
+    # cannot change an existing CHECK.
+    ("acceptance_criteria", "sprint_id", "INTEGER REFERENCES sprints(id) ON DELETE CASCADE"),
+    ("acceptance_criteria", "pytest_node_id", "TEXT NOT NULL DEFAULT ''"),
 )
 
 
@@ -994,6 +1025,72 @@ def _migrate(db: sqlite3.Connection) -> None:
         db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_knowledge_slug ON knowledge_entries(slug)")
         db.execute("CREATE INDEX IF NOT EXISTS idx_knowledge_topic ON knowledge_entries(topic)")
     db.commit()
+    _migrate_acceptance_sprint_check(db)
+
+
+def _migrate_acceptance_sprint_check(db: sqlite3.Connection) -> None:
+    """Widen acceptance_criteria's ownership CHECK to also allow a sprint_id-only
+    row (§51 Sprint QA checklist). The _ADDED_COLUMNS loop above already added
+    the sprint_id/pytest_node_id columns to an existing database, but SQLite
+    cannot ALTER a CHECK constraint in place -- the table must be rebuilt, the
+    standard recreate-and-swap SQLite itself documents for this case (unlike
+    every other entry in _ADDED_COLUMNS, which only ever add a column). Guarded
+    on the stored CREATE TABLE text so this runs at most once, whether against
+    a database that predates sprint_id entirely or one from between this
+    column's introduction and this rebuild landing."""
+    row = db.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'acceptance_criteria'"
+    ).fetchone()
+    if row is None or "sprint_id IS NOT NULL" in row["sql"]:
+        return
+    db.commit()  # PRAGMA foreign_keys is a no-op inside a pending transaction
+    db.execute("PRAGMA foreign_keys = OFF")
+    try:
+        db.execute(
+            "CREATE TABLE acceptance_criteria_new ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            "project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,"
+            "work_item_id INTEGER REFERENCES planned_work_items(id) ON DELETE CASCADE,"
+            "ralph_run_id INTEGER REFERENCES ralph_runs(id) ON DELETE CASCADE,"
+            "title TEXT NOT NULL,"
+            "description TEXT NOT NULL DEFAULT '',"
+            "status TEXT NOT NULL DEFAULT 'DRAFT' CHECK(status IN ('DRAFT', 'APPROVED', 'VERIFIED', 'FAILED', 'WAIVED')),"
+            "required INTEGER NOT NULL DEFAULT 1,"
+            "origin TEXT NOT NULL DEFAULT 'MANUAL' CHECK(origin IN ('MANUAL', 'PLANNING', 'TEMPLATE', 'AGENT')),"
+            "iteration INTEGER,"
+            "created_by TEXT NOT NULL DEFAULT '',"
+            "approved_by TEXT,"
+            "approved_at TEXT,"
+            "verified_by TEXT,"
+            "verified_at TEXT,"
+            "waived_reason TEXT NOT NULL DEFAULT '',"
+            "template_key TEXT NOT NULL DEFAULT '',"
+            "hints TEXT NOT NULL DEFAULT '{}',"
+            "created_at TEXT NOT NULL,"
+            "updated_at TEXT NOT NULL,"
+            "sprint_id INTEGER REFERENCES sprints(id) ON DELETE CASCADE,"
+            "pytest_node_id TEXT NOT NULL DEFAULT '',"
+            "CHECK(work_item_id IS NOT NULL OR ralph_run_id IS NOT NULL OR sprint_id IS NOT NULL)"
+            ")"
+        )
+        db.execute(
+            "INSERT INTO acceptance_criteria_new (id, project_id, work_item_id, ralph_run_id, title, "
+            "description, status, required, origin, iteration, created_by, approved_by, approved_at, "
+            "verified_by, verified_at, waived_reason, template_key, hints, created_at, updated_at, "
+            "sprint_id, pytest_node_id) "
+            "SELECT id, project_id, work_item_id, ralph_run_id, title, description, status, required, "
+            "origin, iteration, created_by, approved_by, approved_at, verified_by, verified_at, "
+            "waived_reason, template_key, hints, created_at, updated_at, sprint_id, pytest_node_id "
+            "FROM acceptance_criteria"
+        )
+        db.execute("DROP TABLE acceptance_criteria")
+        db.execute("ALTER TABLE acceptance_criteria_new RENAME TO acceptance_criteria")
+        db.execute("CREATE INDEX IF NOT EXISTS idx_acceptance_work_item ON acceptance_criteria(work_item_id)")
+        db.execute("CREATE INDEX IF NOT EXISTS idx_acceptance_run ON acceptance_criteria(ralph_run_id)")
+        db.execute("CREATE INDEX IF NOT EXISTS idx_acceptance_sprint ON acceptance_criteria(sprint_id)")
+        db.commit()
+    finally:
+        db.execute("PRAGMA foreign_keys = ON")
 
 
 def get_db() -> sqlite3.Connection:

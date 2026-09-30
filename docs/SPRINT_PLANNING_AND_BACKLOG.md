@@ -1200,3 +1200,49 @@ accepted findings may seed acceptance criteria or task descriptions. Sources are
   `use_research`/`dismiss_research` (`app/ralph/views.py`) for the same report shape. Only the most recent `PENDING`
   link renders as an actionable report (summary, findings with an "unverified" badge on anything with no source,
   sources with file path/line range); reviewed links collapse into a compact history table linking to their Artifact.
+
+## 51. Test Definition and QA
+
+Decided in discussion (not yet implemented). Two distinct scopes, both built on the existing `Criterion` model
+(§ "Acceptance criteria (task 26)") rather than a new test-case model, so evidence, verification and the Ralph
+completion gate stay one workflow. Note: "Design" and "Tests" here are UI sections, unrelated to the planning-time
+`PlanningQuestion`/design-Task concept in §32 or the meta test list for AgentFlow's own planning workflow in §43.
+
+**Backlog item: Design and Tests sections.** A "Design this item" action mirrors §50's Research action -- same
+ad-hoc, blocking, `PLANNING_AGENT`-driven pattern (`app/backlog/design.py`, alongside `app/backlog/research.py`) --
+but its output seeds draft `Criterion` rows (`origin="AGENT"`, `work_item_id=<item>`, `status="DRAFT"`) rather than
+appended text. These render in a new Tests section on the item page (`item.html`, alongside Attachments/Research/
+History), reusing the existing approve/verify/evidence workflow and `acceptance.views` routes unchanged.
+
+**Sprint QA screen.** Sprint-scoped regression and code-standards checks (login, nav-click smoke, lint, etc.) are
+not owned by one work item, so `acceptance_criteria` gains a nullable `sprint_id` (a real FK -- unlike
+`backlog_items.sprint_id`, the Sprints table already exists by the time this lands, so there is no ordering problem).
+`app/acceptance/templates.py` gains a `default_for_sprint: true` flag on entries meant to pre-populate every sprint's
+QA checklist. The Sprint QA screen lists these as checkboxes at planning/approval time; unchecking one does not
+omit the row, it creates it `WAIVED` -- consistent with WAIVED's existing meaning ("deliberately not gating on
+this") and keeping an audit trail of what was excluded and by whom, versus a checklist item that silently never
+existed.
+
+**Pytest node ID, not fuzzy matching.** `service.py`'s evidence suggestion (`_tokens`/`_STOPWORDS`) matches criteria
+to test-result artifacts by keyword overlap -- adequate for agent-authored, freely-named tests, but not precise
+enough for a fixed regression checklist. Sprint QA criteria instead carry an explicit `pytest_node_id` column
+(e.g. `tests/test_workspace_integration.py::test_login`), set when the checklist entry is curated/templated, pointing
+at tests already in `tests/` where they exist. A QA run step executes `pytest <node_id>` through the normal
+`ExecutionProvider`/Run machinery (no agent involved); the resulting junit XML is picked up as the existing `.junit`
+"report" artifact kind (`app/artifacts/collector.py`) and filed as `TEST_RESULT` evidence directly against the
+matching criterion by node ID -- exact, not suggested.
+
+**Where agents fit.** Two different roles, not one:
+
+- *Ralph's own loop* (§ RUN_AND_RALPH) is unchanged -- the agent develops a feature and its own scoped tests as part
+  of the same iteration; the verification pipeline runs those.
+- *Sprint QA execution* uses no agent at all for checks expressible as pytest -- the framework runs them, as above.
+  For QA checks that need judgment rather than a fixed assertion (e.g. "does this still look right"), each check
+  gets its own fresh, narrowly-scoped agent session -- the same one-shot, bounded-cost/time pattern as
+  `ResearchAgent`/`PlanningAgent` (§50), one session per check, no shared context across checks -- specifically to
+  avoid one test's findings or scratch reasoning leaking into another's judgment ("context bleed").
+
+**Open questions.** Not yet decided: what triggers a Sprint QA run (manual button on the QA screen vs. part of
+sprint approval/release, §27); whether agent-authored pytest files from a backlog item's Design action are committed
+to the repo as real test files or regenerated per run; and how a QA run's overall pass/fail rolls up into Sprint
+readiness (§25) alongside per-item acceptance criteria.

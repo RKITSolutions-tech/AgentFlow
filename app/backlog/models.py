@@ -93,3 +93,27 @@ class BacklogResearchLink:
     status: str  # PENDING | ACCEPTED | DISMISSED
     reviewed_at: str | None
     created_at: str
+
+
+TEST_PROPOSAL_STATUSES = ("PENDING", "ACCEPTED", "DISMISSED")
+
+
+@dataclass
+class BacklogTestProposal:
+    """A draft test idea from the "Design this item" action
+    (docs/SPRINT_PLANNING_AND_BACKLOG.md §51, `app/backlog/design.py`) --
+    the Backlog-item-scoped analogue of `BacklogResearchLink`. Not an
+    `acceptance_criteria` row: a fresh backlog item has no `planned_work_items`
+    row for one to attach to yet. An ACCEPTED proposal is promoted into a
+    real criterion later, at sprint-approval time
+    (`app.acceptance.service.sync_from_work_items`)."""
+
+    id: int
+    backlog_item_id: int
+    design_session_id: int | None
+    title: str
+    description: str
+    pytest_node_id: str
+    status: str  # PENDING | ACCEPTED | DISMISSED
+    reviewed_at: str | None
+    created_at: str

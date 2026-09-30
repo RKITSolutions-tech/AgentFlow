@@ -8,6 +8,7 @@ import sqlite3
 from app.acceptance import models, templates
 from app.acceptance.models import AcceptanceError, Criterion
 from app.artifacts import models as artifact_models
+from app.pipelines import executions
 
 _STOPWORDS = frozenset(
     "the and for with that this from have has are was were will shall should must when then than into onto "
@@ -37,7 +38,14 @@ def create_from_template(
 def sync_from_work_items(db: sqlite3.Connection, sprint_id: int, approved_by: str) -> int:
     """When a Sprint is approved its planned tasks' acceptance text becomes
     first-class criteria. A person just reviewed each one (readiness requires
-    it), so they start APPROVED, attributed to the Sprint approver."""
+    it), so they start APPROVED, attributed to the Sprint approver.
+
+    Also promotes any ACCEPTED Backlog "Design this item" test proposal
+    (§51, `app.backlog.design`) belonging to a backlog item this work item
+    covers -- the point a proposal stops being advisory-only and becomes a
+    real, gating criterion, the same "person accepts findings before they
+    change acceptance criteria" rule Research already follows (§50)."""
+    from app.backlog import persistence as backlog
     from app.sprints import persistence as sprints
 
     sprint = sprints.get_sprint(db, sprint_id)
@@ -52,6 +60,18 @@ def sync_from_work_items(db: sqlite3.Connection, sprint_id: int, approved_by: st
                     db, sprint.project_id, text, work_item_id=work.id, origin="PLANNING",
                     created_by="planning", status="APPROVED", approved_by=approved_by,
                 )
+                existing.add(text)
+                created += 1
+        for backlog_item_id in work.backlog_item_ids:
+            for proposal in backlog.list_test_proposals(db, backlog_item_id):
+                if proposal.status != "ACCEPTED" or proposal.title in existing:
+                    continue
+                models.create(
+                    db, sprint.project_id, proposal.title, proposal.description, work_item_id=work.id,
+                    origin="AGENT", created_by="design", status="APPROVED", approved_by=approved_by,
+                    pytest_node_id=proposal.pytest_node_id,
+                )
+                existing.add(proposal.title)
                 created += 1
     return created
 
@@ -125,7 +145,14 @@ def reopen(db: sqlite3.Connection, criterion_id: int, by: str) -> None:
 
 def _scope_executions(db: sqlite3.Connection, criterion: Criterion) -> list[int]:
     """Pipeline executions whose output can prove this criterion: the
-    verification runs of the Ralph run(s) it belongs to."""
+    verification runs of the Ralph run(s) it belongs to, or -- for a Sprint
+    QA criterion, which has neither -- every pipeline execution scoped to
+    that Sprint (§51; `pipeline_executions.sprint_id`, set by
+    `app.sprints.qa.run_suite`)."""
+    if criterion.sprint_id:
+        return [
+            r[0] for r in db.execute("SELECT id FROM pipeline_executions WHERE sprint_id = ?", (criterion.sprint_id,))
+        ]
     if criterion.ralph_run_id:
         run_ids = [criterion.ralph_run_id]
     else:
@@ -202,6 +229,54 @@ def suggest_for_run(db: sqlite3.Connection, ralph_run_id: int) -> int:
         if c.status in ("DRAFT", "APPROVED", "FAILED"):
             count += len(suggest_evidence(db, c.id))
     return count
+
+
+def sync_qa_results(db: sqlite3.Connection, project_id: int, sprint_id: int, execution_id: int) -> int:
+    """Resolve a Sprint QA suite run (§51, `app.sprints.qa.run_suite`) against
+    its criteria. Each included criterion has a `pytest_node_id` and ran as
+    one TEST element in `execution_id`, named `f"qa-{criterion.id}"` -- an
+    exact match, unlike the keyword-guessing `suggest_evidence` above, so the
+    result goes straight to LINKED evidence and VERIFIED/FAILED, not
+    SUGGESTED. Returns the number of criteria updated; already-synced steps
+    (checked by an existing TEST_RESULT evidence row for that step) are left
+    alone so re-rendering the QA screen never double-applies a result."""
+    updated = 0
+    for c in models.list_criteria(db, project_id, sprint_id=sprint_id):
+        if not c.pytest_node_id or c.status not in ("DRAFT", "APPROVED", "FAILED"):
+            continue
+        step = executions.latest_step(db, execution_id, f"qa-{c.id}")
+        if step is None or step.status not in ("PASSED", "FAILED"):
+            continue
+        already = db.execute(
+            "SELECT 1 FROM acceptance_evidence WHERE criterion_id = ? AND evidence_type = 'TEST_RESULT' "
+            "AND reference_id = ?",
+            (c.id, step.id),
+        ).fetchone()
+        if already:
+            continue
+        models.add_evidence(
+            db, c.id, "TEST_RESULT", step.id,
+            note=f"pytest {c.pytest_node_id}", state="LINKED", recorded_by="system:sprint-qa",
+        )
+        target = "VERIFIED" if step.status == "PASSED" else "FAILED"
+        status = c.status
+        if status in ("FAILED", "VERIFIED") and target not in models.TRANSITIONS.get(status, ()):
+            # Neither FAILED nor VERIFIED transitions directly to the other
+            # (only a person re-opening one does, via reopen()) -- a QA
+            # re-run flipping a check's result re-opens it first, the same
+            # ... -> APPROVED step reopen() performs, before applying the new
+            # result, so a fix (or a regression) shows up on the next run
+            # without needing a manual re-approve in between.
+            models.set_status(db, c.id, "APPROVED", verified_by=None, verified_at=None, waived_reason="")
+            status = "APPROVED"
+        if target in models.TRANSITIONS.get(status, ()):
+            models.set_status(
+                db, c.id, target,
+                verified_by="system:sprint-qa" if target == "VERIFIED" else None,
+                verified_at=models.now() if target == "VERIFIED" else None,
+            )
+        updated += 1
+    return updated
 
 
 def accept_evidence(db: sqlite3.Connection, evidence_id: int, by: str) -> None:

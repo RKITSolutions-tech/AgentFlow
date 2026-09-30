@@ -31,6 +31,7 @@ class Criterion:
     project_id: int
     work_item_id: int | None
     ralph_run_id: int | None
+    sprint_id: int | None
     title: str
     description: str
     status: str
@@ -47,6 +48,7 @@ class Criterion:
     hints: dict
     created_at: str
     updated_at: str
+    pytest_node_id: str
 
 
 @dataclass
@@ -87,6 +89,7 @@ def create(
     description: str = "",
     work_item_id: int | None = None,
     ralph_run_id: int | None = None,
+    sprint_id: int | None = None,
     required: bool = True,
     origin: str = "MANUAL",
     iteration: int | None = None,
@@ -95,23 +98,24 @@ def create(
     hints: dict | None = None,
     status: str = "DRAFT",
     approved_by: str | None = None,
+    pytest_node_id: str = "",
 ) -> int:
     title = title.strip()
     if not title:
         raise AcceptanceError("A criterion needs a title")
-    if work_item_id is None and ralph_run_id is None:
-        raise AcceptanceError("A criterion belongs to a planned task or a Ralph run")
+    if work_item_id is None and ralph_run_id is None and sprint_id is None:
+        raise AcceptanceError("A criterion belongs to a planned task, a Ralph run or a Sprint")
     if origin not in ORIGINS or status not in ("DRAFT", "APPROVED"):
         raise AcceptanceError("Invalid origin or status")
     stamp = now()
     cur = db.execute(
-        "INSERT INTO acceptance_criteria (project_id, work_item_id, ralph_run_id, title, description, "
-        "status, required, origin, iteration, created_by, approved_by, approved_at, template_key, hints, "
-        "created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO acceptance_criteria (project_id, work_item_id, ralph_run_id, sprint_id, title, "
+        "description, status, required, origin, iteration, created_by, approved_by, approved_at, "
+        "template_key, hints, pytest_node_id, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (
-            project_id, work_item_id, ralph_run_id, title, description.strip(), status, int(required),
+            project_id, work_item_id, ralph_run_id, sprint_id, title, description.strip(), status, int(required),
             origin, iteration, created_by.strip(), approved_by, stamp if status == "APPROVED" else None,
-            template_key, json.dumps(hints or {}), stamp, stamp,
+            template_key, json.dumps(hints or {}), pytest_node_id.strip(), stamp, stamp,
         ),
     )
     db.commit()
@@ -128,6 +132,7 @@ def list_criteria(
     project_id: int,
     work_item_id: int | None = None,
     ralph_run_id: int | None = None,
+    sprint_id: int | None = None,
     status: str | None = None,
 ) -> list[Criterion]:
     sql, params = "SELECT * FROM acceptance_criteria WHERE project_id = ?", [project_id]
@@ -137,13 +142,19 @@ def list_criteria(
     if ralph_run_id:
         sql += " AND ralph_run_id = ?"
         params.append(ralph_run_id)
+    if sprint_id:
+        sql += " AND sprint_id = ?"
+        params.append(sprint_id)
     if status:
         sql += " AND status = ?"
         params.append(status)
     return [_criterion(r) for r in db.execute(sql + " ORDER BY id", params)]
 
 
-def update_text(db: sqlite3.Connection, criterion_id: int, title: str, description: str, required: bool) -> None:
+def update_text(
+    db: sqlite3.Connection, criterion_id: int, title: str, description: str, required: bool,
+    pytest_node_id: str | None = None,
+) -> None:
     c = get(db, criterion_id)
     if c is None:
         raise LookupError("Criterion not found")
@@ -155,10 +166,12 @@ def update_text(db: sqlite3.Connection, criterion_id: int, title: str, descripti
     status, approved_by, approved_at = (c.status, c.approved_by, c.approved_at)
     if c.status == "APPROVED" and title.strip() != c.title:
         status, approved_by, approved_at = "DRAFT", None, None
+    node_id = c.pytest_node_id if pytest_node_id is None else pytest_node_id.strip()
     db.execute(
         "UPDATE acceptance_criteria SET title = ?, description = ?, required = ?, status = ?, "
-        "approved_by = ?, approved_at = ?, updated_at = ? WHERE id = ?",
-        (title.strip(), description.strip(), int(required), status, approved_by, approved_at, now(), criterion_id),
+        "approved_by = ?, approved_at = ?, pytest_node_id = ?, updated_at = ? WHERE id = ?",
+        (title.strip(), description.strip(), int(required), status, approved_by, approved_at,
+         node_id, now(), criterion_id),
     )
     db.commit()
 

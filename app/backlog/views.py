@@ -13,7 +13,7 @@ from flask import (
 )
 
 from app.agents import models as agent_models
-from app.backlog import attachments, persistence, research
+from app.backlog import attachments, design, persistence, research
 from app.backlog.models import (
     BACKLOG_PRIORITIES,
     BACKLOG_STATUSES,
@@ -198,6 +198,7 @@ def view_item(project_id: int, item_id: int):
         files=persistence.list_attachments(db, item_id),
         history=persistence.list_history(db, item_id),
         research_history=research.item_research_history(db, item_id),
+        design_history=design.item_design_history(db, item_id),
         next_statuses=TRANSITIONS[item.status],
         priorities=BACKLOG_PRIORITIES,
     )
@@ -275,6 +276,67 @@ def dismiss_research(project_id: int, item_id: int, link_id: int):
     if link.status != "PENDING":
         return _reply("This report was already reviewed", False, back, 409)
     persistence.set_research_link_status(db, link_id, "DISMISSED")
+    return _reply("Dismissed", True, back)
+
+
+@bp.post("/items/<int:item_id>/design")
+def design_item(project_id: int, item_id: int):
+    """Ask a DESIGN-role agent to propose tests for this item (§51). Blocks
+    for the design pass, same reasoning as `research_item`, so the trigger
+    button is a `data-ajax-reload` too."""
+    project = _project(project_id)
+    item = _item(project_id, item_id)
+    db = get_db()
+    back = url_for("backlog.view_item", project_id=project_id, item_id=item_id)
+    try:
+        result = design.run_item_design(current_app.config, db, project, item)
+    except (ValueError, RuntimeError) as exc:
+        return _reply(f"Design could not start: {exc}", False, back, 502)
+
+    outcome = result.outcome
+    if outcome.state == "COMPLETE":
+        return _reply(
+            "Design complete", True, back,
+            design_session_id=result.design_session_id, proposal_ids=result.proposal_ids,
+            proposals=[p.__dict__ for p in outcome.proposals],
+        )
+    message = outcome.error or f"Design ended {outcome.state.lower()}"
+    return _reply(message, False, back, 502)
+
+
+def _test_proposal(project_id: int, item_id: int, proposal_id: int):
+    _item(project_id, item_id)
+    proposal = persistence.get_test_proposal(get_db(), proposal_id)
+    if proposal is None or proposal.backlog_item_id != item_id:
+        abort(404)
+    return proposal
+
+
+@bp.post("/items/<int:item_id>/design/<int:proposal_id>/accept")
+def accept_test_proposal(project_id: int, item_id: int, proposal_id: int):
+    """Advisory-only acceptance, same rule as Research (§50): nothing becomes
+    a real acceptance criterion until a Sprint containing this item is
+    approved (`app.acceptance.service.sync_from_work_items`)."""
+    _project(project_id)
+    db = get_db()
+    back = url_for("backlog.view_item", project_id=project_id, item_id=item_id)
+    proposal = _test_proposal(project_id, item_id, proposal_id)
+    if proposal.status != "PENDING":
+        return _reply("This proposal was already reviewed", False, back, 409)
+    persistence.set_test_proposal_status(db, proposal_id, "ACCEPTED")
+    persistence.record_note(db, item_id, f"Accepted test proposal: {proposal.title}", changed_by=_actor())
+    return _reply("Accepted", True, back)
+
+
+@bp.post("/items/<int:item_id>/design/<int:proposal_id>/dismiss")
+def dismiss_test_proposal(project_id: int, item_id: int, proposal_id: int):
+    _project(project_id)
+    db = get_db()
+    back = url_for("backlog.view_item", project_id=project_id, item_id=item_id)
+    proposal = _test_proposal(project_id, item_id, proposal_id)
+    if proposal.status != "PENDING":
+        return _reply("This proposal was already reviewed", False, back, 409)
+    persistence.set_test_proposal_status(db, proposal_id, "DISMISSED")
     return _reply("Dismissed", True, back)
 
 

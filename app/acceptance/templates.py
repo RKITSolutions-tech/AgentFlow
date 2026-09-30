@@ -48,7 +48,44 @@ TEMPLATES: dict[str, dict] = {
         "fields": [],
         "hints": {"step_types": ["COMMAND", "TEST"], "artifact_kinds": ["report"]},
     },
+    # Sprint QA checklist defaults (docs/SPRINT_PLANNING_AND_BACKLOG.md §51):
+    # `default_for_sprint` entries pre-populate every sprint's QA checklist
+    # (app/sprints/qa.py's `default_checklist`). `pytest_node_id` starts empty
+    # -- unlike the other templates above, these are seeded once per project
+    # against that project's own test suite, not a fixed path this shared
+    # template dict could ever know; the QA screen lets it be filled in (or
+    # left blank, in which case the checklist item stays a manual/agent-judged
+    # check rather than a framework-run one) per project.
+    "qa-login-regression": {
+        "name": "Login regression",
+        "title": "Login still works",
+        "description": "A user can log in with valid credentials and reaches the signed-in view.",
+        "fields": [],
+        "hints": {"step_types": ["TEST"], "artifact_kinds": ["report"]},
+        "default_for_sprint": True,
+        "pytest_node_id": "",
+    },
+    "qa-nav-click-smoke": {
+        "name": "Navigation click smoke test",
+        "title": "Primary navigation links all resolve",
+        "description": "Every primary navigation link loads without error.",
+        "fields": [],
+        "hints": {"step_types": ["TEST", "PLAYWRIGHT"], "artifact_kinds": ["report"]},
+        "default_for_sprint": True,
+        "pytest_node_id": "",
+    },
+    "qa-code-standards": {
+        "name": "Code standards / lint",
+        "title": "Code standards checks pass",
+        "description": "The project's lint/formatting/static-analysis check reports no violations.",
+        "fields": [],
+        "hints": {"step_types": ["TEST", "COMMAND"], "artifact_kinds": ["report"]},
+        "default_for_sprint": True,
+        "pytest_node_id": "",
+    },
 }
+
+DEFAULT_SPRINT_TEMPLATES = tuple(key for key, t in TEMPLATES.items() if t.get("default_for_sprint"))
 
 
 class TemplateError(ValueError):

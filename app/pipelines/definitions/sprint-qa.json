@@ -1,0 +1,14 @@
+{
+  "name": "sprint-qa",
+  "type": "DEVELOPMENT",
+  "description": "Placeholder owner of a stable pipeline_id/version for Sprint QA suite runs (docs/SPRINT_PLANNING_AND_BACKLOG.md §51). app/sprints/qa.py builds its own TEST elements per run (one per included checklist criterion) and calls app.pipelines.executions.create_execution() directly rather than composing this definition -- pipeline_executions.pipeline_id is NOT NULL, so this row exists purely to be pointed at; the element below never actually runs.",
+  "elements": [
+    {
+      "name": "placeholder",
+      "type": "COMMAND",
+      "config": {
+        "command": "true"
+      }
+    }
+  ]
+}

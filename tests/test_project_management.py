@@ -69,6 +69,82 @@ def test_migration_adds_starred_to_old_database(tmp_path):
     assert "starred" in {r["name"] for r in db.execute("PRAGMA table_info(projects)")}
 
 
+def test_migration_widens_acceptance_criteria_check_for_sprint_only_rows(tmp_path):
+    """docs/SPRINT_PLANNING_AND_BACKLOG.md §51: an old database's
+    acceptance_criteria table has the original CHECK(work_item_id IS NOT NULL
+    OR ralph_run_id IS NOT NULL), which rejects a Sprint QA criterion (both
+    NULL, only sprint_id set). _migrate()'s table-rebuild step must widen the
+    CHECK -- and not lose any existing row -- on a database that predates
+    sprint_id/pytest_node_id entirely."""
+    import sqlite3
+
+    db = sqlite3.connect(tmp_path / "old.sqlite3")
+    db.row_factory = sqlite3.Row
+    # Minimal parent tables so the rebuilt table's FK columns (project_id,
+    # work_item_id, ralph_run_id, sprint_id) have somewhere to point --
+    # _migrate() re-enables PRAGMA foreign_keys at the end (matching get_db(),
+    # which always has it on before _migrate() ever runs), so this connection
+    # enforces them from here on, unlike a bare sqlite3.connect() by default.
+    db.execute("CREATE TABLE projects (id INTEGER PRIMARY KEY)")
+    db.execute("INSERT INTO projects (id) VALUES (1)")
+    db.execute("CREATE TABLE planned_work_items (id INTEGER PRIMARY KEY)")
+    db.execute("INSERT INTO planned_work_items (id) VALUES (42)")
+    db.execute("CREATE TABLE ralph_runs (id INTEGER PRIMARY KEY)")
+    db.execute("CREATE TABLE sprints (id INTEGER PRIMARY KEY)")
+    db.execute("INSERT INTO sprints (id) VALUES (7)")
+    db.execute(
+        "CREATE TABLE acceptance_criteria ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "project_id INTEGER NOT NULL,"
+        "work_item_id INTEGER,"
+        "ralph_run_id INTEGER,"
+        "title TEXT NOT NULL,"
+        "description TEXT NOT NULL DEFAULT '',"
+        "status TEXT NOT NULL DEFAULT 'DRAFT',"
+        "required INTEGER NOT NULL DEFAULT 1,"
+        "origin TEXT NOT NULL DEFAULT 'MANUAL',"
+        "iteration INTEGER,"
+        "created_by TEXT NOT NULL DEFAULT '',"
+        "approved_by TEXT,"
+        "approved_at TEXT,"
+        "verified_by TEXT,"
+        "verified_at TEXT,"
+        "waived_reason TEXT NOT NULL DEFAULT '',"
+        "template_key TEXT NOT NULL DEFAULT '',"
+        "hints TEXT NOT NULL DEFAULT '{}',"
+        "created_at TEXT NOT NULL,"
+        "updated_at TEXT NOT NULL,"
+        "CHECK(work_item_id IS NOT NULL OR ralph_run_id IS NOT NULL)"
+        ")"
+    )
+    db.execute(
+        "INSERT INTO acceptance_criteria (project_id, work_item_id, title, created_at, updated_at) "
+        "VALUES (1, 42, 'Old criterion', 'x', 'x')"
+    )
+    db.commit()
+
+    _migrate(db)
+    _migrate(db)  # idempotent
+
+    columns = {r["name"] for r in db.execute("PRAGMA table_info(acceptance_criteria)")}
+    assert {"sprint_id", "pytest_node_id"} <= columns
+
+    row = db.execute("SELECT * FROM acceptance_criteria WHERE title = 'Old criterion'").fetchone()
+    assert row["work_item_id"] == 42 and row["project_id"] == 1
+
+    # A sprint-only row (both work_item_id and ralph_run_id NULL) is rejected
+    # by the original CHECK, so this raising would mean the rebuild never
+    # actually widened it.
+    db.execute(
+        "INSERT INTO acceptance_criteria (project_id, sprint_id, title, created_at, updated_at) "
+        "VALUES (1, 7, 'Sprint-only criterion', 'x', 'x')"
+    )
+    db.commit()
+    assert db.execute(
+        "SELECT sprint_id FROM acceptance_criteria WHERE title = 'Sprint-only criterion'"
+    ).fetchone()["sprint_id"] == 7
+
+
 # -- clone -------------------------------------------------------------------
 
 

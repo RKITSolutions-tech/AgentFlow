@@ -7,10 +7,12 @@ from app.backlog.models import (
     BACKLOG_PRIORITIES,
     BACKLOG_STATUSES,
     RESEARCH_LINK_STATUSES,
+    TEST_PROPOSAL_STATUSES,
     TRANSITIONS,
     BacklogAttachment,
     BacklogItem,
     BacklogResearchLink,
+    BacklogTestProposal,
     InvalidTransitionError,
     TriageEntry,
 )
@@ -223,5 +225,48 @@ def set_research_link_status(db: sqlite3.Connection, link_id: int, status: str) 
     db.execute(
         "UPDATE backlog_research_links SET status = ?, reviewed_at = ? WHERE id = ?",
         (status, now(), link_id),
+    )
+    db.commit()
+
+
+# -- test proposals (§51, "Design this item") -------------------------------
+
+
+def add_test_proposal(
+    db: sqlite3.Connection,
+    item_id: int,
+    design_session_id: int | None,
+    title: str,
+    description: str = "",
+    pytest_node_id: str = "",
+) -> int:
+    cur = db.execute(
+        "INSERT INTO backlog_test_proposals "
+        "(backlog_item_id, design_session_id, title, description, pytest_node_id, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (item_id, design_session_id, title.strip(), description.strip(), pytest_node_id.strip(), now()),
+    )
+    db.commit()
+    return cur.lastrowid
+
+
+def list_test_proposals(db: sqlite3.Connection, item_id: int) -> list[BacklogTestProposal]:
+    rows = db.execute(
+        "SELECT * FROM backlog_test_proposals WHERE backlog_item_id = ? ORDER BY id DESC", (item_id,)
+    ).fetchall()
+    return [BacklogTestProposal(**dict(r)) for r in rows]
+
+
+def get_test_proposal(db: sqlite3.Connection, proposal_id: int) -> BacklogTestProposal | None:
+    row = db.execute("SELECT * FROM backlog_test_proposals WHERE id = ?", (proposal_id,)).fetchone()
+    return BacklogTestProposal(**dict(row)) if row else None
+
+
+def set_test_proposal_status(db: sqlite3.Connection, proposal_id: int, status: str) -> None:
+    if status not in TEST_PROPOSAL_STATUSES:
+        raise ValueError(f"Unknown test proposal status {status!r}")
+    db.execute(
+        "UPDATE backlog_test_proposals SET status = ?, reviewed_at = ? WHERE id = ?",
+        (status, now(), proposal_id),
     )
     db.commit()

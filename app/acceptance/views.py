@@ -65,13 +65,17 @@ def list_criteria(project_id: int):
     project = _project(project_id)
     status = request.args.get("status")
     criteria = models.list_criteria(
-        get_db(), project_id, _int(request.args.get("work_item")), _int(request.args.get("run")),
-        status if status in models.STATUSES else None,
+        get_db(), project_id,
+        work_item_id=_int(request.args.get("work_item")),
+        ralph_run_id=_int(request.args.get("run")),
+        sprint_id=_int(request.args.get("sprint")),
+        status=status if status in models.STATUSES else None,
     )
     return render_template(
         "acceptance/list.html", project=project, criteria=criteria, statuses=models.STATUSES,
         status=status or "", templates=templates.list_templates(),
         work_item=request.args.get("work_item", ""), run=request.args.get("run", ""),
+        sprint=request.args.get("sprint", ""),
     )
 
 
@@ -142,6 +146,7 @@ def update_criterion(project_id: int, criterion_id: int):
         lambda: models.update_text(
             get_db(), criterion_id, request.form.get("title", ""), request.form.get("description", ""),
             request.form.get("required", "") == "on",
+            pytest_node_id=request.form.get("pytest_node_id"),
         ),
         "Criterion updated",
     )

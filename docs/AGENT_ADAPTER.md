@@ -934,3 +934,52 @@ bridge, not a proposal queue like `PlanningAgent` (§below) -- writes take effec
   `FakeAgentAdapter` gained a `tool_call` script step (`app/agents/fake.py`) that calls the same
   `app/mcp/tools/` functions in-process, so `options["mcp_tools"]` -> tool-call wiring has a
   deterministic test path with no real CLI subprocess required (`tests/test_sessions.py`).
+
+## 25. Chat-Orchestrated ALM Flow
+
+Decided in discussion (not yet implemented; depends on the still-unbuilt Sprint/Pipeline/Ralph tool
+modules from §24 and on SPRINT_PLANNING_AND_BACKLOG.md §51's Design/test-definition action). A
+`GENERAL`-role interactive chat session with `mcp_tools` enabled can be asked to carry a feature or
+requirement through the whole ALM flow in one conversation: create the Backlog item, research it,
+define its tests (§51), add it to a Sprint, select or define that Sprint's pipeline, then execute it.
+The chat session is the orchestrator, but every step is a tool call into the AgentFlow MCP server, not
+something the chat session's own agent does by hand (editing files, running shell commands itself)
+-- this keeps validation and audit identical to a person doing each step through the UI, and keeps
+AgentFlow's own persistence/workflow functions, not the chat agent's judgment, as the source of truth
+for what actually happened at each step.
+
+Two distinct execution shapes, which every future Sprint/Pipeline/Ralph tool must pick correctly rather
+than defaulting to one:
+
+- **Blocking, summary-returning steps.** Research, Design (test definition, §51) and Sprint planning
+  each already spawn a bounded sub-agent (`ResearchAgent`/`PlanningAgent`/§51's design action)
+  synchronously and return, the same way they already do when triggered from the UI
+  (`DEFAULT_TIME_LIMIT_SECONDS=300`-class bound, §23 "Limits"). Their MCP tool wrappers block for the
+  same duration and hand the result straight back to the chat session in the same turn -- this is the
+  shape that lets the orchestrating session say "research found X, Y, Z; defining tests next" without a
+  second round trip. Open risk, not yet verified: whether the actual Claude/Codex CLI's own MCP
+  tool-call timeout tolerates a multi-minute blocking call -- needs confirming against the real
+  binaries (same "confirmed live, not just SDK-level" discipline §24 already applies to its other MCP
+  claims) before this shape is relied on for anything longer than Research's existing bound.
+- **Fire-and-forget steps.** Pipeline execution and Ralph runs can run far longer than any reasonable
+  tool-call timeout and are already async in the UI (`PipelineManager`/`RalphManager` background
+  threads, status polled separately, never blocked on). Their MCP tools must match that: start the
+  execution and return an id immediately, with a separate status-checking tool for the chat session (or
+  a person re-opening the conversation later) to poll -- never a `manager.join()`-style blocking call
+  from inside a chat tool handler.
+
+**Summary shape.** Every blocking tool's result is a compact digest -- title, top findings or proposals,
+counts -- plus the record's id (`research_session_id` / proposal ids / criterion ids), not the full
+report inlined. A separate `*_get_report`-style tool retrieves full detail only if the chat session (or
+the person watching it) actually asks for it, mirroring how the Backlog UI already shows a condensed
+research summary with full detail only in the expanded view (§50). Rationale: inlining a full report
+into every orchestration step would bloat the orchestrating chat session's own context on every single
+call, most of which the person will never ask to see in full.
+
+**Open questions.** Not yet decided: how the chat session is meant to discover "no pipeline exists yet
+for this Sprint, define one" versus selecting an existing definition -- a read-only
+`pipeline_list_definitions`-style tool fits the existing wrapping pattern, but *authoring* a new
+definition from a chat conversation is a materially bigger capability than selecting one, and may not
+belong in v1; and how a fire-and-forget execution re-enters the conversation once it finishes -- does
+the chat session poll a status tool in a loop within its own turn (bounded by its own tool-call/turn
+budget), or does whoever is watching have to prompt again later to check.

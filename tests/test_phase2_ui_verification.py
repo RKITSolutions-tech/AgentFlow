@@ -116,6 +116,7 @@ def _pages(w):
         "sprints": f"{p}/sprints",
         "sprint detail": f"{p}/sprints/{w.sprint}",
         "sprint queue": f"{p}/sprints/{w.sprint}/queue",
+        "sprint qa": f"{p}/sprints/{w.sprint}/qa",
         "pipelines": f"{p}/pipelines",
         "pipeline execution": f"{p}/pipelines/executions/{w.eid}",
         "ralph": f"{p}/ralph",
