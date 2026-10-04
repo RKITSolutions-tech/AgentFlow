@@ -8,6 +8,21 @@
   <h1>{{ project.name }} - Pipelines</h1>
   {{ lock_status(project.id) }}
 
+  <table class="table-compact">
+    <thead><tr><th>Pipeline</th><th>Version</th><th class="row-actions"></th></tr></thead>
+    <tbody>
+      {% for p in pipelines %}
+        <tr>
+          <td class="wrap-cell">{{ p.name }}{% if p.project_id is none %} (built-in){% endif %}</td>
+          <td>v{{ p.current_version }}</td>
+          <td class="row-actions"><a href="{{ url_for('pipelines.preview_pipeline', project_id=project.id, name=p.name) }}">Preview</a></td>
+        </tr>
+      {% else %}
+        <tr><td colspan="3">No pipelines defined.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
   <form method="post" action="{{ url_for('pipelines.start_execution', project_id=project.id) }}" class="stacked" data-ajax-form>
     <div class="run-form-row">
       <label>Pipeline

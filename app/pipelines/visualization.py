@@ -318,6 +318,62 @@ def _research_report_summary(db: sqlite3.Connection, execution: Execution, name:
     return {"artifact_id": artifact.id, **artifact.metadata}
 
 
+def build_preview_graph(elements: list[dict], expand: frozenset[str] = frozenset()) -> dict:
+    """Structural graph for a pipeline definition that has never run: every
+    element PENDING (or DISABLED), no step history. `elements` is already
+    flattened/ordered (composer.compose). Reuses build_graph's layering and
+    grouping by handing it a stand-in execution with no recorded steps."""
+    execution = Execution(
+        id=0, pipeline_id=0, pipeline_version=0, project_id=0, repository_id=None,
+        sprint_id=None, parent_execution_id=None, run_id=None, status="PENDING", reason="",
+        resolved_configuration={"elements": elements}, variables={}, cursor=0, waiting_step_id=None,
+        loops={}, resources=[], context_id=None, warnings=0, needs_attention=False,
+        cancel_requested=False, started_at=None, completed_at=None, created_at="",
+    )
+    return build_graph(None, execution, steps=[], expand=expand)
+
+
+def preview_node_detail(
+    elements: list[dict], name: str, patterns: tuple[str, ...] = ()
+) -> dict | None:
+    """Inspector data for one element of an unexecuted definition: its
+    configuration, dependencies and compensation policy -- no attempts, no
+    events, since nothing has run."""
+    by_name = {e["name"]: e for e in elements}
+    if name not in by_name:
+        members = [e for e in elements if e["name"].startswith(name + ".")]
+        if not members:
+            return None
+        return {
+            "name": name, "type": "SUB_PIPELINE", "category": schema.category("SUB_PIPELINE"),
+            "phase": members[0].get("phase", "MAIN"), "state": "PENDING", "state_label": STATES["PENDING"][0],
+            "configuration": {}, "compensation": {}, "depends_on": [], "attempts": [], "events": [],
+            "waiting_step_id": None, "collapse": None,
+            "members": [
+                {"name": e["name"], "label": e["name"][len(name) + 1:], "state": "PENDING",
+                 "state_label": STATES["PENDING"][0]}
+                for e in members
+            ],
+        }
+    element = by_name[name]
+    state = "DISABLED" if element.get("enabled", "ENABLED") == "DISABLED" else "PENDING"
+    return {
+        "name": name,
+        "type": element["type"],
+        "category": schema.category(element["type"]),
+        "phase": element.get("phase", "MAIN"),
+        "state": state,
+        "state_label": STATES[state][0],
+        "configuration": _clean(element.get("config") or {}, patterns),
+        "compensation": element.get("compensation") or {},
+        "depends_on": element.get("depends_on") or [],
+        "attempts": [],
+        "events": [],
+        "waiting_step_id": None,
+        "collapse": name.rsplit(".", 1)[0] if "." in name else None,
+    }
+
+
 def _group_detail(execution: Execution, elements: dict, name: str, all_steps: list[StepExecution]) -> dict | None:
     """Inspector data for a collapsed sub-pipeline: its steps and their states."""
     leaves = [e for n, e in elements.items() if n.startswith(name + ".")]

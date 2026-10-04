@@ -18,7 +18,7 @@ from flask import (
 )
 
 from app.db import get_db
-from app.pipelines import executions, persistence, replay, visualization
+from app.pipelines import composer, executions, persistence, replay, visualization
 from app.pipelines.manager import PipelineManager
 from app.projects import models as project_models
 from app.runs import artifacts as run_artifacts
@@ -143,6 +143,52 @@ def view_execution(project_id: int, execution_id: int):
 def graph_json(project_id: int, execution_id: int):
     _project(project_id)
     return visualization.build_graph(get_db(), _execution(project_id, execution_id), expand=_expand())
+
+
+def _pipeline(project_id: int, name: str) -> persistence.Pipeline:
+    record = persistence.find_pipeline(get_db(), name, project_id)
+    if record is None:
+        abort(404)
+    return record
+
+
+def _compose(record: persistence.Pipeline, project_id: int) -> tuple[list[dict] | None, str | None]:
+    db = get_db()
+    try:
+        elements = composer.compose(persistence.get_definition(db, record.id), persistence.resolver_for(db, project_id))
+    except composer.CompositionError as exc:
+        return None, str(exc)
+    return elements, None
+
+
+@bp.get("/<name>/preview")
+def preview_pipeline(project_id: int, name: str):
+    project = _project(project_id)
+    record = _pipeline(project_id, name)
+    elements, error = _compose(record, project_id)
+    return render_template(
+        "pipelines/preview.html", project=project, pipeline=record, error=error,
+        graph=visualization.build_preview_graph(elements, expand=_expand()) if elements is not None else None,
+    )
+
+
+@bp.get("/<name>/preview/graph.json")
+def preview_graph_json(project_id: int, name: str):
+    _project(project_id)
+    elements, error = _compose(_pipeline(project_id, name), project_id)
+    if elements is None:
+        return {"error": error}, 400
+    return visualization.build_preview_graph(elements, expand=_expand())
+
+
+@bp.get("/<name>/preview/nodes/<node_name>.json")
+def preview_node_json(project_id: int, name: str, node_name: str):
+    _project(project_id)
+    elements, _error = _compose(_pipeline(project_id, name), project_id)
+    detail = visualization.preview_node_detail(elements or [], node_name, _patterns()) if elements else None
+    if detail is None:
+        abort(404)
+    return detail
 
 
 @bp.get("/executions/<int:execution_id>/nodes/<name>.json")

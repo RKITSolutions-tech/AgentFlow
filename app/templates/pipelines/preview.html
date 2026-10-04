@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% from "_project_tabs.html" import project_tabs %}
+{% block title %}{{ pipeline.name }} preview - {{ project.name }} - AgentFlow{% endblock %}
+{% block content %}
+  {{ project_tabs(project, none, 'pipelines') }}
+  {% set base = url_for('pipelines.preview_pipeline', project_id=project.id, name=pipeline.name) %}
+  <h1>{{ pipeline.name }} <small>v{{ pipeline.current_version }} &middot; definition preview</small></h1>
+  <p class="form-hint">Structure only: every step shows as pending, nothing has run. Dependency lines follow <code>depends_on</code>.</p>
+
+  {% if error %}
+    <p class="run-status run-status-failed">Cannot resolve this pipeline: {{ error }}</p>
+  {% else %}
+    {% if graph.groups %}
+      <div class="row-actions graph-groups">
+        <span class="form-hint">Sub-pipelines: {{ graph.groups|length }}</span>
+        <a href="?expand=*">Expand all</a>
+        <a href="?">Collapse all</a>
+      </div>
+    {% endif %}
+    <div class="pipeline-view" data-pipeline-view
+         data-graph-url="{{ base }}/graph.json{% if graph.expand %}?expand={{ graph.expand|join(',')|urlencode }}{% endif %}"
+         data-expand="{{ graph.expand|join(',') }}"
+         data-node-url="{{ base }}/nodes/__NAME__.json"
+         data-active="false">
+      <div class="pipeline-graph" aria-label="Pipeline definition graph">
+        <svg class="pipeline-edges" aria-hidden="true" focusable="false"></svg>
+        <ol class="pipeline-layers">
+          {% for layer in range(graph.layers) %}
+            <li class="pipeline-layer">
+              <ul>
+                {% for n in graph.nodes if n.layer == layer %}
+                  <li>
+                    <button type="button" class="pipeline-node node-{{ n.state|lower }} cat-{{ n.category|lower }}{% if n.collapsed %} node-group{% endif %}"
+                            data-node="{{ n.id }}" aria-pressed="false">
+                      <span class="node-title"><span class="node-icon" aria-hidden="true">{{ n.icon }}</span>{% if n.type_icon %} <span class="node-type-icon" aria-hidden="true">{{ n.type_icon }}</span>{% endif %} {{ n.label }}</span>
+                      <span class="node-meta">{{ n.type|replace('_', ' ')|capitalize }}{% if n.collapsed %} ({{ n.members|length }} steps){% endif %}{% if n.group %} &middot; {{ n.group }}{% endif %}</span>
+                      <span class="node-state">{{ n.state_label }}</span>
+                    </button>
+                  </li>
+                {% endfor %}
+              </ul>
+            </li>
+          {% endfor %}
+        </ol>
+      </div>
+      <aside class="pipeline-inspector" aria-live="polite" data-inspector>
+        <p class="form-hint">Select a step to inspect it.</p>
+      </aside>
+    </div>
+    <p class="form-hint">Dashed lines are compensation paths (loops and recovery steps).</p>
+  {% endif %}
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='pipeline.js') }}" defer></script>{% endblock %}
