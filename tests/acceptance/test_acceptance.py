@@ -59,7 +59,7 @@ def _criterion(env, run_id=None, **kw):
 
 
 def test_templates_render_and_validate():
-    assert len(templates.list_templates()) == 9
+    assert len(templates.list_templates()) == 13
     out = templates.render("performance-threshold", {"metric": "Search latency", "threshold": "200"})
     assert out["title"] == "Search latency is under 200ms"
     with pytest.raises(templates.TemplateError, match="threshold"):

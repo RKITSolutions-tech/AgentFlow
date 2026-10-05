@@ -342,4 +342,119 @@ DEFAULT_SKILLS = [
             "becomes a new KB entry, since a RESEARCH session has no direct write access to the wiki."
         ),
     },
+    # The five skills below generalize operational lessons out of a mature, hand-rolled
+    # multi-agent pipeline (SAM6's def/design/implement/test/gate/pr stages) into patterns
+    # any adapter/project can use -- SAM-specific domain rules (its UI component framework,
+    # multi-tenancy, vendor-asset policy) are deliberately left out.
+    {
+        "name": "tdd-red-green-refactor",
+        "roles": ["implementation"],
+        "adapter_types": [],
+        "priority": 0,
+        "author": "AgentFlow",
+        "when_to_use": "Implementing new behaviour -- a new function, method, or endpoint.",
+        "constraints": [],
+        "content": (
+            "RED: write one failing test for the behaviour first, and run it to confirm it fails "
+            "for the right reason -- a test that passes immediately before the code exists proves "
+            "nothing. GREEN: write the minimal code that makes it pass, nothing more. REFACTOR: "
+            "clean up while keeping the test green. No production code without a failing test "
+            "first; if code was written before its test, delete it and start over rather than "
+            "writing the test to fit it.\n\n"
+            "One test per behaviour -- if a test name needs \"and\" to describe it, split it into "
+            "two.\n\n"
+            "Evidence before assertions: before claiming the suite passes or committing, run the "
+            "full test command and read its complete output in that same step. Count failures -- "
+            "zero is required. Never commit on \"should pass\" or a prior run; if tests fail, fix "
+            "them first."
+        ),
+    },
+    {
+        "name": "delta-scoped-verification",
+        "roles": ["implementation"],
+        "adapter_types": [],
+        "priority": 0,
+        "author": "AgentFlow",
+        "when_to_use": (
+            "Running a lint, format, or static-analysis check as part of implementation work or a "
+            "pipeline step, on a repository large enough that a full-tree run is slow."
+        ),
+        "constraints": [],
+        "content": (
+            "Scope the check to files actually changed on this branch (e.g. `git diff --name-only "
+            "<base>...HEAD`), not the whole tree. A whole-repository lint/format run is for CI and "
+            "humans, not an agent loop: on a large codebase it can turn a one-line fix into an "
+            "infinite fix loop across hundreds of unrelated files, or simply time out. Scoping to "
+            "the diff keeps the check fast and keeps its findings relevant to the change actually "
+            "being made."
+        ),
+    },
+    {
+        "name": "baseline-allowlist-for-quality-gates",
+        "roles": ["implementation"],
+        "adapter_types": [],
+        "priority": 0,
+        "author": "AgentFlow",
+        "when_to_use": (
+            "Evaluating a lint/security/test gate against a codebase that already has pre-existing "
+            "findings or failures unrelated to the current change."
+        ),
+        "constraints": [],
+        "content": (
+            "Record a baseline of pre-existing findings/failures (count or signature) before the "
+            "change, and compare the gate's output against that baseline rather than against zero. "
+            "Only block on findings newly introduced by the current diff -- not ones already present "
+            "before it. A gate that re-reports every pre-existing issue on every run produces noise "
+            "nobody can act on and never actually passes; one that only flags regressions stays "
+            "useful as the codebase accumulates unrelated known issues over time."
+        ),
+    },
+    {
+        "name": "durable-evidence-for-long-running-commands",
+        "roles": ["implementation"],
+        "adapter_types": [],
+        "priority": 0,
+        "author": "AgentFlow",
+        "when_to_use": (
+            "Running or checking on a command expected to take more than a couple of minutes "
+            "(a full test suite, a build, a push), especially one running in the background."
+        ),
+        "constraints": [],
+        "content": (
+            "A \"stopped\"/no-further-output signal on a long backgrounded command does not by "
+            "itself mean the process died -- it can mean the harness's own output capture detached "
+            "while the process kept running to completion. Before concluding a long command failed "
+            "or was killed: first check whether the process is still alive, then look for durable "
+            "on-disk evidence of its outcome (a log file it was tee'd to, a `--json-report-file` or "
+            "similar it was told to write). Only treat the run as failed/dead when neither a live "
+            "process nor evidence of a completed run exists. When starting a command expected to be "
+            "checked on later rather than watched continuously, write its output to a durable file "
+            "from the start (`... | tee some.log`, or a structured report flag) rather than relying "
+            "solely on captured stdout -- that file is ground truth independent of the harness."
+        ),
+    },
+    {
+        "name": "stop-after-repeated-identical-failure",
+        "roles": ["implementation"],
+        "adapter_types": [],
+        "priority": 0,
+        "author": "AgentFlow",
+        "when_to_use": (
+            "Retrying the same command in an interactive session or a plain pipeline step, outside "
+            "a Ralph run."
+        ),
+        "constraints": [
+            "A Ralph run already has its own no-progress detection (`identical_failure_limit`, "
+            "`no_change_limit` -- see `ralph-failure-analysis-pattern`) -- this skill is for "
+            "contexts that don't go through Ralph, not a replacement for it.",
+        ],
+        "content": (
+            "If the same command fails the same way three times in a row, stop retrying and report "
+            "the failure rather than continuing to retry blindly. A fourth identical attempt almost "
+            "never succeeds where three didn't, and silently looping burns time and obscures the "
+            "real blocker from whoever is waiting on the result. Report what was tried and the exact "
+            "failure, and let the next decision (a different approach, or escalation) be made with "
+            "that evidence rather than from inside another retry."
+        ),
+    },
 ]

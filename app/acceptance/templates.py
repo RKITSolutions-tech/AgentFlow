@@ -83,6 +83,34 @@ TEMPLATES: dict[str, dict] = {
         "default_for_sprint": True,
         "pytest_node_id": "",
     },
+    "migration-safety-clean": {
+        "name": "Database migrations are safe",
+        "title": "Database migrations are safe",
+        "description": "Any new or changed database migrations pass the project's migration linter/checker with no errors.",
+        "fields": [],
+        "hints": {"step_types": ["TEST", "COMMAND"], "artifact_kinds": ["report", "log"]},
+    },
+    "dependency-audit-clean": {
+        "name": "No vulnerable new dependencies",
+        "title": "New dependencies have no known high/critical vulnerabilities",
+        "description": "A dependency audit of packages added or upgraded by this change reports no high or critical severity vulnerabilities.",
+        "fields": [],
+        "hints": {"step_types": ["TEST", "COMMAND"], "artifact_kinds": ["report"]},
+    },
+    "no-n-plus-one-queries": {
+        "name": "No N+1 query regressions",
+        "title": "No N+1 query regressions introduced",
+        "description": "The changed code paths show no new N+1 query patterns compared to the pre-change baseline.",
+        "fields": [],
+        "hints": {"step_types": ["TEST", "COMMAND"], "artifact_kinds": ["report", "log"]},
+    },
+    "new-public-api-documented": {
+        "name": "New public API is documented",
+        "title": "New public functions/methods are documented",
+        "description": "Every new public function, method, or endpoint introduced by this change has a docstring or equivalent description.",
+        "fields": [],
+        "hints": {"step_types": ["TEST", "COMMAND"], "artifact_kinds": ["report"]},
+    },
 }
 
 DEFAULT_SPRINT_TEMPLATES = tuple(key for key, t in TEMPLATES.items() if t.get("default_for_sprint"))
