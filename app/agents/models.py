@@ -5,6 +5,8 @@ import sqlite3
 from dataclasses import dataclass
 from typing import Any
 
+from app.runs.security import extra_patterns_from_env, redact
+
 
 @dataclass
 class AgentSession:
@@ -28,6 +30,7 @@ class AgentEvent:
     event_type: str
     data: str
     created_at: str
+    redacted: bool
 
 
 @dataclass
@@ -413,9 +416,13 @@ def _hydrate_session(row: sqlite3.Row) -> AgentSession:
 def add_agent_event(
     db: sqlite3.Connection, session_id: int, event_type: str, data: str = ""
 ) -> int:
+    """Insert an event, redacting `data` first (docs/AGENT_ADAPTER.md; the single
+    chokepoint every adapter writes through, so this covers the session transcript
+    and the derived chat view alike)."""
+    clean, was_redacted = redact(data, extra_patterns_from_env())
     cur = db.execute(
-        "INSERT INTO agent_events (session_id, event_type, data) VALUES (?, ?, ?)",
-        (session_id, event_type, data),
+        "INSERT INTO agent_events (session_id, event_type, data, redacted) VALUES (?, ?, ?, ?)",
+        (session_id, event_type, clean, int(was_redacted)),
     )
     db.commit()
     return cur.lastrowid
@@ -443,6 +450,7 @@ def _hydrate_event(row: sqlite3.Row) -> AgentEvent:
         event_type=row["event_type"],
         data=row["data"],
         created_at=row["created_at"],
+        redacted=bool(row["redacted"]),
     )
 
 
@@ -668,6 +676,14 @@ def get_clarifying_question(
     db: sqlite3.Connection, question_id: int
 ) -> ClarifyingQuestion | None:
     row = db.execute("SELECT * FROM agent_questions WHERE id = ?", (question_id,)).fetchone()
+    return _hydrate_question(row) if row else None
+
+
+def get_question_by_event_id(
+    db: sqlite3.Connection, event_id: int
+) -> ClarifyingQuestion | None:
+    """Look up the question a ``ClarifyingQuestion`` AgentEvent points at."""
+    row = db.execute("SELECT * FROM agent_questions WHERE event_id = ?", (event_id,)).fetchone()
     return _hydrate_question(row) if row else None
 
 

@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% from "_project_tabs.html" import project_tabs %}
+{% block title %}{{ project.name }} - Chat - AgentFlow{% endblock %}
+{% block content %}
+  {{ project_tabs(project, none, 'chat') }}
+  <h1>{{ project.name }} - Chat History</h1>
+
+  <form class="inline-filter chat-history-filters" method="get">
+    <input type="search" name="q" value="{{ query }}" placeholder="Search chat" aria-label="Search chat">
+    <select name="role" aria-label="Filter by role">
+      <option value="">All roles</option>
+      <option value="developer"{% if role == 'developer' %} selected{% endif %}>Developer</option>
+      <option value="agent"{% if role == 'agent' %} selected{% endif %}>Agent</option>
+      <option value="system"{% if role == 'system' %} selected{% endif %}>System</option>
+    </select>
+    <select name="session_id" aria-label="Filter by session">
+      <option value="">All sessions</option>
+      {% for s in sessions %}
+        <option value="{{ s.id }}"{% if session_filter == s.id %} selected{% endif %}>{{ s.agent_type|capitalize }} #{{ s.id }}</option>
+      {% endfor %}
+    </select>
+    <label>From <input type="date" name="start_date" value="{{ start_date or '' }}"></label>
+    <label>To <input type="date" name="end_date" value="{{ end_date or '' }}"></label>
+    <button type="submit">Filter</button>
+    <a href="{{ url_for('projects.chat_history', project_id=project.id) }}">Clear</a>
+  </form>
+  <p class="row-actions">
+    <a href="{{ url_for('projects.chat_export', project_id=project.id, format='markdown', start_date=start_date, end_date=end_date) }}">Export as Markdown</a>
+    <a href="{{ url_for('projects.chat_export', project_id=project.id, format='json', start_date=start_date, end_date=end_date) }}">Export as JSON</a>
+  </p>
+
+  <section class="chat-history-section">
+    <h2>{% if query %}Results for "{{ query }}"{% elif showing_recent_default %}Recent (last 24h){% else %}Messages{% endif %}</h2>
+    {% if messages %}
+      <p class="text-muted">{{ messages|length }} message{{ 's' if messages|length != 1 }}</p>
+      <div class="chat-container" id="chatHistoryList">
+        {% for msg in messages %}
+          <div class="chat-message {{ 'chat-message-user' if msg.role == 'developer' else ('chat-message-error' if msg.message_type == 'error' else ('chat-message-question' if msg.message_type == 'ask' else 'chat-message-assistant')) }}">
+            <div class="chat-message-meta">
+              <span>{{ msg.created_at }}</span>
+              <span>{{ 'You' if msg.role == 'developer' else ('System' if msg.role == 'system' else msg.agent_type|capitalize) }}</span>
+              {% if msg.redacted %}<span class="badge badge-danger">Redacted</span>{% endif %}
+            </div>
+            <p class="wrap-cell">{{ msg.content }}</p>
+            {% if msg.question %}
+              <ul>
+                {% for opt in msg.question.options %}
+                  <li{% if msg.question.answer and opt.label in (msg.question.answer.selected or []) %} class="is-chosen"{% endif %}>{{ opt.label }}</li>
+                {% endfor %}
+              </ul>
+            {% endif %}
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p>No messages match.</p>
+    {% endif %}
+  </section>
+
+  <section class="chat-history-section" id="archive">
+    <h2>Archive</h2>
+    {% if summaries %}
+      <ul class="archive-list">
+        {% for s in summaries %}
+          <li class="archive-item">
+            <details data-summary-id="{{ s.id }}">
+              <summary>{{ s.period_start[:10] }}&ndash;{{ s.period_end[:10] }}: {{ s.summary }} ({{ s.message_count }} messages)</summary>
+              <div class="chat-container archive-expanded" hidden></div>
+            </details>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="text-muted">No archived conversations yet.</p>
+    {% endif %}
+  </section>
+{% endblock %}
+{% block scripts %}
+<script>
+document.querySelectorAll('.archive-item details').forEach(function (el) {
+  el.addEventListener('toggle', function () {
+    if (!el.open) return;
+    var box = el.querySelector('.archive-expanded');
+    if (box.dataset.loaded) return;
+    box.hidden = false;
+    box.textContent = 'Loading...';
+    fetch('{{ url_for("projects.chat_archive_expand", project_id=project.id, summary_id=0) }}'.replace('/0', '/' + el.dataset.summaryId))
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        box.textContent = '';
+        (data.messages || []).forEach(function (m) {
+          var div = document.createElement('div');
+          div.className = 'chat-message ' + (m.role === 'developer' ? 'chat-message-user' : (m.message_type === 'error' ? 'chat-message-error' : 'chat-message-assistant'));
+          div.textContent = m.created_at + ' - ' + m.role + ': ' + m.content;
+          box.appendChild(div);
+        });
+        box.dataset.loaded = '1';
+      });
+  });
+});
+</script>
+{% endblock %}

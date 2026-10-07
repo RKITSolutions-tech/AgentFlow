@@ -26,6 +26,7 @@ from app.agents.claude import PERMISSION_MODES as CLAUDE_PERMISSION_MODES, Claud
 from app.agents.codex import PERMISSION_MODES as CODEX_PERMISSION_MODES, CodexAdapter
 from app.sessions import composer
 from app.agents.fake import FakeAgentAdapter
+from app.knowledge import wiki_sources
 from app.notifications import models as notification_models
 from app.projects import models as project_models
 from app.runs.models import now
@@ -123,6 +124,8 @@ def project_sessions(project_id: int):
         hits=hits,
         model_options=model_options,
         model_providers_by_agent=_MODEL_PROVIDERS_BY_AGENT,
+        warm_start_default=current_app.config.get("SESSION_WARM_START_DEFAULT", False),
+        project_wikis=wiki_sources.list_for_project(db, project_id),
     )
 
 
@@ -200,11 +203,20 @@ def create_session(project_id: int):
 
         from app.agents.models import PLACEHOLDER_PROMPT
         from app.prompts import assembler as prompt_assembler
+        from app.sessions import chat as chat_module
 
         skills_text, skill_names = prompt_assembler.skill_context(
             db, role="GENERAL", agent_type=agent_type, project_id=project_id,
         )
-        initial_prompt = f"{skills_text}\n\n{PLACEHOLDER_PROMPT}" if skills_text else PLACEHOLDER_PROMPT
+        warm_start = request.form.get("warm_start") == "1"
+        warm_start_context = chat_module.get_session_context(db, project_id) if warm_start else ""
+        wiki_context_on = request.form.get("wiki_context") == "1"
+        wiki_context = (
+            wiki_sources.session_context(db, current_app.config["ALLOWED_PROJECT_ROOTS"], project_id)
+            if wiki_context_on else ""
+        )
+        preamble = "\n\n".join(p for p in (wiki_context, warm_start_context, skills_text) if p)
+        initial_prompt = f"{preamble}\n\n{PLACEHOLDER_PROMPT}" if preamble else PLACEHOLDER_PROMPT
 
         session = adapter.start(context, initial_prompt, options={"mcp_tools": mcp_tools})
         session_id = session.id
@@ -215,7 +227,8 @@ def create_session(project_id: int):
             db, session_id,
             injected_context={
                 "role": "GENERAL", "agent_type": agent_type, "skills": skill_names,
-                "mcp_tools": mcp_tools, "assembled_at": now(),
+                "mcp_tools": mcp_tools, "warm_start": warm_start,
+                "wiki_context": bool(wiki_context), "assembled_at": now(),
             },
         )
 

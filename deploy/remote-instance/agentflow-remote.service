@@ -1,0 +1,16 @@
+[Unit]
+Description=AgentFlow (remote/federated instance)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=__REPO_ROOT__
+EnvironmentFile=__ENV_FILE__
+ExecStart=__REPO_ROOT__/venv/bin/python wsgi.py
+Restart=on-failure
+RestartSec=5
+User=__USER__
+
+[Install]
+WantedBy=multi-user.target

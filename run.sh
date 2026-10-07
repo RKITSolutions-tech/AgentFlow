@@ -9,4 +9,4 @@
 # AGENTFLOW_ALLOW_UNSAFE_BIND=1 (docs/HIGH_LEVEL_DESIGN.md section 20).
 
 source venv/bin/activate
-FLASK_DEBUG=1 python wsgi.py
+AGENTFLOW_PORT="${AGENTFLOW_PORT:-5050}" FLASK_DEBUG=1 python wsgi.py

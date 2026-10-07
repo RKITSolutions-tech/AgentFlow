@@ -85,8 +85,11 @@ CREATE TABLE IF NOT EXISTS agent_events (
     session_id INTEGER NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE,
     event_type TEXT NOT NULL,
     data TEXT NOT NULL DEFAULT '',
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    redacted INTEGER NOT NULL DEFAULT 0
 );
+CREATE INDEX IF NOT EXISTS idx_agent_events_session ON agent_events(session_id, id);
+CREATE INDEX IF NOT EXISTS idx_agent_sessions_project_role ON agent_sessions(project_id, role, last_activity_at DESC);
 
 CREATE TABLE IF NOT EXISTS agent_questions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -186,6 +189,38 @@ CREATE TABLE IF NOT EXISTS model_catalog (
     api_key TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     UNIQUE(provider, model_id)
+);
+
+-- Federation registry (remote AgentFlow instances this one can drive sessions
+-- on, e.g. a second instance on a different host). `token` is the bearer
+-- credential *this* instance presents to that remote's federation API
+-- (app/federation/routes.py) -- it must match that remote's own
+-- AGENTFLOW_FEDERATION_TOKEN.
+CREATE TABLE IF NOT EXISTS remote_instances (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    base_url TEXT NOT NULL,
+    token TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    last_seen_at TEXT,
+    last_status TEXT NOT NULL DEFAULT 'UNKNOWN'
+);
+
+-- Folder-backed wikis (docs/WIKI_INTEGRATION_AND_PRESENTATION.md §14): a folder of
+-- markdown files either on this host ('local') or on a registered remote
+-- instance ('remote', read through that instance's federation API so its own
+-- ALLOWED_PROJECT_ROOTS check applies). Separate from knowledge_entries, which
+-- is the database-backed research wiki. `project_id` NULL = shared by every
+-- project; agent sessions only see their own project's wikis plus shared ones.
+CREATE TABLE IF NOT EXISTS wiki_sources (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    location TEXT NOT NULL CHECK(location IN ('local', 'remote')),
+    path TEXT NOT NULL,
+    instance_id INTEGER REFERENCES remote_instances(id) ON DELETE CASCADE,
+    project_id INTEGER REFERENCES projects(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    CHECK((location = 'remote') = (instance_id IS NOT NULL))
 );
 
 CREATE TABLE IF NOT EXISTS documents (
@@ -897,6 +932,22 @@ CREATE TRIGGER IF NOT EXISTS knowledge_entries_au AFTER UPDATE ON knowledge_entr
     INSERT INTO wiki_search(wiki_search, rowid, title, content) VALUES ('delete', old.id, old.title, old.content);
     INSERT INTO wiki_search(rowid, title, content) VALUES (new.id, new.title, new.content);
 END;
+
+-- Archived chat summaries (docs/SESSION_HISTORY_AND_CHAT_CONTEXT.md, task 62): chat
+-- itself is a read-side view over agent_sessions/agent_events (role = 'GENERAL'),
+-- not a duplicated message store, so this is the only new table the feature needs --
+-- one row per summarized project/day window, produced by the nightly job (task 67).
+CREATE TABLE IF NOT EXISTS session_summaries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    period_start TEXT NOT NULL,
+    period_end TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    message_count INTEGER NOT NULL DEFAULT 0,
+    session_ids TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_session_summaries_project ON session_summaries(project_id, period_end DESC);
 """
 
 # Starter catalog, seeded once (see `_seed_model_catalog`) so the model
@@ -998,6 +1049,14 @@ _ADDED_COLUMNS = (
     # cannot change an existing CHECK.
     ("acceptance_criteria", "sprint_id", "INTEGER REFERENCES sprints(id) ON DELETE CASCADE"),
     ("acceptance_criteria", "pytest_node_id", "TEXT NOT NULL DEFAULT ''"),
+    # Chat redaction chokepoint (docs/SESSION_HISTORY_AND_CHAT_CONTEXT.md §7, task 61):
+    # `add_agent_event` redacts `data` before storing it and sets this flag, so both
+    # the interactive session transcript and the derived chat view are covered by one
+    # change instead of redacting the new chat surface only.
+    ("agent_events", "redacted", "INTEGER NOT NULL DEFAULT 0"),
+    # Folder wiki scoping (docs/WIKI_INTEGRATION_AND_PRESENTATION.md §14), added
+    # after wiki_sources first shipped without it.
+    ("wiki_sources", "project_id", "INTEGER REFERENCES projects(id) ON DELETE CASCADE"),
 )
 
 

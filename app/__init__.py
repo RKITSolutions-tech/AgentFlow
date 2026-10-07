@@ -17,6 +17,8 @@ def create_app(config: Config | None = None) -> Flask:
     from app.sessions.routes import bp as sessions_bp
     from app.settings.routes import bp as settings_bp
     from app.notifications.routes import bp as notifications_bp
+    from app.federation.routes import bp as federation_bp
+    from app.instances.views import bp as instances_bp
 
     app.register_blueprint(projects_bp)
     app.register_blueprint(workspace_bp)
@@ -24,6 +26,8 @@ def create_app(config: Config | None = None) -> Flask:
     app.register_blueprint(sessions_bp)
     app.register_blueprint(settings_bp)
     app.register_blueprint(notifications_bp)
+    app.register_blueprint(federation_bp)
+    app.register_blueprint(instances_bp)
 
     from app.runs.executor import RunManager
     from app.runs.routes import bp as runs_bp
@@ -103,6 +107,10 @@ def create_app(config: Config | None = None) -> Flask:
     if not app.config.get("TESTING") and app.config["DATABASE_PATH"] != ":memory:":
         app.extensions["ralph_manager"].resume_automatic_sprints()
         app.extensions["lock_sweeper"] = project_lock.Sweeper(app.config["DATABASE_PATH"]).start()
+
+        from app.sessions.summarization import SessionSummarizer
+
+        app.extensions["session_summarizer"] = SessionSummarizer(app.config).start()
 
     def _project_lock(project_id: int):
         return project_lock.current(get_db(), project_id)

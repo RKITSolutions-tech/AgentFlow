@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}{{ project.name }} - {{ instance.name }} - AgentFlow{% endblock %}
+{% block content %}
+  <p><a href="{{ url_for('instances.remote_projects', instance_id=instance.id) }}">&larr; {{ instance.name }} projects</a></p>
+  <h1>{{ project.name }} <span class="form-hint">on {{ instance.name }}</span></h1>
+
+  <table class="table-compact" {% if not sessions %}hidden{% endif %}>
+    <thead><tr><th>Session</th><th>Agent</th><th>Status</th><th>Age</th><th>Actions</th></tr></thead>
+    <tbody>
+      {% for s in sessions %}
+        <tr>
+          <td class="wrap-cell">
+            <span class="state-dot state-{{ s.state }}" aria-hidden="true"></span>
+            {{ s.title or ('Session #' ~ s.id) }}
+          </td>
+          <td>{{ s.agent_type|upper }}</td>
+          <td>{{ s.status }}</td>
+          <td>{{ s.age }}</td>
+          <td class="row-actions">
+            <a href="{{ url_for('instances.remote_chat', instance_id=instance.id, session_id=s.id) }}">Open</a>
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if not sessions %}<p>No sessions yet.</p>{% endif %}
+
+  <h2>Start a session</h2>
+  <form class="stacked" method="post" action="{{ url_for('instances.create_remote_session', instance_id=instance.id, project_id=project.id) }}">
+    <label>Agent type
+      <select name="agent_type">
+        <option value="codex">Codex</option>
+        <option value="claude">Claude</option>
+      </select>
+    </label>
+    <label>Model (optional)
+      <input type="text" name="model" placeholder="agent default">
+    </label>
+    {% if project.repositories|length > 1 %}
+      <label>Repository
+        <select name="repo_id">
+          {% for repo in project.repositories %}
+            <option value="{{ repo.id }}">{{ repo.name }}{% if repo.is_primary %} (primary){% endif %}</option>
+          {% endfor %}
+        </select>
+      </label>
+    {% endif %}
+    <label><input type="checkbox" name="mcp_tools" value="1"> Enable MCP tools</label>
+    <button type="submit">Start session</button>
+  </form>
+{% endblock %}

@@ -572,7 +572,12 @@ class _ModelCapturingAdapter(AgentAdapter):
         )
 
     def stream(self, session_id, after_id=None):
-        return [AgentEvent(id=1, session_id=session_id, event_type="AgentText", data="done", created_at="")]
+        return [
+            AgentEvent(
+                id=1, session_id=session_id, event_type="AgentText", data="done",
+                created_at="", redacted=False,
+            )
+        ]
 
 
 def test_agent_step_config_model_threads_local_entry_onto_context(env):

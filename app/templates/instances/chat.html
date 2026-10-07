@@ -1,0 +1,184 @@
+{% extends "base.html" %}
+{% block title %}{{ session.title or ('Session #' ~ session.id) }} - {{ instance.name }} - AgentFlow{% endblock %}
+{% block content_class %} content-fill{% endblock %}
+{% block content %}
+<div class="chat-page">
+  <div>
+    <div class="chat-header-row">
+      <h2 class="wrap-cell">{{ session.title or ('Session #' ~ session.id) }} <span class="form-hint">on {{ instance.name }}</span></h2>
+      <div class="chat-header-actions">
+        {% if session.status != 'STOPPED' %}
+          <button type="button" id="stopBtn" class="link-danger">Stop Session</button>
+        {% endif %}
+      </div>
+    </div>
+    <p class="chat-status">
+      Status: {{ session.status }} | Agent: {{ session.agent_type|upper }}
+      {% if session.usage %} | Tokens: {{ session.usage.get('input_tokens', 0) }} in / {{ session.usage.get('output_tokens', 0) }} out{% endif %}
+    </p>
+    <p class="form-hint">
+      This is a trimmed, read/send/stop view of a session that lives on
+      {{ instance.name }} -- fork, rename, archive, model switch and
+      attachments are only available from that instance's own UI.
+    </p>
+  </div>
+
+  <div id="chatContainer" class="chat-container">
+    <p class="chat-placeholder">Loading conversation...</p>
+  </div>
+
+  <form id="chatForm" class="chat-form composer">
+    <div class="composer-row">
+      <input type="text" id="promptInput" class="chat-input" placeholder="Message" autocomplete="off" {% if session.status == 'STOPPED' %}disabled{% endif %}>
+      <button type="submit" id="sendBtn" class="chat-send" {% if session.status == 'STOPPED' %}disabled{% endif %}>Send</button>
+    </div>
+  </form>
+</div>
+
+<script>
+  const instanceId = {{ instance.id }};
+  const sessionId = {{ session.id }};
+  const streamUrl = `/instances/${instanceId}/sessions/${sessionId}/stream`;
+  const sendUrl = `/instances/${instanceId}/sessions/${sessionId}/send`;
+  const stopUrl = `/instances/${instanceId}/sessions/${sessionId}/stop`;
+  let lastEventId = 0;
+  let turnActive = {{ (session.status in ('RUNNING', 'STARTING'))|tojson }};
+
+  const chatContainer = document.getElementById('chatContainer');
+  const promptInput = document.getElementById('promptInput');
+  const chatForm = document.getElementById('chatForm');
+  const sendBtn = document.getElementById('sendBtn');
+
+  let thinkingEl = null;
+  function showThinking() {
+    if (!thinkingEl) {
+      thinkingEl = document.createElement('div');
+      thinkingEl.className = 'chat-message chat-message-assistant chat-message-thinking';
+      thinkingEl.innerHTML = '<span class="thinking-indicator"><span class="thinking-dot" aria-hidden="true"></span><span class="thinking-label">Thinking…</span></span>';
+      chatContainer.appendChild(thinkingEl);
+    }
+    chatContainer.scrollTop = chatContainer.scrollHeight;
+  }
+  function hideThinking() {
+    if (thinkingEl) { thinkingEl.remove(); thinkingEl = null; }
+  }
+
+  function addMessage(content, role) {
+    role = role || 'assistant';
+    const msgDiv = document.createElement('div');
+    msgDiv.className = 'chat-message chat-message-' + role;
+    if (role === 'assistant') {
+      msgDiv.innerHTML = agentflowRenderMarkdown(content);
+    } else {
+      msgDiv.textContent = content;
+    }
+    chatContainer.appendChild(msgDiv);
+    chatContainer.scrollTop = chatContainer.scrollHeight;
+  }
+
+  function handleStreamLine(line) {
+    if (!line.startsWith('data: ')) return;
+    try {
+      const event = JSON.parse(line.substring(6));
+      hideThinking();
+      if (event.event_type === 'PromptSubmitted') {
+        addMessage(event.data, 'user');
+      } else if (event.event_type === 'AgentText') {
+        addMessage(event.data, 'assistant');
+      } else if (event.event_type === 'ClarifyingQuestion') {
+        addMessage('The agent asked a clarifying question -- answer it from ' + {{ instance.name|tojson }} + ' directly.', 'system');
+        turnActive = false;
+      } else if (event.event_type === 'AgentError') {
+        addMessage(`[${event.data}]`, 'system');
+        turnActive = false;
+      } else if (event.event_type === 'AgentComplete') {
+        turnActive = false;
+      }
+      lastEventId = Math.max(lastEventId, event.id || 0);
+    } catch (e) {
+      console.error('Failed to parse event:', e);
+    }
+  }
+
+  function loadHistory() {
+    fetch(`${streamUrl}?after_id=0`)
+      .then(r => r.text())
+      .then(text => {
+        chatContainer.innerHTML = '';
+        thinkingEl = null;
+        text.split('\n').forEach(handleStreamLine);
+        if (chatContainer.children.length === 0) {
+          chatContainer.innerHTML = '<p class="chat-placeholder">No messages yet. Start by entering a prompt.</p>';
+        }
+        if (turnActive) showThinking();
+      })
+      .catch(err => addMessage(`Error loading history: ${err.message}`, 'error'));
+  }
+
+  let polling = false;
+  let pollTimer = null;
+
+  function streamNewEvents() {
+    if (polling) return;
+    polling = true;
+    fetch(`${streamUrl}?after_id=${lastEventId}`)
+      .then(r => r.text())
+      .then(text => {
+        text.split('\n').forEach(handleStreamLine);
+        if (turnActive) showThinking();
+        polling = false;
+        pollTimer = setTimeout(streamNewEvents, 1000);
+      })
+      .catch(err => {
+        console.error('Stream error:', err);
+        polling = false;
+        pollTimer = setTimeout(streamNewEvents, 2000);
+      });
+  }
+
+  function pollNow() {
+    if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
+    streamNewEvents();
+  }
+
+  if (chatForm) {
+    chatForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const prompt = promptInput.value.trim();
+      if (!prompt) return;
+      const formData = new FormData();
+      formData.append('prompt', prompt);
+      fetch(sendUrl, {method: 'POST', body: formData})
+        .then(r => r.json())
+        .then(data => {
+          if (data.status === 'sent') {
+            promptInput.value = '';
+            turnActive = true;
+            showThinking();
+            pollNow();
+          } else {
+            alert(`Error: ${data.error}`);
+          }
+        })
+        .catch(err => alert(`Error sending prompt: ${err.message}`));
+    });
+  }
+
+  const stopBtn = document.getElementById('stopBtn');
+  if (stopBtn) {
+    stopBtn.addEventListener('click', () => {
+      if (!confirm('Stop this session?')) return;
+      fetch(stopUrl, {method: 'POST'})
+        .then(r => r.json())
+        .then(data => {
+          if (data.status === 'stopped') window.location.reload();
+          else alert(`Error: ${data.error}`);
+        })
+        .catch(err => alert(`Error stopping session: ${err.message}`));
+    });
+  }
+
+  loadHistory();
+  pollTimer = setTimeout(streamNewEvents, 500);
+</script>
+{% endblock %}

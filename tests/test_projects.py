@@ -103,3 +103,97 @@ def test_reject_repository_path_outside_allowed_root(client, app, tmp_path):
     assert resp.status_code == 200
     assert b"outside the configured allowed roots" in resp.data
     assert b"No repositories yet." in resp.data
+
+
+def _start_fake_chat(app, project_id, script):
+    from app.agents.base import AgentContext
+    from app.agents.fake import FakeAgentAdapter
+    from app.db import get_db
+
+    with app.app_context():
+        db = get_db()
+        adapter = FakeAgentAdapter(db)
+        return adapter.start(
+            AgentContext(project_id=project_id, working_directory="."), "hello",
+            options={"script": script},
+        ).id
+
+
+def test_project_detail_shows_recent_chat_widget_and_redacts_secrets(client, app):
+    resp = client.post("/projects/new", data={"name": "ChatProj", "description": ""})
+    project_id = int(resp.headers["Location"].rstrip("/").rsplit("/", 1)[-1])
+    _start_fake_chat(
+        app, project_id,
+        [{"action": "message", "text": "hi, api_key=sk-abcdefghijklmnopqrst"}],
+    )
+
+    resp = client.get(f"/projects/{project_id}")
+    assert resp.status_code == 200
+    assert b"Recent Chat" in resp.data
+    assert b"hi, api_key" in resp.data
+    assert b"sk-abcdefghijklmnopqrst" not in resp.data
+
+
+def test_chat_history_page_filters_and_redacts(client, app):
+    resp = client.post("/projects/new", data={"name": "ChatProj2", "description": ""})
+    project_id = int(resp.headers["Location"].rstrip("/").rsplit("/", 1)[-1])
+    session_id = _start_fake_chat(
+        app, project_id, [{"action": "message", "text": "secret api_key=sk-abcdefghijklmnopqrst"}]
+    )
+
+    resp = client.get(f"/projects/{project_id}/chat-history")
+    assert resp.status_code == 200
+    assert b"[REDACTED]" in resp.data
+    assert b"sk-abcdefghijklmnopqrst" not in resp.data
+
+    resp = client.get(f"/projects/{project_id}/chat-history?session_id={session_id}")
+    assert resp.status_code == 200
+    assert b"secret api_key" in resp.data
+
+    resp = client.get(f"/projects/{project_id}/chat-history?role=system")
+    assert resp.status_code == 200
+    assert b"No messages match." in resp.data
+
+
+def test_chat_export_downloads_markdown_and_json(client, app):
+    resp = client.post("/projects/new", data={"name": "ChatProj4", "description": ""})
+    project_id = int(resp.headers["Location"].rstrip("/").rsplit("/", 1)[-1])
+    _start_fake_chat(app, project_id, [{"action": "message", "text": "export me"}])
+
+    resp = client.get(f"/projects/{project_id}/chat/export?format=markdown")
+    assert resp.status_code == 200
+    assert resp.mimetype == "text/markdown"
+    assert b"export me" in resp.data
+    assert "attachment" in resp.headers["Content-Disposition"]
+
+    resp = client.get(f"/projects/{project_id}/chat/export?format=json")
+    assert resp.status_code == 200
+    assert resp.mimetype == "application/json"
+    assert b"export me" in resp.data
+
+    resp = client.get(f"/projects/{project_id}/chat/export?format=xml")
+    assert resp.status_code == 400
+
+
+def test_chat_archive_expand_returns_messages_for_summary(client, app):
+    resp = client.post("/projects/new", data={"name": "ChatProj3", "description": ""})
+    project_id = int(resp.headers["Location"].rstrip("/").rsplit("/", 1)[-1])
+    _start_fake_chat(app, project_id, [{"action": "message", "text": "archived message"}])
+
+    from app.db import get_db
+    from app.sessions import chat as chat_module
+
+    with app.app_context():
+        db = get_db()
+        summary_id = chat_module.create_summary(
+            db, project_id, period_start="2000-01-01 00:00:00", period_end="2100-01-01 23:59:59",
+            summary="session: 1 message", message_count=1, session_ids=[1],
+        )
+
+    resp = client.get(f"/projects/{project_id}/chat/archive/{summary_id}")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert any("archived message" in m["content"] for m in data["messages"])
+
+    resp = client.get(f"/projects/{project_id}/chat/archive/999999")
+    assert resp.status_code == 404

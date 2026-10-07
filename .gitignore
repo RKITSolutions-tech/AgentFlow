@@ -11,6 +11,8 @@ node_modules/
 
 # Environment variables
 .env
+deploy/remote-instance/agentflow.env
+deploy/remote-instance/agentflow-remote.generated.service
 
 # Editor directories and files
 .idea

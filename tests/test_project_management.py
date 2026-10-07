@@ -69,6 +69,27 @@ def test_migration_adds_starred_to_old_database(tmp_path):
     assert "starred" in {r["name"] for r in db.execute("PRAGMA table_info(projects)")}
 
 
+def test_migration_adds_redacted_to_old_agent_events(tmp_path):
+    """docs/SESSION_HISTORY_AND_CHAT_CONTEXT.md §7: an old database's agent_events
+    table predates the redaction chokepoint in add_agent_event(); _migrate() must
+    add the column without touching existing rows."""
+    import sqlite3
+
+    db = sqlite3.connect(tmp_path / "old.sqlite3")
+    db.row_factory = sqlite3.Row
+    db.execute(
+        "CREATE TABLE agent_events (id INTEGER PRIMARY KEY, session_id INTEGER, "
+        "event_type TEXT, data TEXT, created_at TEXT)"
+    )
+    db.execute(
+        "INSERT INTO agent_events (session_id, event_type, data) VALUES (1, 'AgentText', 'hi')"
+    )
+    _migrate(db)
+    _migrate(db)  # idempotent
+    assert "redacted" in {r["name"] for r in db.execute("PRAGMA table_info(agent_events)")}
+    assert db.execute("SELECT redacted FROM agent_events").fetchone()["redacted"] == 0
+
+
 def test_migration_widens_acceptance_criteria_check_for_sprint_only_rows(tmp_path):
     """docs/SPRINT_PLANNING_AND_BACKLOG.md §51: an old database's
     acceptance_criteria table has the original CHECK(work_item_id IS NOT NULL

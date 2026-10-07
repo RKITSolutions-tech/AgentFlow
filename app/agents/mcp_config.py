@@ -12,6 +12,7 @@ overrides (the same dotted-TOML-path mechanism `CodexAdapter._model_flags`/
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import sys
 import tempfile
@@ -36,7 +37,17 @@ TOOL_NAMES = (
     "backlog_transition_item",
     "backlog_record_note",
     "backlog_list_history",
+    "wiki_list",
+    "wiki_search",
+    "wiki_read",
+    "wiki_write",
 )
+
+# The wiki tools (app/mcp/tools/wiki.py) apply the same path policy and
+# redaction as the AgentFlow process that launched the session, so these are
+# forwarded to the server explicitly: Codex starts MCP servers with only the
+# env it is given, not the parent's.
+_FORWARDED_ENV = ("AGENTFLOW_ALLOWED_ROOTS", "AGENTFLOW_REDACT_PATTERNS")
 
 
 def database_path(db: sqlite3.Connection) -> str:
@@ -63,6 +74,7 @@ def server_command(project_id: int, session_id: int, database_path: str) -> tupl
         "AGENTFLOW_MCP_SESSION_ID": str(session_id),
         "PYTHONPATH": str(_REPO_ROOT),
     }
+    env.update({key: os.environ[key] for key in _FORWARDED_ENV if os.environ.get(key)})
     return command, args, env
 
 
@@ -107,7 +119,10 @@ def codex_mcp_flags(project_id: int, session_id: int, database_path: str) -> lis
     docs/AGENT_ADAPTER.md §24."""
     command, args, env = server_command(project_id, session_id, database_path)
     args_toml = json.dumps(args)
-    env_toml = "{" + ", ".join(f'{key} = "{value}"' for key, value in env.items()) + "}"
+    # json.dumps quotes/escapes each value as a valid TOML basic string, which
+    # matters once a forwarded AGENTFLOW_REDACT_PATTERNS regex holds quotes or
+    # backslashes.
+    env_toml = "{" + ", ".join(f"{key} = {json.dumps(value)}" for key, value in env.items()) + "}"
     return [
         "--approve-for-me",
         "-c", f'mcp_servers.{_SERVER_NAME}.command="{command}"',

@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}{{ source.name }} - Wiki - AgentFlow{% endblock %}
+{% block content %}
+  <nav class="wiki-breadcrumb" aria-label="Breadcrumb">
+    <a href="{{ url_for('wiki.index') }}">Wiki</a>
+    <span>/ <a href="{{ url_for('wiki.sources') }}">Folders</a></span>
+    <span>/ {{ source.name }}</span>
+    {% if page %}<span>/ {{ page }}</span>{% endif %}
+  </nav>
+
+  <h1>{{ source.name }}</h1>
+  <dl class="run-meta">
+    <dt>Project</dt><dd>{{ source.project_name or 'All projects' }}</dd>
+    <dt>Location</dt><dd>{{ 'This machine' if source.location == 'local' else 'Remote: ' ~ source.instance_name }}</dd>
+    <dt>Folder</dt><dd class="wrap-cell"><code>{{ source.path }}</code></dd>
+  </dl>
+
+  <form class="wiki-search-bar" method="get" action="{{ url_for('wiki.view_source', source_id=source.id) }}">
+    <label class="wiki-search-grow">Search this wiki <input type="search" name="q" value="{{ query }}" placeholder="words to find"></label>
+    <button type="submit">Search</button>
+  </form>
+
+  {% if error %}<p class="flash flash-error" role="alert">{{ error }}</p>{% endif %}
+
+  <div class="wiki-layout">
+    <div>
+      {% if hits is not none %}
+        <h2>{{ hits|length }} result{{ '' if hits|length == 1 else 's' }} for &ldquo;{{ query }}&rdquo;</h2>
+        <ul class="wiki-cards">
+          {% for h in hits %}
+            <li class="wiki-card">
+              <h3><a href="{{ url_for('wiki.view_source', source_id=source.id, page=h.page) }}">{{ h.page }}</a></h3>
+              {% if h.snippet %}<p>{{ h.snippet }}</p>{% endif %}
+            </li>
+          {% endfor %}
+        </ul>
+      {% elif content is not none %}
+        <div class="wiki-content">{{ content }}</div>
+      {% elif not error %}
+        <p class="form-hint">{% if pages %}Pick a page.{% else %}This folder has no markdown pages yet.{% endif %}</p>
+      {% endif %}
+    </div>
+
+    <aside class="wiki-sidebar">
+      <div>
+        <h2>Pages <span class="count">{{ pages|length }}</span></h2>
+        <ul class="wiki-tree-leaves">
+          {% for p in pages %}
+            <li><a href="{{ url_for('wiki.view_source', source_id=source.id, page=p) }}"{% if p == page %} aria-current="page"{% endif %}>{{ p }}</a></li>
+          {% endfor %}
+        </ul>
+      </div>
+    </aside>
+  </div>
+{% endblock %}

@@ -4,10 +4,13 @@ manages -- see app/db.py's SCHEMA comment for why this is a second view onto
 one table rather than a second store."""
 from __future__ import annotations
 
-from flask import Blueprint, abort, redirect, render_template, request, url_for
+from flask import Blueprint, abort, current_app, flash, redirect, render_template, request, url_for
 
 from app.db import get_db
-from app.knowledge import maintenance, models, search
+from app.instances import models as instance_models
+from app.knowledge import maintenance, models, search, wiki_folders, wiki_sources
+from app.knowledge.wiki_folders import WikiFolderError
+from app.projects import models as project_models
 
 bp = Blueprint("wiki", __name__, url_prefix="/wiki")
 
@@ -98,6 +101,84 @@ def _apply_review_item(db, item: models.ReviewItem) -> None:
         models.update_entry(db, item.entry_id, title=item.title, content=item.content)
     elif item.change_type == "delete" and item.entry_id:
         models.delete_entry(db, item.entry_id)
+
+
+@bp.get("/sources")
+def sources():
+    db = get_db()
+    return render_template(
+        "knowledge/wiki_sources.html",
+        sources=wiki_sources.list_sources(db),
+        instances=instance_models.list_instances(db),
+        projects=project_models.list_projects(db, archived=False),
+        selected_project=request.args.get("project_id", type=int),
+    )
+
+
+@bp.post("/sources")
+def add_source():
+    db = get_db()
+    form = request.form
+    # `location` is "local" or "remote:<instance id>" (one select, no JS needed).
+    location, _, instance_id = form.get("location", "local").partition(":")
+    try:
+        source_id = wiki_sources.add_source(
+            db, current_app.config["ALLOWED_PROJECT_ROOTS"],
+            name=form.get("name", ""),
+            location=location,
+            path=form.get("path", ""),
+            instance_id=int(instance_id) if instance_id.isdigit() else None,
+            create=bool(form.get("create")),
+            project_id=form.get("project_id", type=int),
+        )
+    except WikiFolderError as exc:
+        flash(str(exc), "error")
+        return redirect(url_for("wiki.sources"))
+    flash("Wiki set up.", "info")
+    return redirect(url_for("wiki.view_source", source_id=source_id))
+
+
+@bp.post("/sources/<int:source_id>/delete")
+def delete_source(source_id: int):
+    db = get_db()
+    source = wiki_sources.get_source(db, source_id)
+    if source is None:
+        if _wants_json():
+            return {"error": "Wiki not found"}, 404
+        abort(404)
+    wiki_sources.delete_source(db, source_id)
+    message = f"Removed {source.name} (its folder was left in place)."
+    if _wants_json():
+        return {"status": "deleted", "message": message}
+    flash(message, "info")
+    return redirect(url_for("wiki.sources"))
+
+
+@bp.get("/sources/<int:source_id>")
+def view_source(source_id: int):
+    db = get_db()
+    source = wiki_sources.get_source(db, source_id)
+    if source is None:
+        abort(404)
+    roots = current_app.config["ALLOWED_PROJECT_ROOTS"]
+    page = request.args.get("page", "")
+    query = request.args.get("q", "").strip()
+    pages, content, hits, error = [], None, None, None
+    try:
+        pages = wiki_sources.list_pages(db, roots, source)
+        if query:
+            hits = wiki_sources.search(db, roots, source, query)
+        else:
+            if not page and wiki_folders.STARTER_PAGE in pages:
+                page = wiki_folders.STARTER_PAGE
+            if page:
+                content = wiki_sources.read_page(db, roots, source, page)
+    except WikiFolderError as exc:
+        error = str(exc)
+    return render_template(
+        "knowledge/wiki_source.html", source=source, pages=pages, page=page, content=content,
+        query=query, hits=hits, error=error,
+    )
 
 
 @bp.get("/<slug>/preview")

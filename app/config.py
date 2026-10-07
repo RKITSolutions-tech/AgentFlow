@@ -25,6 +25,18 @@ def _resolves_to_loopback_only(host: str) -> bool:
     return bool(infos) and all(ipaddress.ip_address(info[4][0]).is_loopback for info in infos)
 
 
+def allowed_roots_from_env() -> tuple[str, ...]:
+    """AGENTFLOW_ALLOWED_ROOTS (os.pathsep-separated), defaulting to the home
+    directory. Shared with the MCP server subprocess (app/mcp/server.py),
+    which has no Flask app/Config of its own."""
+    roots = tuple(
+        os.path.abspath(os.path.expanduser(r.strip()))
+        for r in os.environ.get("AGENTFLOW_ALLOWED_ROOTS", "").split(os.pathsep)
+        if r.strip()
+    )
+    return roots or (os.path.abspath(os.path.expanduser("~")),)
+
+
 @dataclass
 class Config:
     """Application configuration.
@@ -69,17 +81,22 @@ class Config:
     # "claude" (Anthropic-API-compatible, ANTHROPIC_BASE_URL/ANTHROPIC_AUTH_TOKEN).
     # AGENTFLOW_PLANNING_LOCAL_ADAPTER.
     PLANNING_LOCAL_ADAPTER: str = "codex"
+    # Bearer token required on this instance's federation API
+    # (app/federation/routes.py), so a second AgentFlow instance can list/drive
+    # sessions here. Unset (default) = federation routes refuse every request;
+    # this is the only part of AgentFlow that gets an auth check, since making
+    # an instance reachable at all already requires AGENTFLOW_ALLOW_UNSAFE_BIND=1
+    # and a private network (docs/CLOUDCLI_GAP_ANALYSIS.md G11).
+    FEDERATION_TOKEN: str = ""
+    # Default state of the "Include recent project context" checkbox on the
+    # session start form (docs/SESSION_HISTORY_AND_CHAT_CONTEXT.md §5.5,
+    # AGENTFLOW_SESSION_WARM_START). The checkbox submission still decides the
+    # actual session, same as `mcp_tools` -- this only sets the pre-checked state.
+    SESSION_WARM_START_DEFAULT: bool = False
 
     @classmethod
     def from_env(cls) -> "Config":
-        roots_env = os.environ.get("AGENTFLOW_ALLOWED_ROOTS", "")
-        roots = tuple(
-            os.path.abspath(os.path.expanduser(r.strip()))
-            for r in roots_env.split(os.pathsep)
-            if r.strip()
-        )
-        if not roots:
-            roots = (os.path.abspath(os.path.expanduser("~")),)
+        roots = allowed_roots_from_env()
 
         host = os.environ.get("AGENTFLOW_HOST", socket.gethostname())
         if not _resolves_to_loopback_only(host):
@@ -113,4 +130,6 @@ class Config:
             PLANNING_LOCAL_ADAPTER=os.environ.get(
                 "AGENTFLOW_PLANNING_LOCAL_ADAPTER", "codex"
             ).lower(),
+            FEDERATION_TOKEN=os.environ.get("AGENTFLOW_FEDERATION_TOKEN", ""),
+            SESSION_WARM_START_DEFAULT=os.environ.get("AGENTFLOW_SESSION_WARM_START") == "1",
         )

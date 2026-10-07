@@ -549,6 +549,24 @@ textarea.editor { width: 100%; font-family: ui-monospace, monospace; padding: 0.
 .chat-message-question ul { list-style: none; padding-left: 0; }
 .chat-message-question li { padding: 0.25rem 0.5rem; border-radius: var(--radius); color: var(--text-muted); }
 .chat-message-question li.is-chosen { background: var(--accent-soft); color: var(--text); font-weight: 600; }
+/* Project "Recent Chat" card and the full chat-history page
+   (docs/SESSION_HISTORY_AND_CHAT_CONTEXT.md §5.1/5.2). */
+.recent-chat-card { margin-bottom: 1rem; }
+.recent-chat-list { list-style: none; margin: 0 0 0.5rem; padding: 0; }
+.recent-chat-item { display: flex; flex-wrap: wrap; gap: 0.4rem; padding: 0.4rem 0; border-bottom: 1px solid var(--border); align-items: baseline; }
+.recent-chat-time { color: var(--text-muted); font-size: 0.8rem; flex: 0 0 auto; }
+.recent-chat-role { font-weight: 600; flex: 0 0 auto; }
+.recent-chat-text { flex: 1 1 10rem; }
+
+.chat-history-filters { margin-bottom: 1rem; }
+.chat-history-filters select, .chat-history-filters input { min-height: var(--tap); }
+.chat-history-section { margin-bottom: 1.5rem; }
+.chat-message-meta { display: flex; gap: 0.5rem; align-items: baseline; margin-bottom: 0.15rem; font-size: 0.8rem; color: var(--text-muted); }
+.archive-list { list-style: none; margin: 0; padding: 0; }
+.archive-item { padding: 0.5rem 0; border-bottom: 1px solid var(--border); }
+.archive-item summary { cursor: pointer; min-height: var(--tap); display: flex; align-items: center; }
+@media (max-width: 640px) { .recent-chat-item { flex-direction: column; gap: 0.1rem; } }
+
 .question-badge { display: inline-block; font-size: 0.75rem; padding: 0.1rem 0.5rem; border-radius: 999px; background: var(--surface-3); color: var(--text-muted); }
 .question-pending .question-badge { background: var(--warning-soft); color: var(--warning); }
 .question-answered .question-badge { background: var(--success-soft); color: var(--success); }
@@ -1015,6 +1033,7 @@ fieldset { min-width: 0; }
 .wiki-search-bar { display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: flex-end; margin-bottom: 1rem; }
 .wiki-search-bar input[type="search"] { flex: 1 1 16rem; min-width: 0; }
 .wiki-search-bar select { min-height: var(--tap); }
+.wiki-search-grow { flex: 1 1 16rem; min-width: 0; }
 .wiki-filter-chips { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.75rem; }
 .wiki-filter-chip {
   display: inline-flex; align-items: center; gap: 0.3rem;

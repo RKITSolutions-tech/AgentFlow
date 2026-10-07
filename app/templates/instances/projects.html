@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}{{ instance.name }} - Projects - AgentFlow{% endblock %}
+{% block content %}
+  <p><a href="{{ url_for('instances.index') }}">&larr; Remote Instances</a></p>
+  <h1>{{ instance.name }} - Projects</h1>
+
+  <table class="table-compact" {% if not projects %}hidden{% endif %}>
+    <thead><tr><th>Project</th><th>Repositories</th><th>Actions</th></tr></thead>
+    <tbody>
+      {% for project in projects %}
+        <tr>
+          <td>{{ project.name }}</td>
+          <td class="wrap-cell">{{ project.repositories|map(attribute='name')|join(', ') }}</td>
+          <td class="row-actions">
+            <a href="{{ url_for('instances.remote_sessions', instance_id=instance.id, project_id=project.id) }}">Sessions</a>
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if not projects %}<p>No projects on this instance.</p>{% endif %}
+{% endblock %}

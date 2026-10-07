@@ -34,7 +34,8 @@ Key modules:
 - `app/mcp/` — MCP tool bridge (docs/AGENT_ADAPTER.md §24): an interactive session opted in via
   the `mcp_tools` checkbox gets a stdio MCP server (`server.py`, spawned by the CLI itself as
   `python -m app.mcp.server --project-id N`, declared per-adapter by `app/agents/mcp_config.py`)
-  exposing tools (`tools/*.py`) that write directly into Backlog/Sprints/Pipelines/Ralph through
+  exposing tools (`tools/*.py`) that write directly into Backlog/Sprints/Pipelines/Ralph and the
+  project's wiki folders through
   the same persistence/workflow functions the UI uses — not a proposal queue like `PlanningAgent`.
 - `app/settings/models.py` — the model catalog (`openai`/`anthropic`/`local`
   providers) offered when starting or switching a session's model
@@ -111,6 +112,12 @@ Key modules:
   `role`/`agent_type`, including interactive session start (`app/sessions/routes.py`), pipeline
   AGENT steps, Ralph iterations and sprint planning. `skill_sync.py` mirrors them as JSON under
   `app/agents/skills/` at startup.
+- `app/knowledge/wiki_folders.py` + `wiki_sources.py` — folder-backed wikis
+  (docs/WIKI_INTEGRATION_AND_PRESENTATION.md §14): a project's (or shared)
+  knowledge store, a markdown folder on this host or on a remote instance (the
+  latter served by that instance's `/federation/api/wiki/*` so its own
+  `ALLOWED_PROJECT_ROOTS` apply). Sessions get it as optional starting context
+  (`session_context()`) and through the `wiki_*` MCP tools (`app/mcp/tools/wiki.py`).
 - `app/projects/` — Project and repository records; `app/security.py`
   validates repository paths against `ALLOWED_PROJECT_ROOTS`.
 

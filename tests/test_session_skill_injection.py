@@ -56,6 +56,43 @@ def test_matching_active_skill_is_prepended(client, app):
     assert injected["assembled_at"]
 
 
+def test_warm_start_off_by_default(client, app):
+    _create_project(client, app)
+    client.post("/sessions/project/1/create", data={"agent_type": "fake"}, follow_redirects=True)
+    with app.app_context():
+        db = get_db()
+        session_id = db.execute("SELECT id FROM agent_sessions ORDER BY id DESC LIMIT 1").fetchone()[0]
+    assert _first_prompt(app, session_id) == PLACEHOLDER_PROMPT
+    with app.app_context():
+        injected = get_agent_session(get_db(), session_id).metadata["injected_context"]
+    assert injected["warm_start"] is False
+
+
+def test_warm_start_prepends_recent_chat(client, app):
+    _create_project(client, app)
+    client.post("/sessions/project/1/create", data={"agent_type": "fake"}, follow_redirects=True)
+    with app.app_context():
+        db = get_db()
+        first_session_id = db.execute("SELECT id FROM agent_sessions ORDER BY id DESC LIMIT 1").fetchone()[0]
+        from app.agents import models
+
+        models.add_agent_event(db, first_session_id, "AgentText", data="earlier conversation about auth")
+
+    client.post(
+        "/sessions/project/1/create", data={"agent_type": "fake", "warm_start": "1"},
+        follow_redirects=True,
+    )
+    with app.app_context():
+        db = get_db()
+        second_session_id = db.execute("SELECT id FROM agent_sessions ORDER BY id DESC LIMIT 1").fetchone()[0]
+    prompt = _first_prompt(app, second_session_id)
+    assert "earlier conversation about auth" in prompt
+    assert prompt.endswith(PLACEHOLDER_PROMPT)
+    with app.app_context():
+        injected = get_agent_session(get_db(), second_session_id).metadata["injected_context"]
+    assert injected["warm_start"] is True
+
+
 def test_non_matching_skill_is_not_injected(client, app):
     with app.app_context():
         prompt_models.create_fragment(

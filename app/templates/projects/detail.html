@@ -15,6 +15,8 @@
   <h2>Execution lock</h2>
   {{ lock_status(project.id, True) }}
 
+  {% include "projects/_recent_chat.html" %}
+
   <h2>Repositories</h2>
   {% if project.repositories %}
     <table>

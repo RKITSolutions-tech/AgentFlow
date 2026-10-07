@@ -7,6 +7,7 @@ Each test that guards a fixed defect says which one.
 
 Playwright/Chromium missing skips (see `launch_chromium`); nothing else does.
 """
+import os
 import subprocess
 import sys
 
@@ -98,10 +99,18 @@ def world(app, client, tmp_path):
         )
         knowledge.create_entry(db, "note", "Other entry", "content", slug="other-entry", confidence="reviewed")
         knowledge.propose_change(db, "create", slug="proposed-entry", title="Proposed entry", content="draft content")
+    # Folder-backed wiki with a long unbroken page path and content line.
+    wiki_dir = os.path.join(app.config["allowed_root"], "team-wiki")
+    resp = client.post("/wiki/sources", data={"name": "Team wiki", "location": "local", "path": wiki_dir, "create": "on"})
+    wiki_source = int(resp.headers["Location"].rsplit("/", 1)[-1])
+    long_page = os.path.join("decisions", "an-unbroken-page-name-" * 4 + ".md")
+    os.makedirs(os.path.join(wiki_dir, "decisions"))
+    with open(os.path.join(wiki_dir, long_page), "w") as fh:
+        fh.write("# Decision\n\n" + "unbroken-content-" * 20)
     return type("W", (), {
         "pid": pid, "sprint": sprint_id, "eid": eid, "run": run_id, "item": items[0],
         "artifact": art[0] if art else None, "criterion": crit[0] if crit else None,
-        "wiki_slug": wiki_slug,
+        "wiki_slug": wiki_slug, "wiki_source": wiki_source, "wiki_page": long_page,
     })
 
 
@@ -109,6 +118,7 @@ def _pages(w):
     p = f"/projects/{w.pid}"
     pages = {
         "overview": p,
+        "chat history": f"{p}/chat-history",
         "backlog inbox": f"{p}/backlog/inbox",
         "backlog triage": f"{p}/backlog/triage",
         "backlog sprint": f"{p}/backlog/sprint",
@@ -131,6 +141,10 @@ def _pages(w):
         "wiki search": "/wiki?q=title",
         "wiki entry": f"/wiki/{w.wiki_slug}",
         "wiki review queue": "/wiki/review-queue",
+        "wiki folders": "/wiki/sources",
+        "wiki folder search": f"/wiki/sources/{w.wiki_source}?q=unbroken",
+        "session start (wiki context)": f"/sessions/project/{w.pid}",
+        "wiki folder page": f"/wiki/sources/{w.wiki_source}?page={w.wiki_page}",
     }
     if w.artifact:
         pages["artifact"] = f"{p}/artifacts/{w.artifact}"

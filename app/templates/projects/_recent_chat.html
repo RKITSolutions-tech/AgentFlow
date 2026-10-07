@@ -1,0 +1,25 @@
+{#
+  "Recent Chat" card (docs/SESSION_HISTORY_AND_CHAT_CONTEXT.md §5.1): last 5
+  messages across a project's interactive (GENERAL-role) sessions, or 24h of
+  history, whichever is smaller. `recent_chat` is a list[app.sessions.chat.ChatMessage].
+#}
+<h2>Recent Chat</h2>
+<div class="recent-chat-card">
+  {% if recent_chat %}
+    <ul class="recent-chat-list">
+      {% for msg in recent_chat %}
+        <li class="recent-chat-item">
+          <span class="recent-chat-time">{{ msg.created_at[11:16] }}</span>
+          <span class="recent-chat-role">{{ 'You' if msg.role == 'developer' else ('System' if msg.role == 'system' else 'Agent') }}:</span>
+          <span class="recent-chat-text wrap-cell">{{ msg.content[:60] }}{{ '…' if msg.content|length > 60 else '' }}</span>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="text-muted">No recent chat yet.</p>
+  {% endif %}
+  <p class="row-actions">
+    <a href="{{ url_for('projects.chat_history', project_id=project.id) }}">View Full History</a>
+    <a href="{{ url_for('projects.chat_history', project_id=project.id) }}#archive">Archive</a>
+  </p>
+</div>

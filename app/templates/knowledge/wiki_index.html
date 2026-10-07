@@ -6,7 +6,8 @@
       <a class="badge badge-danger" href="{{ url_for('wiki.review_queue') }}">{{ pending_review }} to review</a>
     {% endif %}
   </h1>
-  <p class="form-hint">Shared, reviewed knowledge from RESEARCH sessions and Ralph runs (<a href="{{ url_for('knowledge.list_entries') }}">admin view</a>).</p>
+  <p class="form-hint">Shared, reviewed knowledge from RESEARCH sessions and Ralph runs (<a href="{{ url_for('knowledge.list_entries') }}">admin view</a>).
+    Folders of markdown pages, local or on a remote instance: <a href="{{ url_for('wiki.sources') }}">wiki folders</a>.</p>
 
   <form class="wiki-search-bar" method="get" action="{{ url_for('wiki.index') }}">
     <label style="flex:1 1 16rem;">Search <input type="search" name="q" value="{{ query }}" placeholder="title:, content:, tag: or plain text"></label>

@@ -18,16 +18,27 @@ from typing import Any
 from mcp.server.mcpserver import MCPServer
 
 from app.mcp import db as mcp_db
+from app.config import allowed_roots_from_env
 from app.mcp.tools import backlog as backlog_tools
+from app.mcp.tools import wiki as wiki_tools
+from app.runs.security import extra_patterns_from_env
 
 
-def build_server(pool: mcp_db.ConnectionPool, project_id: int, changed_by: str) -> MCPServer:
+def build_server(
+    pool: mcp_db.ConnectionPool,
+    project_id: int,
+    changed_by: str,
+    allowed_roots: tuple[str, ...] = (),
+    redact_patterns: tuple[str, ...] = (),
+) -> MCPServer:
     server = MCPServer(
         name="agentflow",
         instructions=(
             f"Tools scoped to AgentFlow project #{project_id}'s Backlog, Sprints, "
-            "Pipelines and Ralph loop. Writes go through the same validation the "
-            "AgentFlow UI uses (e.g. backlog status transitions)."
+            "Pipelines and Ralph loop, plus its wiki knowledge store. Writes go "
+            "through the same validation the AgentFlow UI uses (e.g. backlog status "
+            "transitions). Search the wiki before answering questions it may cover; "
+            "record settled decisions and useful findings with wiki_write."
         ),
     )
 
@@ -86,6 +97,32 @@ def build_server(pool: mcp_db.ConnectionPool, project_id: int, changed_by: str) 
         """List the triage history (status changes and notes) for a Backlog item."""
         return backlog_tools.list_history(pool.get(), project_id, item_id)
 
+    @server.tool()
+    def wiki_list() -> list[dict]:
+        """List the wikis (folders of markdown pages) this project can use, with
+        each wiki's id and page paths."""
+        return wiki_tools.list_wikis(pool.get(), project_id, allowed_roots)
+
+    @server.tool()
+    def wiki_search(query: str, wiki_id: int | None = None, limit: int = 20) -> list[dict]:
+        """Search wiki pages for all the words in `query` (case-insensitive),
+        across every wiki this project can use or just `wiki_id`. Returns the
+        best-matching pages with a snippet each."""
+        return wiki_tools.search(pool.get(), project_id, allowed_roots, query, wiki_id=wiki_id, limit=limit)
+
+    @server.tool()
+    def wiki_read(wiki_id: int, page: str) -> dict[str, Any]:
+        """Read one wiki page, e.g. page="index.md" or "decisions/auth.md"."""
+        return wiki_tools.read(pool.get(), project_id, allowed_roots, wiki_id, page)
+
+    @server.tool()
+    def wiki_write(wiki_id: int, page: str, content: str) -> dict[str, Any]:
+        """Create or replace a wiki page (markdown, path ending in .md;
+        sub-folders are created). Use it to record decisions, findings and
+        context worth keeping from this discussion. Read the page first if it
+        exists -- this replaces its whole content. Secrets are redacted."""
+        return wiki_tools.write(pool.get(), project_id, allowed_roots, wiki_id, page, content, redact_patterns)
+
     return server
 
 
@@ -99,7 +136,10 @@ def main() -> None:
     changed_by = f"agent:{session_id}" if session_id else "agent"
 
     pool = mcp_db.ConnectionPool(database_path)
-    server = build_server(pool, args.project_id, changed_by)
+    server = build_server(
+        pool, args.project_id, changed_by,
+        allowed_roots=allowed_roots_from_env(), redact_patterns=extra_patterns_from_env(),
+    )
     server.run()
 
 

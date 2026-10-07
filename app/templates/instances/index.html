@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Remote Instances - AgentFlow{% endblock %}
+{% block content %}
+  <h1>Remote Instances</h1>
+  <p class="form-hint">
+    Other AgentFlow instances whose projects and sessions you can view and
+    drive from here. Each remote instance must have
+    <code>AGENTFLOW_FEDERATION_TOKEN</code> set to the token entered below,
+    and be reachable only over a private network (Tailscale/LAN) -- see
+    <code>docs/CLOUDCLI_GAP_ANALYSIS.md</code> for why exposing an instance
+    beyond loopback at all is sensitive.
+  </p>
+
+  <table class="table-compact" {% if not instances %}hidden{% endif %}>
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Base URL</th>
+        <th>Status</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for instance in instances %}
+        <tr data-row>
+          <td>{{ instance.name }}</td>
+          <td class="wrap-cell">{{ instance.base_url }}</td>
+          <td>
+            <span class="state-dot state-{{ 'running' if statuses.get(instance.id) == 'ONLINE' else 'failed' }}" aria-hidden="true"></span>
+            {{ statuses.get(instance.id, instance.last_status) }}
+          </td>
+          <td class="row-actions">
+            <a href="{{ url_for('instances.remote_projects', instance_id=instance.id) }}">Projects</a>
+            <button type="button" class="link-danger"
+                    data-ajax-action="{{ url_for('instances.delete_instance', instance_id=instance.id) }}"
+                    data-confirm="Remove {{ instance.name }} from the registry?">
+              Remove
+            </button>
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if not instances %}<p>No remote instances registered yet.</p>{% endif %}
+
+  <h2>Add a remote instance</h2>
+  <form class="stacked" method="post" action="{{ url_for('instances.add_instance') }}">
+    <label>Name
+      <input type="text" name="name" placeholder="e.g. windows-server" required>
+    </label>
+    <label>Base URL
+      <input type="text" name="base_url" placeholder="http://windows-server:5000" required>
+    </label>
+    <label>Federation token
+      <input type="password" name="token" autocomplete="off" required>
+    </label>
+    <p class="form-hint">The token must match that instance's <code>AGENTFLOW_FEDERATION_TOKEN</code>.</p>
+    <button type="submit">Add</button>
+  </form>
+{% endblock %}

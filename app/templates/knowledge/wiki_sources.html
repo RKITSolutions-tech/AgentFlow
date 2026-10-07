@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Wiki folders - AgentFlow{% endblock %}
+{% block content %}
+  <nav class="wiki-breadcrumb" aria-label="Breadcrumb">
+    <a href="{{ url_for('wiki.index') }}">Wiki</a><span>/ Folders</span>
+  </nav>
+  <h1>Wiki folders</h1>
+  <p class="form-hint">
+    A wiki folder is a folder of markdown pages, either on this machine or on a
+    <a href="{{ url_for('instances.index') }}">remote AgentFlow instance</a>, that
+    acts as a project's knowledge store. Agent sessions can be given it as starting
+    context and, with AgentFlow tools on, search it and record decisions in it. The
+    folder must be under the allowed project roots of the machine it lives on.
+  </p>
+
+  <table class="table-compact" {% if not sources %}hidden{% endif %}>
+    <thead>
+      <tr><th>Name</th><th>Project</th><th>Location</th><th>Folder</th><th>Actions</th></tr>
+    </thead>
+    <tbody>
+      {% for s in sources %}
+        <tr data-row>
+          <td><a href="{{ url_for('wiki.view_source', source_id=s.id) }}">{{ s.name }}</a></td>
+          <td>{{ s.project_name or 'All projects' }}</td>
+          <td>{{ 'This machine' if s.location == 'local' else 'Remote: ' ~ s.instance_name }}</td>
+          <td class="wrap-cell"><code>{{ s.path }}</code></td>
+          <td class="row-actions">
+            <a href="{{ url_for('wiki.view_source', source_id=s.id) }}">Browse</a>
+            <button type="button" class="link-danger"
+                    data-ajax-action="{{ url_for('wiki.delete_source', source_id=s.id) }}"
+                    data-confirm="Remove {{ s.name }}? The folder and its pages are kept.">
+              Remove
+            </button>
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if not sources %}<p>No wiki folders set up yet.</p>{% endif %}
+
+  <h2>Set up a wiki folder</h2>
+  <form class="stacked" method="post" action="{{ url_for('wiki.add_source') }}">
+    <label>Name
+      <input type="text" name="name" placeholder="e.g. Team handbook" required>
+    </label>
+    <label>Project
+      <select name="project_id">
+        <option value="">All projects</option>
+        {% for p in projects %}
+          <option value="{{ p.id }}"{% if p.id == selected_project %} selected{% endif %}>{{ p.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Location
+      <select name="location">
+        <option value="local">This machine</option>
+        {% for i in instances %}
+          <option value="remote:{{ i.id }}">Remote: {{ i.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>Folder path
+      <input type="text" name="path" placeholder="/home/me/projects/handbook" required>
+    </label>
+    <p class="form-hint">For a remote instance, give the path as it is on that machine.</p>
+    <label>
+      <input type="checkbox" name="create"> Create it (with a starter <code>index.md</code>) if it doesn't exist
+    </label>
+    <button type="submit" class="btn-primary">Set up wiki</button>
+  </form>
+{% endblock %}

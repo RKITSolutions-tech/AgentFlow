@@ -1,10 +1,13 @@
 from __future__ import annotations
 
-from flask import Blueprint, current_app, flash, jsonify, redirect, render_template, request, url_for
+from flask import Blueprint, Response, current_app, flash, jsonify, redirect, render_template, request, url_for
 
+from app.agents import models as agent_models
 from app.db import get_db
 from app.projects import clone, models
 from app.security import PathNotAllowedError
+from app.sessions import chat
+from app.sessions.export import export_chat_history
 
 bp = Blueprint("projects", __name__, url_prefix="/projects")
 
@@ -70,7 +73,96 @@ def view_project(project_id: int):
     project = models.get_project(db, project_id)
     if project is None:
         return render_template("404.html"), 404
-    return render_template("projects/detail.html", project=project, roots=_roots())
+    recent_chat = chat.get_recent_messages(db, project_id)
+    return render_template(
+        "projects/detail.html", project=project, roots=_roots(), recent_chat=recent_chat
+    )
+
+
+@bp.get("/<int:project_id>/chat-history")
+def chat_history(project_id: int):
+    db = get_db()
+    project = models.get_project(db, project_id)
+    if project is None:
+        return render_template("404.html"), 404
+
+    query = request.args.get("q", "").strip()
+    role = request.args.get("role") or None
+    session_filter = request.args.get("session_id", type=int)
+    start_date = request.args.get("start_date") or None
+    end_date = request.args.get("end_date") or None
+
+    # With no explicit filter, default to the last 24h (design doc §5.2.2 "Recent");
+    # an explicit date range, session, role or search broadens the view deliberately.
+    showing_recent_default = not (query or start_date or end_date or session_filter or role)
+
+    if query:
+        messages = chat.search_messages(db, project_id, query)
+    else:
+        effective_start = start_date
+        if showing_recent_default:
+            effective_start = db.execute("SELECT datetime('now', '-24 hours') AS t").fetchone()["t"]
+        messages = chat.get_chat_history(
+            db, project_id, role=role, session_id=session_filter,
+            start_date=effective_start, end_date=f"{end_date} 23:59:59" if end_date else None,
+        )
+    sessions = [
+        s for s in agent_models.list_agent_sessions_for_project(db, project_id)
+        if s.role == "GENERAL"
+    ]
+    summaries = chat.list_summaries_for_project(db, project_id)
+    return render_template(
+        "projects/chat_history.html",
+        project=project, messages=messages, sessions=sessions, summaries=summaries,
+        query=query, role=role, session_filter=session_filter,
+        start_date=start_date, end_date=end_date, showing_recent_default=showing_recent_default,
+    )
+
+
+@bp.get("/<int:project_id>/chat/export")
+def chat_export(project_id: int):
+    db = get_db()
+    project = models.get_project(db, project_id)
+    if project is None:
+        return render_template("404.html"), 404
+
+    export_format = request.args.get("format", "markdown")
+    if export_format not in ("markdown", "json"):
+        return jsonify({"error": "format must be 'markdown' or 'json'"}), 400
+    start_date = request.args.get("start_date") or None
+    end_date = request.args.get("end_date") or None
+
+    content = export_chat_history(
+        db, project_id, format=export_format, start_date=start_date,
+        end_date=f"{end_date} 23:59:59" if end_date else None,
+    )
+    mimetype = "application/json" if export_format == "json" else "text/markdown"
+    extension = "json" if export_format == "json" else "md"
+    filename = f"{project.slug}-chat.{extension}"
+    return Response(
+        content, mimetype=mimetype,
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
+@bp.get("/<int:project_id>/chat/archive/<int:summary_id>")
+def chat_archive_expand(project_id: int, summary_id: int):
+    db = get_db()
+    summary = chat.get_summary(db, summary_id)
+    if summary is None or summary.project_id != project_id:
+        return jsonify({"error": "Summary not found"}), 404
+    messages = chat.get_chat_history(
+        db, project_id, start_date=summary.period_start, end_date=summary.period_end,
+    )
+    return jsonify({
+        "messages": [
+            {
+                "created_at": m.created_at, "role": m.role, "content": m.content,
+                "message_type": m.message_type, "redacted": m.redacted,
+            }
+            for m in messages
+        ]
+    })
 
 
 @bp.route("/<int:project_id>/edit", methods=["GET", "POST"])

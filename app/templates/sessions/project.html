@@ -75,7 +75,7 @@
 
   <h2>Start New Session</h2>
   <form class="stacked" id="startSessionForm" method="post" action="{{ url_for('sessions.create_session', project_id=project.id) }}"
-        data-model-providers="{{ model_providers_by_agent|tojson }}">
+        data-model-providers='{{ model_providers_by_agent|tojson }}'>
     <label>Agent Type
       <select name="agent_type" id="agentTypeSelect">
         <option value="codex">Codex</option>
@@ -110,12 +110,34 @@
     {% endif %}
     <label class="backlog-select">
       <input type="checkbox" name="mcp_tools" value="1">
-      Let this session manage Backlog/Sprints/Pipelines/Ralph
+      Let this session manage Backlog/Sprints/Pipelines/Ralph and the wiki
     </label>
     <p class="form-hint">
       Gives the agent direct tools to create/update Backlog items, Sprint tasks, and
-      more, writing straight into the project the same way the UI does. Off by default.
+      more, writing straight into the project the same way the UI does, and to search
+      and write the project's wiki. Off by default.
     </p>
+    <label class="backlog-select">
+      <input type="checkbox" name="warm_start" value="1"{% if warm_start_default %} checked{% endif %}>
+      Include recent project context
+    </label>
+    <p class="form-hint">
+      Feeds the project's recent chat history into this session's starting prompt, so
+      it can pick up where the last conversation left off.
+    </p>
+    {% if project_wikis %}
+      <label class="backlog-select">
+        <input type="checkbox" name="wiki_context" value="1" checked>
+        Include the project wiki
+      </label>
+      <p class="form-hint">
+        Starts the session with an overview of
+        {% for w in project_wikis %}<a href="{{ url_for('wiki.view_source', source_id=w.id) }}">{{ w.name }}</a>{{ ", " if not loop.last }}{% endfor %}
+        (page list and <code>index.md</code>) and asks the agent to check it and record decisions there.
+      </p>
+    {% else %}
+      <p class="form-hint">No wiki for this project yet &mdash; <a href="{{ url_for('wiki.sources', project_id=project.id) }}">set one up</a> to give sessions a knowledge store.</p>
+    {% endif %}
     <button type="submit">Start Session</button>
   </form>
   <script>
