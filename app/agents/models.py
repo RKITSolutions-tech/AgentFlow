@@ -21,6 +21,8 @@ class AgentSession:
     metadata: dict[str, Any]
     started_at: str
     last_activity_at: str
+    # Session Topic (docs/SESSION_TOPICS.md §4.2); None for Topic-less sessions.
+    topic_id: int | None = None
 
 
 @dataclass
@@ -108,11 +110,12 @@ def create_agent_session(
     execution_provider: str = "host",
     execution_target: str = "",
     metadata: dict[str, Any] | None = None,
+    topic_id: int | None = None,
 ) -> int:
     cur = db.execute(
         "INSERT INTO agent_sessions "
-        "(project_id, agent_type, role, execution_provider, execution_target, status, metadata) "
-        "VALUES (?, ?, ?, ?, ?, 'STARTING', ?)",
+        "(project_id, agent_type, role, execution_provider, execution_target, status, metadata, topic_id) "
+        "VALUES (?, ?, ?, ?, ?, 'STARTING', ?, ?)",
         (
             project_id,
             agent_type,
@@ -120,6 +123,7 @@ def create_agent_session(
             execution_provider,
             execution_target,
             json.dumps(metadata or {}),
+            topic_id,
         ),
     )
     db.commit()
@@ -205,6 +209,7 @@ _FORK_SKIPPED_METADATA = (
     "last_agent_message",
     "cursor",
     "archived_at",
+    "topic_summarized_through",
     "usage",
 )
 
@@ -302,6 +307,7 @@ def fork_session(db: sqlite3.Connection, session_id: int) -> int:
         execution_provider=source.execution_provider,
         execution_target=source.execution_target,
         metadata=metadata,
+        topic_id=source.topic_id,
     )
     db.execute(
         "INSERT INTO agent_events (session_id, event_type, data, created_at) "
@@ -310,8 +316,21 @@ def fork_session(db: sqlite3.Connection, session_id: int) -> int:
         (new_id, session_id),
     )
     db.commit()
+    if source.topic_id is not None:
+        # The copied history is the parent's to summarize into the Topic; the
+        # fork only contributes what happens after this point.
+        last = db.execute("SELECT MAX(id) AS id FROM agent_events WHERE session_id = ?", (new_id,)).fetchone()["id"]
+        update_session_metadata(db, new_id, topic_summarized_through=last or 0)
     set_session_status(db, new_id, "COMPLETED")
     return new_id
+
+
+def set_session_topic(db: sqlite3.Connection, session_id: int, topic_id: int | None) -> None:
+    """Put a session in a Topic (or take it out with None). Cheap and immediate:
+    the Topic's rolling summary only picks the session up when it is next
+    archived (docs/SESSION_TOPICS.md §5.2)."""
+    db.execute("UPDATE agent_sessions SET topic_id = ? WHERE id = ?", (topic_id, session_id))
+    db.commit()
 
 
 def session_usage(session: AgentSession) -> dict[str, int]:
@@ -410,6 +429,7 @@ def _hydrate_session(row: sqlite3.Row) -> AgentSession:
         metadata=json.loads(row["metadata"]),
         started_at=row["started_at"],
         last_activity_at=row["last_activity_at"],
+        topic_id=row["topic_id"] if "topic_id" in row.keys() else None,
     )
 
 
@@ -761,4 +781,194 @@ def _hydrate_question(row: sqlite3.Row) -> ClarifyingQuestion:
         answer=json.loads(row["answer"]) if row["answer"] else None,
         created_at=row["created_at"],
         answered_at=row["answered_at"],
+    )
+
+
+@dataclass
+class CacheEntry:
+    """Cached web content from research sessions (task 49, phase A).
+
+    Entries are stored in the knowledge_entries table with kind='web_cache'.
+    Expiry is computed from kind: web_content expires in 7 days, web_search_result
+    in 30 days (docs/AGENT_ADAPTER.md §23 "Web research").
+    """
+
+    id: int
+    url: str
+    content_hash: str
+    content_excerpt: str  # First 500 chars, for preview
+    fetched_at: str
+    expires_at: str
+    kind: str  # 'web_content' | 'web_search_result'
+    source_session_id: int | None
+    is_stale: bool
+    stale_refresh_requested: bool
+
+    def refresh(self, db: sqlite3.Connection, new_content: str, force: bool = False) -> None:
+        """Refresh cached content if stale or force=True.
+
+        Updates the entry's content, hash, and expiry time. Marks stale_refresh_requested=False.
+        """
+        if not (self.is_stale or force):
+            return
+        content_hash = __import__("hashlib").sha256(new_content.encode()).hexdigest()
+        excerpt = new_content[:500] if new_content else ""
+        fetched_at = db.execute("SELECT datetime('now') AS ts").fetchone()["ts"]
+        expiry_days = 7 if self.kind == "web_content" else 30
+        expires_at = db.execute(
+            f"SELECT datetime(?, '+{expiry_days} days') AS ts", (fetched_at,)
+        ).fetchone()["ts"]
+
+        db.execute(
+            """UPDATE knowledge_entries SET content = ?, updated_at = ? WHERE id = ?""",
+            (new_content, fetched_at, self.id),
+        )
+        db.commit()
+        self.content_excerpt = excerpt
+        self.content_hash = content_hash
+        self.fetched_at = fetched_at
+        self.expires_at = expires_at
+        self.is_stale = False
+        self.stale_refresh_requested = False
+
+
+def create_web_cache_entry(
+    db: sqlite3.Connection,
+    url: str,
+    content: str,
+    kind: str = "web_content",
+    source_session_id: int | None = None,
+) -> int:
+    """Create a cached web entry in the knowledge base.
+
+    kind in ('web_content', 'web_search_result'). Expiry is computed:
+    - web_content: 7 days
+    - web_search_result: 30 days
+
+    Returns the knowledge_entries id (which serves as the cache entry id).
+    """
+    content_hash = __import__("hashlib").sha256(content.encode()).hexdigest()
+    excerpt = content[:500] if content else ""
+    fetched_at = db.execute("SELECT datetime('now') AS ts").fetchone()["ts"]
+    expiry_days = 7 if kind == "web_content" else 30
+    expires_at = db.execute(
+        f"SELECT datetime(?, '+{expiry_days} days') AS ts", (fetched_at,)
+    ).fetchone()["ts"]
+
+    cur = db.execute(
+        """INSERT INTO knowledge_entries (kind, title, content, url, source_session_id, confidence, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, 'unverified', ?, ?)""",
+        (kind, f"Web: {url[:100]}", content, url, source_session_id, fetched_at, fetched_at),
+    )
+    entry_id = cur.lastrowid
+
+    # Store expiry metadata in a note-like field (task 49.2 will refine this).
+    # For now, we rely on the entry's created_at + fixed TTL for staleness checks.
+    db.commit()
+    return entry_id
+
+
+def get_web_cache_entry(db: sqlite3.Connection, entry_id: int) -> CacheEntry | None:
+    """Retrieve a cached web entry by knowledge_entries id."""
+    row = db.execute(
+        """SELECT id, url, content as content_excerpt, created_at as fetched_at,
+                  (CASE WHEN kind='web_content' THEN datetime(created_at, '+7 days')
+                        WHEN kind='web_search_result' THEN datetime(created_at, '+30 days')
+                        ELSE NULL END) as expires_at,
+                  kind, source_session_id
+           FROM knowledge_entries WHERE id = ? AND kind IN ('web_content', 'web_search_result')""",
+        (entry_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    return _hydrate_cache_entry(row)
+
+
+def list_web_cache_entries(
+    db: sqlite3.Connection,
+    project_id: int | None = None,
+    stale_only: bool = False,
+) -> list[CacheEntry]:
+    """List cached web entries, optionally filtered by project and staleness.
+
+    If project_id is given, only entries from that project's research sessions are returned.
+    If stale_only=True, only expired entries are returned.
+    """
+    sql = """SELECT id, url, content as content_excerpt, created_at as fetched_at,
+                  (CASE WHEN kind='web_content' THEN datetime(created_at, '+7 days')
+                        WHEN kind='web_search_result' THEN datetime(created_at, '+30 days')
+                        ELSE NULL END) as expires_at,
+                  kind, source_session_id
+           FROM knowledge_entries
+           WHERE kind IN ('web_content', 'web_search_result')"""
+    params: list[Any] = []
+    if project_id is not None:
+        sql += " AND source_session_id IN (SELECT id FROM research_sessions WHERE project_id = ?)"
+        params.append(project_id)
+    sql += " ORDER BY created_at DESC"
+
+    rows = db.execute(sql, params).fetchall()
+    entries = [_hydrate_cache_entry(row) for row in rows]
+    if stale_only:
+        entries = [e for e in entries if e.is_stale]
+    return entries
+
+
+def mark_cache_entry_for_refresh(db: sqlite3.Connection, entry_id: int) -> None:
+    """Mark a cache entry's stale_refresh_requested flag (persisted as metadata).
+
+    For now, sets a flag in the knowledge_entries row (task 49.5 will add
+    a dedicated metadata column). The flag tells the next research session
+    using this cache to force-refresh it.
+    """
+    db.execute(
+        """UPDATE knowledge_entries SET confidence = 'reviewed' WHERE id = ? AND kind IN ('web_content', 'web_search_result')""",
+        (entry_id,),
+    )
+    db.commit()
+
+
+def delete_stale_cache_entries(db: sqlite3.Connection, project_id: int | None = None) -> int:
+    """Delete expired cache entries. If project_id is given, only delete from that project.
+
+    Returns the count of deleted entries.
+    """
+    sql = """DELETE FROM knowledge_entries
+           WHERE kind IN ('web_content', 'web_search_result')
+           AND (
+               (kind = 'web_content' AND datetime(created_at, '+7 days') < datetime('now'))
+               OR (kind = 'web_search_result' AND datetime(created_at, '+30 days') < datetime('now'))
+           )"""
+    params: list[Any] = []
+    if project_id is not None:
+        sql += " AND source_session_id IN (SELECT id FROM research_sessions WHERE project_id = ?)"
+        params.append(project_id)
+
+    cur = db.execute(sql, params)
+    db.commit()
+    return cur.rowcount
+
+
+def _hydrate_cache_entry(row: sqlite3.Row) -> CacheEntry:
+    """Hydrate a CacheEntry from a knowledge_entries row."""
+    import hashlib
+
+    fetched_at = row["fetched_at"]
+    expires_at = row["expires_at"] or fetched_at
+    now = __import__("sqlite3").connect(":memory:").execute("SELECT datetime('now') AS ts").fetchone()["ts"]
+    is_stale = now > expires_at
+    content_excerpt = row["content_excerpt"][:500] if row["content_excerpt"] else ""
+    content_hash = hashlib.sha256((row["content_excerpt"] or "").encode()).hexdigest()
+
+    return CacheEntry(
+        id=row["id"],
+        url=row["url"],
+        content_hash=content_hash,
+        content_excerpt=content_excerpt,
+        fetched_at=fetched_at,
+        expires_at=expires_at,
+        kind=row["kind"],
+        source_session_id=row["source_session_id"],
+        is_stale=is_stale,
+        stale_refresh_requested=False,
     )
