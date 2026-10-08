@@ -81,6 +81,7 @@ class ResearchReport:
     summary: str
     findings: list[Finding] = field(default_factory=list)
     sources: list[Source] = field(default_factory=list)
+    layer_breakdown: dict[str, int] = field(default_factory=dict)  # e.g. {'repository': 5, 'web_fetch': 3}
 
     @property
     def unverified(self) -> list[Finding]:
@@ -92,6 +93,7 @@ class ResearchReport:
             "summary": self.summary,
             "findings": [f.to_dict() for f in self.findings],
             "sources": [s.to_dict() for s in self.sources],
+            "layer_breakdown": self.layer_breakdown,
         }
 
     def to_json(self) -> str:
@@ -116,7 +118,16 @@ class ResearchReport:
             finding.confidence = CONFIDENCE_VERIFIED if finding.source_ids else CONFIDENCE_UNVERIFIED
             findings.append(finding)
 
-        return cls(summary=str(data.get("summary", "")).strip(), findings=findings, sources=sources)
+        layer_breakdown = data.get("layer_breakdown", {})
+        if not isinstance(layer_breakdown, dict):
+            layer_breakdown = {}
+
+        return cls(
+            summary=str(data.get("summary", "")).strip(),
+            findings=findings,
+            sources=sources,
+            layer_breakdown=layer_breakdown,
+        )
 
     @classmethod
     def from_json(cls, text: str) -> "ResearchReport":
