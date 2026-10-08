@@ -1,0 +1,35 @@
+{% extends "dashboards/base.html" %}
+
+{% block dashboard_content %}
+<div class="dashboard-grid" data-testid="dashboard-home">
+  <div class="dashboard-section" data-testid="recent-sessions">
+    <h2>Recent Sessions</h2>
+    <div class="dashboard-cards">
+      <div class="dashboard-card">
+        <h3>Sessions will load here</h3>
+        <p>Recent GENERAL-role sessions (limit 5)</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="dashboard-section" data-testid="active-pipelines">
+    <h2>Active Pipelines</h2>
+    <div class="dashboard-cards">
+      <div class="dashboard-card">
+        <h3>Pipelines will load here</h3>
+        <p>Active pipelines (status: RUNNING or PAUSED)</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="dashboard-section" data-testid="recent-backlog">
+    <h2>Recent Backlog Items</h2>
+    <div class="dashboard-cards">
+      <div class="dashboard-card">
+        <h3>Backlog items will load here</h3>
+        <p>Recent items across all projects (limit 5)</p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

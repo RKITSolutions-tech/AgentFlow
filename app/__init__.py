@@ -15,6 +15,7 @@ def create_app(config: Config | None = None) -> Flask:
     from app.workspace.routes import bp as workspace_bp
     from app.api import bp as api_bp
     from app.sessions.routes import bp as sessions_bp
+    from app.sessions.topic_views import bp as topics_bp
     from app.settings.routes import bp as settings_bp
     from app.notifications.routes import bp as notifications_bp
     from app.federation.routes import bp as federation_bp
@@ -24,6 +25,7 @@ def create_app(config: Config | None = None) -> Flask:
     app.register_blueprint(workspace_bp)
     app.register_blueprint(api_bp)
     app.register_blueprint(sessions_bp)
+    app.register_blueprint(topics_bp)
     app.register_blueprint(settings_bp)
     app.register_blueprint(notifications_bp)
     app.register_blueprint(federation_bp)
@@ -68,6 +70,14 @@ def create_app(config: Config | None = None) -> Flask:
     from app.knowledge.wiki_views import bp as wiki_bp
 
     app.register_blueprint(wiki_bp)
+
+    from app.wikis.routes import bp as project_wiki_bp
+
+    app.register_blueprint(project_wiki_bp)
+
+    from app.dashboards.routes import bp as dashboards_bp
+
+    app.register_blueprint(dashboards_bp)
 
     app.extensions["run_manager"].reconcile()
 

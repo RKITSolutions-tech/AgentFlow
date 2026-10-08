@@ -33,6 +33,8 @@
       <nav class="sidebar-links" aria-label="Sections">
         <a href="{{ url_for('projects.list_projects') }}"{% if ep.startswith('projects.') %} aria-current="page"{% endif %}>Projects</a>
         <a href="{{ url_for('sessions.list_sessions') }}"{% if ep == 'sessions.list_sessions' %} aria-current="page"{% endif %}>Sessions</a>
+        <a href="{{ url_for('dashboards.home') }}"{% if ep.startswith('dashboards.') %} aria-current="page"{% endif %}>Home Dashboard</a>
+        <a href="{{ url_for('dashboards.wikis') }}"{% if ep == 'dashboards.wikis' %} aria-current="page"{% endif %}>Wikis</a>
         {# These sections are per project: use the one being viewed, else the first in the sidebar. #}
         {% set sp = shell.active_project_id or (shell.projects[0].id if shell.projects else None) %}
         {% if sp %}

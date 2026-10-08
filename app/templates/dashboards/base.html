@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="dashboard-container" data-testid="dashboard-container">
+  {% block dashboard_content %}{% endblock %}
+</div>
+
+<style>
+.dashboard-container {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: var(--gap);
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* Mobile-first: single column, full width */
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--gap);
+  width: 100%;
+}
+
+.dashboard-section {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--gap) / 2);
+}
+
+.dashboard-section h2 {
+  margin: 0 0 calc(var(--gap) / 2) 0;
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.dashboard-cards {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--gap);
+  width: 100%;
+}
+
+.dashboard-card {
+  background: var(--bg-secondary);
+  border-radius: 6px;
+  padding: var(--gap);
+  min-height: 60px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.dashboard-card h3 {
+  margin: 0 0 calc(var(--gap) / 2) 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  word-wrap: break-word;
+}
+
+.dashboard-card p {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.dashboard-card a {
+  color: var(--link-color, #0066cc);
+  text-decoration: none;
+  word-break: break-word;
+}
+
+.dashboard-card a:hover {
+  text-decoration: underline;
+}
+
+/* 2-3 column layout on tablet and larger */
+@media (min-width: 768px) {
+  .dashboard-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .dashboard-cards {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* 3 column layout on desktop */
+@media (min-width: 1024px) {
+  .dashboard-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .dashboard-cards {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+/* Responsive padding adjustments */
+@media (max-width: 860px) {
+  .dashboard-container {
+    padding: calc(var(--gap) / 2);
+  }
+
+  .dashboard-card {
+    padding: calc(var(--gap) / 1.5);
+  }
+}
+
+/* Touch-friendly targets */
+.dashboard-card a {
+  padding: calc(var(--tap) / 4);
+  margin: -calc(var(--tap) / 4);
+  min-height: var(--tap);
+  display: flex;
+  align-items: center;
+}
+</style>
+{% endblock %}

@@ -1,0 +1,35 @@
+{% extends "dashboards/base.html" %}
+
+{% block dashboard_content %}
+<div class="dashboard-grid" data-testid="dashboard-project-{{ project.id }}">
+  <div class="dashboard-section" data-testid="current-sprint">
+    <h2>Current Sprint</h2>
+    <div class="dashboard-cards">
+      <div class="dashboard-card">
+        <h3>Sprint will load here</h3>
+        <p>Active sprint status and task count</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="dashboard-section" data-testid="backlog-breakdown">
+    <h2>Backlog Breakdown</h2>
+    <div class="dashboard-cards">
+      <div class="dashboard-card">
+        <h3>Status breakdown</h3>
+        <p>Items by status: Inbox, Ready, In Progress, Done, Blocked</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="dashboard-section" data-testid="active-pipelines">
+    <h2>Active Pipelines</h2>
+    <div class="dashboard-cards">
+      <div class="dashboard-card">
+        <h3>Pipelines will load here</h3>
+        <p>Running and paused pipelines (limit 5)</p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

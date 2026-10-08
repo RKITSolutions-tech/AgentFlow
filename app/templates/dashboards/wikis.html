@@ -1,0 +1,20 @@
+{% extends "dashboards/base.html" %}
+
+{% block dashboard_content %}
+<div data-testid="dashboard-wikis">
+  <div class="dashboard-section">
+    <h2>Wiki Search</h2>
+    <input type="text" class="search-input" placeholder="Search wikis..." data-testid="wiki-search" style="width: 100%; padding: var(--gap); border: 1px solid var(--border-color); border-radius: 6px; font-size: 0.95rem;">
+  </div>
+
+  <div class="dashboard-section">
+    <h2>Available Wikis</h2>
+    <div class="dashboard-cards">
+      <div class="dashboard-card">
+        <h3>Wikis will load here</h3>
+        <p>Project and shared wikis sorted by name</p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
