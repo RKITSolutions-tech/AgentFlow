@@ -398,7 +398,10 @@ rendering, in-app editing) is deliberately minimal for now.
   the rest of federation).
 - **Browse/search (UI):** `/wiki/sources/<id>` lists every `.md`/`.markdown`
   page (hidden files and folders skipped, capped at 2000), searches the wiki,
-  and shows a page as escaped text (`index.md` by default).
+  and renders a page as markdown (`index.md` by default; same renderer as
+  §16, raw HTML escaped, links to other pages kept inside the viewer). A
+  *local* wiki folder of a project also appears in that project's wiki
+  browser (§16).
 - **Remove:** unregisters the wiki only; the folder and pages stay on disk.
 
 Code: `app/knowledge/wiki_folders.py` (per-host setup/list/search/read/write),
@@ -406,17 +409,90 @@ Code: `app/knowledge/wiki_folders.py` (per-host setup/list/search/read/write),
 local/remote dispatch, `session_context()`), `app/mcp/tools/wiki.py`, routes
 in `app/knowledge/wiki_views.py`.
 
-Not yet: markdown rendering, in-app editing, an edit history/audit trail of
-agent writes beyond the folder's own git history, and sprint scoping (§3.3).
+Not yet: in-app editing, an edit history/audit trail of agent writes beyond
+the folder's own git history, and sprint scoping (§3.3).
 
 ## 15. Open Questions & Next Steps
 
-1. **Storage:** Should wikis be repo-only (version-controlled) or in the database (ephemeral)? (Proposed: repo-only for Phase 1.)
+1. **Storage:** Should wikis be repo-only (version-controlled) or in the database (ephemeral)? (Decided for Phase 1: repo-only, see §16.)
 2. **Linking:** Should wiki pages automatically link to related tasks or ADRs, or manual only?
 3. **Templates:** Which wiki templates are most important? (ADR, task doc, sprint overview, API spec?)
 4. **CloudCLI:** Should the CloudCLI wiki tool be removed entirely, or kept as a fallback?
 5. **Collaboration:** Should wiki editing support real-time collaboration (future phase)?
 
----
+## 16. Phase 1 Status: Project Wiki Browser (Implemented)
 
-**Next:** Convert this design into Task Master tasks, then validate with user before implementation.
+Phase 1 (§6) shipped as a read-only, repo-backed browser (`WIKI_STORAGE=repo`,
+§9 Option B — no wiki table; the `WikiPage` dataclass in `app/wikis/models.py`
+keeps the §5.1 shape for a later database/hybrid store).
+
+**Where pages come from.** `/projects/<id>/wiki/` (project tab *Wiki*) shows
+one *root* per source: each repository's `docs/` folder (`WIKI_DOCS_DIRS`)
+and each *local* wiki folder attached to the project or shared (§14). Remote
+wiki folders stay on `/wiki/sources/<id>`. Roots must be under
+`ALLOWED_PROJECT_ROOTS`; hidden files/folders are skipped and symlinks that
+leave the root are ignored.
+
+**Features.**
+
+- *Page list* (left): each root as a collapsible folder tree, or a flat list
+  with dates under *Sort: Recently modified*; decision pages are tagged.
+  Typing in the search box filters it by title at once.
+- *Search*: after a 300 ms pause the box shows full-text results above the
+  content (`/projects/<id>/wiki/search?q=`, JSON for AJAX callers, a results
+  page otherwise). Every term must match (as a word, a 3+ character prefix,
+  or in the path); ranked by term frequency × idf (title words ×3, path +5)
+  with up to +50% for pages changed recently, fading over a year. Snippets
+  are escaped with the terms in `<mark>`.
+- *Rendering* (`app/wikis/renderer.py`, mistune 3 + Pygments): raw HTML is
+  escaped and `javascript:` links neutralised; headings get anchors and
+  collapse toggles; fenced code is highlighted with a copy button; tables
+  scroll sideways in a wrapper; images lazy-load and are served from the
+  wiki root; relative links to pages/folders/images stay inside the browser;
+  frontmatter is hidden. Rendered HTML is cached per file version.
+- *Page information* (right on > 1280px, below the content otherwise,
+  collapsed on phones): last modified, last commit author (`git log`), type,
+  file, *Edit* (the repository file editor), *Copy link*, *Share* (a markdown
+  link), related Task Master tasks (tasks whose text names the file),
+  *Links to* and *Linked from* (markdown links, or a mention of the file name).
+- *Breadcrumbs*: project wiki › root › folders › page; folders list their
+  pages and sub-folders.
+- *Decision records* (§4.5, Phase 4 rendering): pages under `ADRs/`, `adr/`,
+  `DECISIONS/`, … or with `type: adr|decision` frontmatter render as a card
+  (status badge, date, author, stakeholders, then Problem / Decision /
+  Reasoning / Consequences / Alternatives taken from frontmatter, a
+  `**Status:** …` line or `##` sections). A folder of decisions renders as a
+  timeline, newest first, colour-coded by status.
+- *Layout* (§8): < 640px one column with the page list behind a *Pages*
+  drawer button; 640–1280px list + content; > 1280px list + content + page
+  information. Touch targets are ≥ 44px on narrow screens.
+
+**Indexing.** `app/wikis/scanner.py` caches each file's parsed metadata and
+term counts keyed by mtime/size, so a request costs a directory walk and a
+`stat` per file; a root is fully re-walked when its folder tree changes, after
+`WIKI_SEARCH_INDEX_INTERVAL` seconds, or via the *Rescan* button
+(`POST /projects/<id>/wiki/rescan`). The search index rebuilds only when a
+page's mtime changes.
+
+**Configuration** (`app/settings/wiki_config.py`, Flask config `WIKI_*` or
+env `AGENTFLOW_WIKI_*`): `WIKI_STORAGE` (`repo`; `database`/`hybrid` reserved
+and treated as `repo`), `WIKI_REPO_SYNC` (Phase 2), `WIKI_SEARCH_INDEX_INTERVAL`
+(3600), `WIKI_DOCS_DIRS` (`docs`), `WIKI_MAX_PAGE_BYTES` (2 MB; larger pages are
+listed but not rendered), `WIKI_MAX_PAGES` (2000 per root).
+
+**Known limitations.** Read-only (edit through the repository editor, an
+agent's `wiki_write` tool, or git); no sprint wikis (`list_by_sprint` returns
+nothing; §6 Phase 3); no ADR status transitions (Phase 4); remote wiki folders
+are not part of the project browser or its search; one docs folder per
+repository (the first of `WIKI_DOCS_DIRS` that exists).
+
+**CloudCLI.** The CloudCLI `wikis` tool is legacy for AgentFlow projects: use
+the project wiki browser to read and the `wiki_*` MCP tools to write (§10).
+
+**Roadmap.** Phase 2 editor and templates with `WIKI_REPO_SYNC` commits;
+Phase 3 sprint wikis; Phase 4 ADR status transitions; Phase 5 annotations,
+versioning/diffs and external sync (§6).
+
+Code: `app/wikis/` (`models.py`, `persistence.py` roots and page lookup,
+`scanner.py`, `renderer.py`, `search.py`, `metadata.py`, `adr.py`,
+`routes.py`), `app/templates/wikis/browser.html`, tests in `tests/wikis/`.

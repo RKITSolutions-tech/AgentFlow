@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_project_tabs.html" import project_tabs %}
+{% from "sessions/_topics.html" import topic_chip, topic_select %}
 {% block title %}{{ project.name }} - Sessions - AgentFlow{% endblock %}
 {% block content %}
   {{ project_tabs(project, none, 'sessions') }}
@@ -36,7 +37,7 @@
     <tbody>
       {% for session in sessions %}
         <tr data-row>
-          <td class="wrap-cell">{{ titles[session.id] or ('Session #' ~ session.id) }}</td>
+          <td class="wrap-cell">{{ titles[session.id] or ('Session #' ~ session.id) }} {{ topic_chip(project.id, session.topic_id, topic_names.get(session.topic_id)) }}</td>
           <td>{{ session.agent_type|upper }}</td>
           <td>{{ session.status }}</td>
           <td>{{ session.last_activity_at }}</td>
@@ -117,8 +118,14 @@
       more, writing straight into the project the same way the UI does, and to search
       and write the project's wiki. Off by default.
     </p>
+    {{ topic_select(topics, selected_topic, 'topicSelect') }}
+    <p class="form-hint">
+      A topic groups sessions about one feature or thread of work. Starting a session in a
+      topic gives it that topic's running summary and latest messages, instead of the whole
+      project's recent chat. <a href="{{ url_for('topics.list_topics', project_id=project.id) }}">Manage topics</a>
+    </p>
     <label class="backlog-select">
-      <input type="checkbox" name="warm_start" value="1"{% if warm_start_default %} checked{% endif %}>
+      <input type="checkbox" name="warm_start" value="1" id="warmStartBox"{% if warm_start_default and not selected_topic %} checked{% endif %}>
       Include recent project context
     </label>
     <p class="form-hint">
@@ -164,6 +171,16 @@
 
       agentSelect.addEventListener("change", updateModelVisibility);
       updateModelVisibility();
+
+      // A topic's own context covers "what did we just discuss", so project-wide
+      // warm start defaults off once one is picked (unless set by hand).
+      var topicSelect = document.getElementById("topicSelect");
+      var warmStart = document.getElementById("warmStartBox");
+      var warmTouched = false;
+      warmStart.addEventListener("change", function () { warmTouched = true; });
+      topicSelect.addEventListener("change", function () {
+        if (!warmTouched && topicSelect.value) warmStart.checked = false;
+      });
     })();
   </script>
 {% endblock %}

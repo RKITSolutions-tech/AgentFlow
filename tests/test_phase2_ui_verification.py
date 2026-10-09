@@ -107,10 +107,34 @@ def world(app, client, tmp_path):
     os.makedirs(os.path.join(wiki_dir, "decisions"))
     with open(os.path.join(wiki_dir, long_page), "w") as fh:
         fh.write("# Decision\n\n" + "unbroken-content-" * 20)
+    # Repository docs for the project wiki browser, with long unbroken lines,
+    # a wide table and a long code line (overflow risks).
+    from tests.wikis.conftest import PAGES, write_docs
+
+    write_docs(repo, {
+        **PAGES,
+        "an-unbroken-doc-name-" * 3 + ".md": "# " + "unbroken-heading-" * 6 + "\n\n" + "unbroken-text-" * 30
+        + "\n\n| " + " | ".join(f"column {i}" for i in range(14)) + " |\n|" + "---|" * 14 + "\n| "
+        + " | ".join("cell-value" for _ in range(14)) + " |\n\n```\n" + "x = 1; " * 60 + "\n```\n",
+    })
+    with app.app_context():
+        wiki_root = f"repo-{get_db().execute('SELECT id FROM repositories WHERE project_id = ?', (pid,)).fetchone()[0]}"
+    # A Topic (long unbroken name) with one archived, summarized session.
+    client.post(
+        f"/sessions/project/{pid}/create",
+        data={"agent_type": "fake", "topic": "new", "new_topic_name": "an-unbroken-topic-name-" * 3},
+    )
+    with app.app_context():
+        session_row = get_db().execute("SELECT id, topic_id FROM agent_sessions ORDER BY id DESC LIMIT 1").fetchone()
+    client.post(f"/sessions/{session_row['id']}/send", data={"prompt": "talk about " + "unbroken-words-" * 10})
+    client.post(f"/sessions/{session_row['id']}/stop", headers=AJAX)
+    client.post(f"/sessions/{session_row['id']}/archive", headers=AJAX)
     return type("W", (), {
         "pid": pid, "sprint": sprint_id, "eid": eid, "run": run_id, "item": items[0],
         "artifact": art[0] if art else None, "criterion": crit[0] if crit else None,
         "wiki_slug": wiki_slug, "wiki_source": wiki_source, "wiki_page": long_page,
+        "topic": session_row["topic_id"], "topic_session": session_row["id"],
+        "wiki_root": wiki_root, "long_doc": "an-unbroken-doc-name-" * 3 + ".md",
     })
 
 
@@ -145,6 +169,17 @@ def _pages(w):
         "wiki folder search": f"/wiki/sources/{w.wiki_source}?q=unbroken",
         "session start (wiki context)": f"/sessions/project/{w.pid}",
         "wiki folder page": f"/wiki/sources/{w.wiki_source}?page={w.wiki_page}",
+        "topics": f"{p}/topics/",
+        "archived topics": f"{p}/topics/?archived=1",
+        "topic detail": f"{p}/topics/{w.topic}",
+        "session start (topic preselected)": f"/sessions/project/{w.pid}?topic={w.topic}",
+        "project wiki": f"{p}/wiki/",
+        "project wiki page": f"{p}/wiki/{w.wiki_root}/ARCHITECTURE.md",
+        "project wiki long page": f"{p}/wiki/{w.wiki_root}/{w.long_doc}",
+        "project wiki adr": f"{p}/wiki/{w.wiki_root}/ADRs/001-use-jwt.md",
+        "project wiki adr timeline": f"{p}/wiki/{w.wiki_root}/ADRs/",
+        "project wiki search": f"{p}/wiki/search?q=scheduler",
+        "project wiki by date": f"{p}/wiki/?sort=modified",
     }
     if w.artifact:
         pages["artifact"] = f"{p}/artifacts/{w.artifact}"
@@ -545,6 +580,197 @@ def test_wiki_review_queue_ajax_approve_removes_item(world, live_server):
             rows.first.locator("button:has-text('Approve')").click()
             page.wait_for_function(f"document.querySelectorAll('.needs-review-item[data-row]').length === {before - 1}")
             assert_no_horizontal_overflow(page, "wiki review queue (mobile)")
+            assert errors == []
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("viewport", VIEWPORTS, ids=IDS)
+def test_add_to_topic_from_session_view(world, live_server, viewport):
+    """Session Topics (docs/SESSION_TOPICS.md §5.2): the "Add to Topic" panel on
+    the session view fits the screen, reveals the name field for "New topic",
+    and assigning shows the topic chip."""
+    sync_playwright = require_playwright()
+    with sync_playwright() as p:
+        browser = launch_chromium(p)
+        try:
+            page = browser.new_page(viewport=viewport)
+            errors = watch_console(page)
+            page.goto(f"{live_server}/sessions/{world.topic_session}")
+            page.wait_for_load_state("load")
+            picker = page.locator("details.topic-picker")
+            picker.locator("summary").click()
+            assert_no_horizontal_overflow(page, "session view with topic picker open")
+            if viewport is MOBILE:
+                assert_touch_target_size(page, selector="details.topic-picker summary, details.topic-picker select, details.topic-picker button", label="topic picker")
+            name_field = picker.locator("[data-topic-new-field]")
+            assert name_field.is_hidden()
+            picker.locator("select[name=topic]").select_option("new")
+            assert name_field.is_visible()
+            name_field.locator("input").fill("Picked in browser")
+            picker.locator("button[type=submit]").click()
+            page.wait_for_selector("p.chat-status .topic-chip:has-text('Picked in browser')")
+            assert errors == []
+        finally:
+            browser.close()
+
+
+def test_topic_rename_and_archive_in_place(world, live_server):
+    """Topics list row actions are AJAX: rename updates the row, archive (after
+    confirming) removes it."""
+    sync_playwright = require_playwright()
+    with sync_playwright() as p:
+        browser = launch_chromium(p)
+        try:
+            page = browser.new_page(viewport=MOBILE)
+            errors = watch_console(page)
+            page.goto(f"{live_server}/projects/{world.pid}/topics/")
+            row = page.locator("tr[data-row]").first
+            page.once("dialog", lambda d: d.accept("Renamed topic"))
+            row.locator("[data-topic-rename]").click()
+            page.wait_for_selector("tr[data-row] [data-topic-name]:has-text('Renamed topic')")
+            page.once("dialog", lambda d: d.accept())
+            row.locator("button:has-text('Archive')").click()
+            page.wait_for_selector("#no-topics-message", state="visible")
+            assert errors == []
+        finally:
+            browser.close()
+
+
+WIKI_TABLET = {"width": 640, "height": 900}
+
+
+@pytest.mark.parametrize("viewport", [MOBILE, WIKI_TABLET, DESKTOP, {"width": 1440, "height": 900}],
+                         ids=["375", "640", "1280", "1440"])
+def test_project_wiki_layout_per_breakpoint(world, live_server, viewport):
+    """docs/WIKI_INTEGRATION_AND_PRESENTATION.md §8: below 640px the page list is
+    a drawer; 640-1280px it sits beside the content; above 1280px page
+    information gets its own third column. Nothing scrolls sideways."""
+    sync_playwright = require_playwright()
+    with sync_playwright() as p:
+        browser = launch_chromium(p)
+        try:
+            page = browser.new_page(viewport=viewport)
+            errors = watch_console(page)
+            page.goto(f"{live_server}/projects/{world.pid}/wiki/{world.wiki_root}/ARCHITECTURE.md")
+            toc = page.locator("#wikiToc")
+            toggle = page.locator("[data-drawer-toggle=wikiToc]")
+            meta = page.locator("aside.wiki-meta")
+            main = page.locator("article.wiki-main")
+            if viewport is MOBILE:
+                assert toggle.is_visible() and toc.is_hidden()
+                toggle.click()
+                assert toc.is_visible() and toggle.get_attribute("aria-expanded") == "true"
+                assert_touch_target_size(page, label="wiki drawer open")
+                toggle.click()
+                assert toc.is_hidden()
+                # Page information sits below the content, collapsed.
+                assert meta.bounding_box()["y"] > main.bounding_box()["y"]
+                assert page.locator("[data-wiki-meta]").get_attribute("open") is None
+            else:
+                assert toggle.is_hidden() and toc.is_visible()
+                assert toc.bounding_box()["x"] < main.bounding_box()["x"]
+                if viewport["width"] > 1280:
+                    assert meta.bounding_box()["x"] > main.bounding_box()["x"]
+                else:
+                    assert meta.bounding_box()["y"] > main.bounding_box()["y"]
+            assert_no_horizontal_overflow(page, f"wiki page at {viewport['width']}px")
+            assert errors == []
+        finally:
+            browser.close()
+
+
+def test_project_wiki_live_search_and_toc_filter(world, live_server):
+    """Typing filters the page list at once and shows ranked full-text results
+    after the debounce; clearing the box hides them again."""
+    sync_playwright = require_playwright()
+    with sync_playwright() as p:
+        browser = launch_chromium(p)
+        try:
+            page = browser.new_page(viewport=MOBILE)
+            errors = watch_console(page)
+            requests = []
+            page.on("request", lambda r: requests.append(r.url) if "/wiki/search" in r.url else None)
+            page.goto(f"{live_server}/projects/{world.pid}/wiki/")
+            box = page.locator("[data-wiki-search]")
+            box.type("setti", delay=20)
+            page.wait_for_selector("[data-wiki-live-results]:not([hidden]) >> text=Setting up")
+            assert len(requests) == 1  # debounced: one request for the whole word
+            visible = page.locator("[data-wiki-toc-item]:not([hidden])")
+            assert visible.count() == 1
+            box.fill("scheduler")
+            page.wait_for_selector("[data-wiki-live-results] mark")
+            box.fill("")
+            box.dispatch_event("input")
+            assert page.locator("[data-wiki-live-results]").is_hidden()
+            assert errors == []
+        finally:
+            browser.close()
+
+
+def test_project_wiki_collapsible_sections_and_code_copy(world, live_server):
+    sync_playwright = require_playwright()
+    with sync_playwright() as p:
+        browser = launch_chromium(p)
+        try:
+            page = browser.new_page(viewport=DESKTOP)
+            # The live server's host isn't a secure context, so app.js copies via
+            # its execCommand fallback; record what it copies.
+            page.add_init_script("""
+                window.__copied = [];
+                document.execCommand = function (command) {
+                    if (command === 'copy') { window.__copied.push(document.activeElement.value); return true; }
+                    return false;
+                };
+            """)
+            errors = watch_console(page)
+            page.goto(f"{live_server}/projects/{world.pid}/wiki/{world.wiki_root}/ARCHITECTURE.md")
+            table = page.locator(".wiki-table-wrap")
+            assert table.is_visible()
+            toggle = page.locator("h2#layers .wiki-collapse")
+            toggle.click()
+            assert table.is_hidden() and toggle.get_attribute("aria-expanded") == "false"
+            toggle.click()
+            assert table.is_visible()
+            page.locator(".wiki-copy-code").first.click()
+            page.wait_for_selector(".wiki-copy-code:has-text('Copied')")
+            assert "def run()" in page.evaluate("window.__copied[0]")
+            page.locator("[data-copy]").first.click()
+            page.wait_for_selector("text=Copied to the clipboard.")
+            assert page.evaluate("window.__copied[1]").endswith("/ARCHITECTURE.md")
+            assert errors == []
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("viewport", VIEWPORTS, ids=IDS)
+def test_capture_backlog_item_from_chat(world, live_server, viewport):
+    """Task 57: select chat messages, review the prefilled form, create the
+    item -- touch-sized and without sideways scrolling on a phone."""
+    sync_playwright = require_playwright()
+    with sync_playwright() as p:
+        browser = launch_chromium(p)
+        try:
+            page = browser.new_page(viewport=viewport)
+            errors = watch_console(page)
+            page.goto(f"{live_server}/sessions/{world.topic_session}")
+            toggles = page.locator(".chat-capture-toggle")
+            toggles.first.wait_for()
+            assert page.locator("#captureBar").is_hidden()
+            toggles.last.click()
+            assert page.locator("#captureBar").is_visible()
+            assert "1 message selected" in page.locator("#captureCount").inner_text()
+            if viewport is MOBILE:
+                assert_touch_target_size(page, selector=".chat-capture-toggle, #captureBar button", label="capture controls")
+            page.click("#captureOpen")
+            assert page.locator("#captureDescription").input_value().strip() != ""
+            assert_no_horizontal_overflow(page, "capture modal")
+            page.fill("#captureTitle", "Captured in the browser")
+            page.click("#captureForm button[type=submit]")
+            page.wait_for_selector("text=/Backlog item #\\d+ created./")
+            assert page.locator("#captureModal").is_hidden() and page.locator("#captureBar").is_hidden()
+            page.goto(f"{live_server}/projects/{world.pid}/backlog/inbox")
+            assert page.locator("text=Captured in the browser").count() == 1
             assert errors == []
         finally:
             browser.close()

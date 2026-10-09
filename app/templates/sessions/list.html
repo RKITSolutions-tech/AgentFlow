@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Sessions - AgentFlow{% endblock %}
+{% from "sessions/_topics.html" import topic_chip %}
 {% block content %}
   <h1>Sessions</h1>
   <p>Select a project to view or start a session.</p>
@@ -36,7 +37,7 @@
     <tbody>
       {% for row in rows %}
         <tr>
-          <td class="wrap-cell"><a href="{{ url_for('sessions.view_session', session_id=row.session.id) }}">{{ row.title or (row.session.agent_type|capitalize ~ ' #' ~ row.session.id) }}</a></td>
+          <td class="wrap-cell"><a href="{{ url_for('sessions.view_session', session_id=row.session.id) }}">{{ row.title or (row.session.agent_type|capitalize ~ ' #' ~ row.session.id) }}</a> {{ topic_chip(row.session.project_id, row.session.topic_id, topic_names.get(row.session.topic_id)) }}</td>
           <td>{{ row.project_name }}</td>
           <td>{{ row.session.status }}</td>
           <td>{{ row.session.last_activity_at }}</td>

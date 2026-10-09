@@ -76,7 +76,7 @@ def test_local_wiki_setup_and_browse(app, client):
 
     resp = client.get(f"/wiki/sources/{source_id}")
     assert resp.status_code == 200
-    assert b"# Handbook" in resp.data  # starter index.md opened by default
+    assert b'<h1 id="handbook" class="wiki-heading">Handbook' in resp.data  # starter index.md, rendered
 
     with open(os.path.join(folder, "setup.md"), "w") as fh:
         fh.write("Run <script>alert(1)</script> setup.sh")

@@ -113,6 +113,7 @@ def run_for_all_projects(app_config, db_path: str | None = None) -> dict[int, li
     db_path = db_path or app_config["DATABASE_PATH"]
     conn = sqlite3.connect(db_path, timeout=30)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA synchronous = NORMAL")
     try:
         provider = HostExecutionProvider(db_path, app_config["ALLOWED_PROJECT_ROOTS"])
         project_ids = [row["id"] for row in conn.execute("SELECT id FROM projects").fetchall()]

@@ -948,6 +948,23 @@ CREATE TABLE IF NOT EXISTS session_summaries (
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_session_summaries_project ON session_summaries(project_id, period_end DESC);
+
+-- Session Topics (docs/SESSION_TOPICS.md §4): a named, project-scoped thread of
+-- GENERAL sessions. `rolling_summary` holds commit-message-style lines (newest
+-- last), appended when a Topic session is archived and re-compressed past a cap.
+-- Sessions join through agent_sessions.topic_id (added in _ADDED_COLUMNS, with
+-- its index in _migrate()). Unrelated to knowledge_entries.topic (§3.2).
+CREATE TABLE IF NOT EXISTS discussion_topics (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'archived')),
+    rolling_summary TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(project_id, name)
+);
+CREATE INDEX IF NOT EXISTS idx_discussion_topics_project ON discussion_topics(project_id, status, updated_at DESC);
 """
 
 # Starter catalog, seeded once (see `_seed_model_catalog`) so the model
@@ -1057,6 +1074,9 @@ _ADDED_COLUMNS = (
     # Folder wiki scoping (docs/WIKI_INTEGRATION_AND_PRESENTATION.md §14), added
     # after wiki_sources first shipped without it.
     ("wiki_sources", "project_id", "INTEGER REFERENCES projects(id) ON DELETE CASCADE"),
+    # Session Topics (docs/SESSION_TOPICS.md §4.2): a real, indexed column rather
+    # than a metadata key, since "sessions in this Topic" is queried and joined on.
+    ("agent_sessions", "topic_id", "INTEGER REFERENCES discussion_topics(id) ON DELETE SET NULL"),
 )
 
 
@@ -1083,6 +1103,9 @@ def _migrate(db: sqlite3.Connection) -> None:
     if db.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'knowledge_entries'").fetchone():
         db.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_knowledge_slug ON knowledge_entries(slug)")
         db.execute("CREATE INDEX IF NOT EXISTS idx_knowledge_topic ON knowledge_entries(topic)")
+    # topic_id only exists after the ALTER TABLE loop above (same reason as slug).
+    if "topic_id" in {row["name"] for row in db.execute("PRAGMA table_info(agent_sessions)")}:
+        db.execute("CREATE INDEX IF NOT EXISTS idx_agent_sessions_topic ON agent_sessions(topic_id)")
     db.commit()
     _migrate_acceptance_sprint_check(db)
 
@@ -1172,6 +1195,13 @@ def get_db() -> sqlite3.Connection:
         g.db.execute("PRAGMA foreign_keys = ON")
         if db_path != ":memory:":
             g.db.execute("PRAGMA journal_mode = WAL")
+            # NORMAL is the pairing SQLite itself recommends with WAL: a commit no
+            # longer fsyncs before returning (only the periodic WAL checkpoint does),
+            # so a power loss can drop the last commit but the file never corrupts.
+            # Without this, every statement in init_db's executescript(SCHEMA) -- ~120
+            # CREATE TABLE/INDEX statements -- fsyncs individually, which is most of
+            # why building a fresh test database dominates the `app` fixture's cost.
+            g.db.execute("PRAGMA synchronous = NORMAL")
     return g.db
 
 

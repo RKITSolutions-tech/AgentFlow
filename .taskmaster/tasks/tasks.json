@@ -2,7 +2,7 @@
   "master": {
     "tasks": [
       {
-        "id": "95",
+        "id": 95,
         "title": "Create dashboards routing and base structure",
         "description": "Establish core dashboards module with route handlers for Home, Wikis, and Project dashboards. Create base template structure and integrate with shell navigation.",
         "details": "1. Create `app/routes/dashboards.py` with Flask Blueprint for dashboard routes\n2. Implement three route handlers: `/dashboards/home`, `/dashboards/wikis`, and `/dashboards/project/<project_id>`\n3. Create `app/templates/dashboards/base.html` with mobile-first responsive grid structure\n4. Update `app/shell.py` to add Home Dashboard, Wikis, and Project Dashboard links to sidebar navigation\n5. Use existing `app/static/app.css` design tokens for colors, spacing (--gap, --tap), and responsive breakpoints\n6. Implement responsive container (max-width: 1280px) for desktop, full-width for mobile\n7. Add data attributes for Playwright testing: `data-testid=\"dashboard-*\"`",
@@ -80,7 +80,7 @@
         "updatedAt": "2026-10-08T16:00:59.645Z"
       },
       {
-        "id": "96",
+        "id": 96,
         "title": "Implement Home Dashboard layout and recent sessions query",
         "description": "Build Home Dashboard template with recent sessions display (5 items), active pipelines (5 items), and recent backlog items (5 items). Implement efficient database queries for all three sections.",
         "details": "1. Create `app/templates/dashboards/home.html` with three responsive card sections\n2. Query recent GENERAL-role sessions (limit 5, ordered by `agent_sessions.updated_at DESC`) from database using SQLite\n3. Query active pipelines (status IN [RUNNING, PAUSED], limit 5) from `pipeline_executions` table\n4. Query recent backlog items across all projects (limit 5, ordered by `created_at DESC`)\n5. Build cards with truncation for long titles (max 50 chars, ellipsis)\n6. Add touch-friendly click areas (≥44px) with `.row-actions` pattern for mobile\n7. Implement responsive grid: 1 column on mobile (375px), 2-3 columns on desktop (1280px)\n8. Use `.table-compact` spacing and app.css color tokens (--bg-secondary, --text-primary, etc.)",
@@ -89,11 +89,68 @@
         "dependencies": [
           "95"
         ],
-        "status": "pending",
-        "subtasks": []
+        "status": "in-progress",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Create Home Dashboard template with three card sections",
+            "description": "Build the HTML template file for Home Dashboard with responsive layout for recent sessions, active pipelines, and recent backlog items sections.",
+            "dependencies": [],
+            "details": "Create app/templates/dashboards/home.html with three main card containers. Implement responsive grid: 1 column at 375px viewport, 2-3 columns at 1280px desktop. Use app.css color tokens (--bg-secondary, --text-primary) and --tap (44px) for touch targets. Add .table-compact spacing. Include card structure with header, content area, and action buttons. Each section should have a title and placeholder for items.",
+            "status": "pending",
+            "testStrategy": "Playwright tests verify mobile (375px) and desktop (1280px) viewport rendering. Confirm no horizontal overflow. Verify all three sections are visible. Check responsive grid layout changes at breakpoints. Validate color tokens are applied correctly."
+          },
+          {
+            "id": 2,
+            "title": "Implement database query for recent GENERAL-role sessions",
+            "description": "Create SQLite query to fetch recent GENERAL sessions limited to 5 items ordered by updated_at descending.",
+            "dependencies": [
+              1
+            ],
+            "details": "Write query in app/dashboards/routes.py or app/sessions/persistence.py to fetch agent_sessions where role='GENERAL' ordered by agent_sessions.updated_at DESC limit 5. Include session ID, title, last updated time, and status in results. Optimize with proper indexing on role and updated_at columns. Return structured data suitable for template rendering.",
+            "status": "pending",
+            "testStrategy": "Unit test query returns exactly 5 items when more exist, correct ordering by updated_at DESC, filters only GENERAL-role sessions. Test with 0, 1, 5, and 10+ sessions in database. Verify correct columns are selected."
+          },
+          {
+            "id": 3,
+            "title": "Implement database query for active pipelines",
+            "description": "Create SQLite query to fetch active pipelines (RUNNING/PAUSED status) limited to 5 items.",
+            "dependencies": [
+              1
+            ],
+            "details": "Query pipeline_executions table filtering where status IN ['RUNNING', 'PAUSED'] ordered by start_time DESC or created_at DESC limit 5. Include pipeline ID, name, status, project context, and timing information. Optimize with indexes on status and timestamp columns. Return data formatted for template rendering with status badges.",
+            "status": "pending",
+            "testStrategy": "Unit test query returns only RUNNING and PAUSED pipelines, limit 5, correct ordering. Test with mixed pipeline statuses (completed, failed, paused, running). Verify return format includes all needed display fields. Test with 0 and 5+ active pipelines."
+          },
+          {
+            "id": 4,
+            "title": "Implement database query for recent backlog items",
+            "description": "Create SQLite query to fetch recent backlog items across all projects limited to 5 items ordered by created_at descending.",
+            "dependencies": [
+              1
+            ],
+            "details": "Query backlog_items table ordered by created_at DESC limit 5. Include item ID, title (with truncation to 50 chars), project context, status, and priority. Join with projects table to include project name/ID. Optimize with index on created_at. Implement title truncation logic (max 50 chars with ellipsis) in query or template layer.",
+            "status": "pending",
+            "testStrategy": "Unit test query returns 5 recent items in DESC order, includes project context, handles long titles correctly. Test with 0 and 10+ backlog items. Verify truncation logic works (exactly 50 chars + ellipsis). Test across multiple projects."
+          },
+          {
+            "id": 5,
+            "title": "Integrate queries into Home Dashboard route and render template",
+            "description": "Wire all three database queries into the Home Dashboard route, pass data to template, and render with card layouts including touch-friendly actions.",
+            "dependencies": [
+              2,
+              3,
+              4
+            ],
+            "details": "Create GET /dashboards/home route that calls all three query functions. Pass results to home.html template as context variables (recent_sessions, active_pipelines, recent_backlog_items). Render each section's cards with title truncation (50 char max + ellipsis), click areas ≥44px, and action buttons (.row-actions pattern). Add links to detailed views (session cards → /sessions/<id>, pipeline cards → pipelines view, backlog cards → item detail). Test responsive rendering at both viewports.",
+            "status": "pending",
+            "testStrategy": "Integration test verifies route returns 200 status and all three data sections in response. Playwright test at 375px verifies all three sections render, no horizontal scroll, touch targets ≥44px, title truncation applied. Desktop viewport (1280px) test verifies 2-3 column layout. Mock database data and verify correct content displays."
+          }
+        ],
+        "updatedAt": "2026-10-08T16:01:26.163Z"
       },
       {
-        "id": "97",
+        "id": 97,
         "title": "Implement New Session modal with context selection",
         "description": "Build modal interface for creating new sessions with optional topic and context selection. Integrate with existing session starter and context loaders.",
         "details": "1. Create modal HTML in Home Dashboard template or separate `_new_session_modal.html` partial\n2. Modal form fields: Session role (GENERAL/PLANNING/RESEARCH), optional project context, optional wiki context, optional topic selection\n3. Fetch recent GENERAL topics from `app/sessions/topics.py` using `DiscussionTopic.query.filter(DiscussionTopic.archived == False).order_by(DiscussionTopic.updated_at.desc()).limit(5)`\n4. Fetch project list from `projects` table for project dropdown\n5. Fetch available wiki folders using `app/knowledge/wiki_folders.py` scanner\n6. Form submission: POST to `/sessions/new` with context parameters (project_id, wiki_folder, topic_id)\n7. Modal styling: use existing modal patterns from app.css (backdrop, card, flex layout)\n8. Touch-friendly buttons (≥44px) and form inputs\n9. Validate selections (no required fields, allow blank context)",
@@ -106,7 +163,7 @@
         "subtasks": []
       },
       {
-        "id": "98",
+        "id": 98,
         "title": "Implement Wikis Dashboard with wiki list and search",
         "description": "Build Wikis Dashboard showing available wikis (project + shared), sorted by name, with search functionality and recent docs display.",
         "details": "1. Create `app/templates/dashboards/wikis.html` template\n2. Query wiki folders from `app/knowledge/wiki_folders.py`: use `WikiFolders.scan()` to get all available wikis (project-scoped + shared)\n3. Implement wiki search using existing search in `app/wikis/` module (reuse WikiScanner and mistune renderer patterns)\n4. Display wiki cards with name, description (if available), doc count, and recent mtime\n5. Sort wikis by name alphabetically, with shared wikis at top or bottom (clarify UX preference)\n6. Show recent docs per wiki (limit 3) with link to wiki page\n7. Responsive layout: 1 column mobile (375px), 2-3 columns desktop (1280px)\n8. Search input with real-time filtering (client-side or server-side per performance)\n9. Add 'Start Session' action per wiki doc (spawns session with wiki_context set)\n10. Use app.css design tokens and `.table-compact` spacing",
@@ -119,7 +176,7 @@
         "subtasks": []
       },
       {
-        "id": "99",
+        "id": 99,
         "title": "Implement Project Dashboard with sprint and backlog summary",
         "description": "Build per-project dashboard showing current sprint status, backlog breakdown by status, and active pipelines. Add quick action buttons for common workflows.",
         "details": "1. Create `app/templates/dashboards/project.html` template\n2. Accept `project_id` route parameter from `/dashboards/project/<project_id>`\n3. Query current sprint from `app/sprints/persistence.py`: `Sprint.query.filter(Sprint.project_id == project_id, Sprint.status == 'active').order_by(Sprint.created_at.desc()).first()`\n4. Display sprint card: name, status, task count (from planned_work_items), start/end dates, progress bar\n5. Query backlog summary by status: count items per status (Inbox, Ready, In Progress, Done, Blocked) from `backlog_items` table\n6. Display status breakdown as cards or horizontal bars (visual clarity)\n7. Query active pipelines: `PipelineExecution.query.filter(PipelineExecution.project_id == project_id, PipelineExecution.status.in_([RUNNING, PAUSED])).limit(5)`\n8. Display pipeline cards: name, status, execution progress, last updated\n9. Quick action buttons (touch ≥44px): 'Start New Sprint', 'Run Pipeline' (dropdown), 'Start Session' (project-scoped)\n10. Responsive layout: 1-2 columns mobile, 2-3 columns desktop\n11. Mobile sidebar: add project context nav with Project Dashboard link (or inline in main nav when project selected)",
@@ -132,7 +189,7 @@
         "subtasks": []
       },
       {
-        "id": "100",
+        "id": 100,
         "title": "Integrate topic continuation in Home Dashboard",
         "description": "Enhance Home Dashboard New Session modal to display and pre-load recent discussion topics, with rolling summary context preparation.",
         "details": "1. Extend Home Dashboard template to fetch recent GENERAL topics on page load\n2. Query topics: `DiscussionTopic.query.filter(DiscussionTopic.archived == False).order_by(DiscussionTopic.updated_at.desc()).limit(5)`\n3. For each topic, fetch rolling summary from `DiscussionTopic.rolling_summary` or reconstruct from topic sessions\n4. Add topic selection option to New Session modal: show 'Continue topic: [topic_name]' buttons\n5. Update session creation endpoint `/sessions/new` to accept `topic_id` parameter\n6. Pass topic context to `app/sessions/starter.py`: set `metadata.topic_id` and pre-load rolling summary into initial prompt context\n7. Verify rolling summary is injected correctly by checking session context in starter\n8. Add visual indicator (icon, badge) for topics with unread updates or recent activity",
@@ -145,7 +202,7 @@
         "subtasks": []
       },
       {
-        "id": "101",
+        "id": 101,
         "title": "Implement cross-dashboard deep linking",
         "description": "Add internal navigation links from dashboard cards to related views (wiki card → Wikis Dashboard, sprint card → Project Dashboard, etc.). Support query parameter-based tab/filter selection.",
         "details": "1. Add href links to all dashboard cards (session, pipeline, backlog, wiki, sprint cards)\n2. Home Dashboard session cards → `/sessions/<session_id>` (existing)\n3. Home Dashboard pipeline cards → `/dashboards/project/<project_id>?tab=pipelines` (Project Dashboard with pipelines tab selected)\n4. Home Dashboard backlog cards → `/dashboards/project/<project_id>?tab=backlog` (Project Dashboard with backlog tab selected)\n5. Wikis Dashboard wiki cards → `/dashboards/wikis?wiki=<wiki_id>` or inline wiki viewer (minimal scope for MVP)\n6. Wikis Dashboard doc cards → `/projects/<project_id>/wiki/<doc_path>` or session with wiki context\n7. Implement query parameter parsing in Project Dashboard: `?tab=sprint|backlog|pipelines` to show/highlight relevant section on load\n8. Add breadcrumb navigation or back-link for easy return\n9. Test all links across mobile and desktop",
@@ -160,7 +217,7 @@
         "subtasks": []
       },
       {
-        "id": "102",
+        "id": 102,
         "title": "Responsive layout testing and mobile optimization",
         "description": "Comprehensive Playwright testing of all dashboards at 375px and 1280px viewports. Verify touch targets, overflow, truncation, and responsive behavior.",
         "details": "1. Create/update `tests/test_phase2_ui_verification.py` with dashboard page entries in `_pages` map: home, wikis, project\n2. Test Home Dashboard at 375px: verify single-column layout, all 3 sections visible, no horizontal scroll, touch targets ≥44px, card truncation works\n3. Test Home Dashboard at 1280px: verify 2-3 column layout, proper spacing, typography scaling\n4. Test Wikis Dashboard at 375px and 1280px: search input responsive, wiki cards wrap correctly, doc list scrollable\n5. Test Project Dashboard at 375px and 1280px: sprint card responsive, backlog breakdown layout, pipeline list truncation\n6. Use helpers: `assert_touch_target_size()`, `assert_no_horizontal_overflow()`, `watch_console()` for errors\n7. Test edge cases: long titles (truncate with ellipsis), many items (scrollable list), empty states (no sessions, no wikis, etc.)\n8. Verify modal dialogs (New Session) responsive on mobile: full-width modal with scrollable content, buttons below on narrow screens\n9. Test responsive font sizing, line heights, spacing across viewports\n10. Verify SVG icons/images scale correctly (no distortion)",
@@ -176,7 +233,7 @@
         "subtasks": []
       },
       {
-        "id": "103",
+        "id": 103,
         "title": "Query performance and caching optimization",
         "description": "Optimize dashboard database queries for performance. Implement caching strategy for frequently accessed data (wiki list, recent sessions, sprint status).",
         "details": "1. Profile current queries: measure time for session list, pipeline list, backlog summary, wiki scanner\n2. Add database indexes on frequently queried columns: `agent_sessions.updated_at`, `backlog_items.created_at`, `pipeline_executions.status`, `sprints.project_id`\n3. Optimize N+1 queries: use SQLAlchemy eager loading (joinedload) for related data (e.g., session user, project name)\n4. Implement server-side caching for wiki scanner results (mtime-based invalidation, similar to existing wiki implementation)\n5. Use Flask cache decorator for dashboard routes (TTL: 30-60 seconds for Home, 60-120 seconds for Wikis and Project)\n6. Cache recent topics list (TTL: 120 seconds)\n7. Measure page load time before/after optimization using Playwright: `page.evaluate('performance.timing.loadEventEnd - performance.timing.navigationStart')`\n8. Set target: Home Dashboard load < 500ms, Wikis Dashboard load < 800ms, Project Dashboard load < 600ms (on typical host)\n9. Add cache invalidation on create/update/delete events (e.g., new session → invalidate Home cache)",
@@ -191,7 +248,7 @@
         "subtasks": []
       },
       {
-        "id": "104",
+        "id": 104,
         "title": "Dashboard polish and finalization",
         "description": "Final refinement: UI polish, animations, edge case handling, documentation, and mark all dashboard features complete.",
         "details": "1. Review and refine all dashboard templates for consistency (spacing, alignment, typography)\n2. Add subtle animations/transitions: card hover effects, modal fade-in, search result fade-in (use CSS transitions, no heavy animations)\n3. Handle edge cases: very long titles/names (truncate consistently), empty states (show helpful message), no data (render placeholder cards)\n4. Polish empty state UI: add icons, helpful text, suggest next action (e.g., 'No active sprints. Start a new one?' with button link)\n5. Verify all links and buttons work: test each action (Start Session, Run Pipeline, Continue Topic, etc.) end-to-end\n6. Update documentation: add developer notes to `docs/HIGH_LEVEL_DESIGN.md` or `docs/DASHBOARDS.md` (schema, query patterns, caching strategy)\n7. Code cleanup: remove debug logging, verify no console errors in Playwright tests\n8. Final visual review at both 375px and 1280px: check alignment, colors (using design tokens), typography scaling\n9. Update sidebar navigation labels and help text if needed\n10. Verify all responsive classes applied correctly (no hardcoded px values in templates)",
@@ -207,12 +264,14 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2026-10-08T16:00:59.645Z",
+      "lastModified": "2026-10-08T16:01:26.164Z",
       "taskCount": 10,
       "completedCount": 1,
       "tags": [
         "master"
-      ]
+      ],
+      "created": "2026-10-08T16:01:29.894Z",
+      "description": "Tasks for master context"
     }
   }
 }

@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% from "_project_tabs.html" import project_tabs %}
 {% from "backlog/_helpers.html" import file_list %}
+{% from "sprints/_helpers.html" import sprint_badge %}
 {% block title %}Backlog #{{ item.id }} - {{ project.name }} - AgentFlow{% endblock %}
 {% block content %}
   {{ project_tabs(project, none, 'backlog') }}
@@ -22,10 +23,67 @@
     <label>Triage notes <input name="notes" maxlength="500"></label>
     <button type="submit" class="btn-primary">Save</button>
   </form>
-  {% if item.source_reference %}<p class="wrap-cell">Source: {{ item.source_reference }}</p>{% endif %}
+  {% if item.source_type == 'chat_session' and item.source_reference|int(0) %}
+    <p>Source: <a href="{{ url_for('sessions.view_session', session_id=item.source_reference|int) }}">chat session #{{ item.source_reference }}</a></p>
+  {% elif item.source_reference %}<p class="wrap-cell">Source: {{ item.source_reference }}</p>{% endif %}
+  <h2>Sprint</h2>
+  {% if current_sprint %}
+    <p>In <a href="{{ url_for('sprints.view_sprint', project_id=project.id, sprint_id=current_sprint.id) }}">{{ current_sprint.name }}</a> {{ sprint_badge(current_sprint.status) }}</p>
+  {% elif sprint_choices %}
+    <form class="inline-filter" method="post" data-ajax-form
+          action="{{ url_for('sprints.add_items', project_id=project.id, sprint_id=0) }}" data-sprint-picker>
+      <input type="hidden" name="item_ids" value="{{ item.id }}">
+      <label>Add to sprint
+        <select name="sprint" data-sprint-select>
+          {% for c in sprint_choices %}
+            <option value="{{ url_for('sprints.add_items', project_id=project.id, sprint_id=c.sprint.id) }}"
+                    {% if not c.editable %}disabled title="{{ c.reason }}"{% endif %}>
+              {{ c.sprint.name }} ({{ c.sprint.status|capitalize }}{% if not c.editable %} &mdash; not accepting items{% endif %})
+            </option>
+          {% endfor %}
+        </select>
+      </label>
+      {% if sprint_choices|selectattr('editable')|list %}
+        <button type="submit">Add</button>
+      {% else %}
+        <button type="button" disabled aria-disabled="true" title="No sprint is accepting items">Add</button>
+      {% endif %}
+    </form>
+    {% set closed = sprint_choices|rejectattr('editable')|list %}
+    {% if closed %}
+      <p class="form-hint">Only Draft, Planning and Review sprints accept new items; {{ closed|map(attribute='sprint.name')|join(', ') }} {{ 'is' if closed|length == 1 else 'are' }} past that stage.</p>
+    {% endif %}
+  {% elif item.status in ('INBOX', 'TRIAGED') %}
+    <p class="form-hint">No open sprints. <a href="{{ url_for('sprints.new_sprint', project_id=project.id) }}">Create one</a>.</p>
+  {% else %}
+    <p class="form-hint">Not in a sprint.</p>
+  {% endif %}
+
   <h2>Attachments</h2>
   {{ file_list(project, item, files) }}
   {% if not files %}<p class="form-hint">None.</p>{% endif %}
+
+  <h2>Discuss with an agent</h2>
+  <p class="form-hint">Starts a chat session preloaded with this item's text, attachments and triage history.
+    The item only changes when you apply a reply to it from the session.</p>
+  <form class="inline-filter" method="post" action="{{ url_for('backlog.discuss_item', project_id=project.id, item_id=item.id) }}" data-ajax-form>
+    <label>Agent
+      <select name="agent_type">
+        <option value="codex">Codex</option>
+        <option value="claude">Claude</option>
+        <option value="fake">Fake (testing)</option>
+      </select>
+    </label>
+    <button type="submit" class="btn-primary">Discuss with agent</button>
+  </form>
+  {% if discussions %}
+    <ul class="hit-list discussion-list">
+      {% for s, title in discussions %}
+        <li><a href="{{ url_for('sessions.view_session', session_id=s.id) }}">{{ title or ('Session #' ~ s.id) }}</a>
+          <span class="form-hint">{{ s.agent_type|upper }} &middot; {{ s.status|lower }} &middot; {{ s.last_activity_at }}</span></li>
+      {% endfor %}
+    </ul>
+  {% endif %}
 
   <h2>Research</h2>
   <p class="form-hint">Ask a read-only research agent about this item (docs/SPRINT_PLANNING_AND_BACKLOG.md §50).

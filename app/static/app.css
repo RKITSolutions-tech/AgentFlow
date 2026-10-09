@@ -1087,3 +1087,167 @@ fieldset { min-width: 0; }
 .needs-review-item { border: 1px solid var(--border); border-radius: var(--radius); padding: 0.6rem 0.75rem; background: var(--surface-2); }
 .needs-review-item .row-actions { margin-top: 0.5rem; }
 .needs-review-item .row-actions button { min-height: var(--tap); }
+
+/* Session Topics (docs/SESSION_TOPICS.md): the chip linking a session to its
+   Topic, the "Add to Topic" disclosure on the session view, and summaries. */
+.topic-chip { display: inline-block; max-width: 14rem; padding: 0.05rem 0.55rem; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 0.75rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
+.topic-picker { position: relative; }
+.topic-picker > summary { display: inline-flex; align-items: center; min-height: var(--tap); padding: 0 0.75rem; border: 1px solid var(--border); border-radius: var(--radius); cursor: pointer; list-style: none; }
+.topic-picker > summary::-webkit-details-marker { display: none; }
+.topic-picker-panel { position: absolute; right: 0; z-index: 20; width: min(22rem, calc(100vw - 2rem)); margin-top: 0.4rem; padding: 0.75rem; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 6px 18px var(--overlay); }
+.topic-summary { margin: 0 0 1rem; padding-left: 1.5rem; }
+.topic-summary li { margin: 0.2rem 0; overflow-wrap: anywhere; }
+.topic-summary-cell span { display: block; }
+@media (max-width: 860px) {
+  .topic-picker-panel { position: static; width: auto; box-shadow: none; }
+}
+
+/* Project wiki browser (docs/WIKI_INTEGRATION_AND_PRESENTATION.md §7-8):
+   < 640px one column with the page list in a drawer; 640-1280px page list +
+   content; > 1280px page list + content + page information. */
+.wiki-browser-bar { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin: 0.75rem 0; }
+.wiki-browser-search { display: flex; flex: 1 1 16rem; gap: 0.5rem; min-width: 0; }
+.wiki-browser-search input[type="search"] { flex: 1 1 auto; min-width: 0; min-height: var(--tap); }
+.wiki-toc-toggle { display: none; min-height: var(--tap); }
+.wiki-live-results { margin: 0 0 1rem; padding: 0.5rem 0.75rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-2); }
+.wiki-live-results[hidden] { display: none; }
+.wiki-live-results ol, .wiki-results { margin: 0; padding-left: 1.25rem; }
+.wiki-live-results li, .wiki-results li { margin: 0.4rem 0; overflow-wrap: anywhere; }
+.wiki-snippet { margin: 0.2rem 0 0; color: var(--text-muted); font-size: 0.9rem; overflow-wrap: anywhere; }
+.wiki-snippet mark, .wiki-rendered mark { background: var(--warning-soft); color: var(--text); border-radius: 2px; }
+
+.wiki-browser { display: grid; gap: 1.25rem; grid-template-columns: minmax(0, 1fr); align-items: start; }
+.wiki-toc { display: grid; gap: 0.75rem; align-content: start; min-width: 0; }
+.wiki-toc-tools { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: flex-end; }
+.wiki-toc-tools label { display: grid; gap: 0.2rem; font-size: 0.85rem; color: var(--text-muted); flex: 1 1 8rem; }
+.wiki-toc-tools select, .wiki-toc-tools button { min-height: var(--tap); }
+.wiki-toc-root h2 { font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.04em; margin: 0 0 0.3rem; overflow-wrap: anywhere; }
+.wiki-toc-root h2 a { color: var(--text-muted); text-decoration: none; }
+.wiki-toc-list { list-style: none; margin: 0; padding: 0; }
+.wiki-toc-list .wiki-toc-list { margin-left: 0.9rem; }
+.wiki-toc-list li { margin: 0; overflow-wrap: anywhere; }
+.wiki-toc-list a { display: flex; align-items: center; gap: 0.3rem; min-height: 2rem; padding: 0.15rem 0.4rem; border-radius: var(--radius); color: var(--text); text-decoration: none; }
+.wiki-toc-list a:hover { background: var(--surface-3); }
+.wiki-toc-list a[aria-current="page"] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.wiki-toc-folder > summary { display: flex; align-items: center; min-height: 2rem; padding: 0 0.4rem; cursor: pointer; color: var(--text-muted); border-radius: var(--radius); }
+.wiki-toc-folder > summary:hover { background: var(--surface-3); }
+.wiki-toc-date { display: block; padding-left: 0.4rem; font-size: 0.75rem; color: var(--text-muted); }
+.wiki-toc-empty[hidden], [data-wiki-toc-item][hidden] { display: none; }
+.wiki-type-tag { display: inline-block; padding: 0 0.35rem; border-radius: var(--radius); background: var(--surface-3); color: var(--text-muted); font-size: 0.7rem; font-weight: 600; }
+
+.wiki-main { min-width: 0; }
+.wiki-recent { padding-left: 1.25rem; }
+.wiki-recent li { margin: 0.3rem 0; overflow-wrap: anywhere; }
+.wiki-meta { min-width: 0; }
+.wiki-meta-panel > summary { display: flex; align-items: center; min-height: var(--tap); cursor: pointer; font-weight: 600; }
+.wiki-meta h2 { font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); margin: 1rem 0 0.4rem; }
+.wiki-meta-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.75rem; }
+.wiki-meta-actions a, .wiki-meta-actions button { min-height: var(--tap); display: inline-flex; align-items: center; }
+.wiki-meta-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.3rem; }
+.wiki-meta-list li { overflow-wrap: anywhere; }
+
+/* Rendered markdown (.wiki-content alone is the raw-text knowledge wiki). */
+.wiki-rendered { white-space: normal; line-height: 1.6; }
+.wiki-rendered > :first-child { margin-top: 0; }
+.wiki-rendered .wiki-heading { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; scroll-margin-top: 1rem; }
+.wiki-rendered .wiki-anchor { color: var(--text-muted); text-decoration: none; font-weight: 400; opacity: 0.5; }
+.wiki-rendered .wiki-heading:hover .wiki-anchor, .wiki-rendered .wiki-anchor:focus { opacity: 1; }
+.wiki-collapse { min-width: 2rem; min-height: 2rem; padding: 0; border: 0; background: transparent; color: var(--text-muted); font-size: 0.85em; cursor: pointer; }
+.wiki-collapse[aria-expanded="false"] { transform: rotate(-90deg); }
+.wiki-collapsed { display: none !important; }
+.wiki-rendered img { max-width: 100%; height: auto; }
+.wiki-rendered blockquote { margin: 0.75rem 0; padding: 0.25rem 1rem; border-left: 3px solid var(--border); color: var(--text-muted); }
+.wiki-rendered code { padding: 0.05rem 0.3rem; border-radius: 4px; background: var(--surface-3); font-size: 0.9em; }
+.wiki-rendered pre.wiki-code { position: relative; overflow-x: auto; padding: 0.75rem 1rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-2); line-height: 1.45; }
+.wiki-rendered pre.wiki-code code { padding: 0; background: none; white-space: pre; overflow-wrap: normal; }
+.wiki-copy-code { position: absolute; top: 0.35rem; right: 0.35rem; min-height: 2rem; padding: 0 0.6rem; font-size: 0.8rem; opacity: 0.85; }
+.wiki-table-wrap { max-width: 100%; overflow-x: auto; margin: 0.75rem 0; }
+.wiki-table-wrap table { border-collapse: collapse; min-width: 100%; }
+.wiki-table-wrap th, .wiki-table-wrap td { padding: 0.35rem 0.6rem; border: 1px solid var(--border); text-align: left; vertical-align: top; overflow-wrap: normal; }
+.wiki-table-wrap th { background: var(--surface-3); }
+.wiki-rendered .task-list-item { list-style: none; }
+/* Pygments tokens on design-token colours (dark/light aware). */
+.highlight .c, .highlight .c1, .highlight .cm, .highlight .cs, .highlight .ch, .highlight .cp { color: var(--text-muted); font-style: italic; }
+.highlight .k, .highlight .kd, .highlight .kn, .highlight .kc, .highlight .kr, .highlight .kt, .highlight .ow { color: var(--accent); font-weight: 600; }
+.highlight .s, .highlight .s1, .highlight .s2, .highlight .sb, .highlight .sd, .highlight .se, .highlight .sh, .highlight .si, .highlight .sx, .highlight .dl { color: var(--success); }
+.highlight .m, .highlight .mi, .highlight .mf, .highlight .mh, .highlight .mo, .highlight .il { color: var(--warning); }
+.highlight .nf, .highlight .fm, .highlight .nc, .highlight .nd { color: var(--accent); }
+.highlight .gd { color: var(--danger); }
+.highlight .gi { color: var(--success); }
+@media (prefers-reduced-motion: no-preference) { html:has(.wiki-rendered), main:has(.wiki-rendered) { scroll-behavior: smooth; } }
+
+/* Decision records (§4.5) */
+.adr-card { display: grid; gap: 0.75rem; padding: 1rem; border: 1px solid var(--border); border-left-width: 4px; border-radius: var(--radius-lg); background: var(--surface-2); min-width: 0; }
+.adr-head { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.adr-head h1 { margin: 0; flex: 1 1 12rem; overflow-wrap: anywhere; }
+.adr-badge { padding: 0.1rem 0.5rem; border-radius: var(--radius); background: var(--accent-soft); color: var(--accent); font-size: 0.75rem; font-weight: 700; letter-spacing: 0.04em; }
+.adr-status { padding: 0.1rem 0.6rem; border-radius: 999px; font-size: 0.8rem; font-weight: 600; background: var(--surface-3); color: var(--text-muted); }
+.adr-status-accepted .adr-status, .adr-status.adr-status-accepted { background: var(--success-soft); color: var(--success); }
+.adr-status-proposed .adr-status, .adr-status.adr-status-proposed { background: var(--warning-soft); color: var(--warning); }
+.adr-status-rejected .adr-status, .adr-status.adr-status-rejected,
+.adr-status-deprecated .adr-status, .adr-status.adr-status-deprecated,
+.adr-status-superseded .adr-status, .adr-status.adr-status-superseded { background: var(--danger-soft); color: var(--danger); }
+.adr-card.adr-status-accepted { border-left-color: var(--success); }
+.adr-card.adr-status-proposed { border-left-color: var(--warning); }
+.adr-card.adr-status-rejected, .adr-card.adr-status-deprecated, .adr-card.adr-status-superseded { border-left-color: var(--danger); }
+.adr-facts { display: grid; grid-template-columns: max-content 1fr; gap: 0.2rem 0.75rem; margin: 0; }
+.adr-facts dt { color: var(--text-muted); }
+.adr-facts dd { margin: 0; overflow-wrap: anywhere; }
+.adr-section h2 { font-size: 1rem; margin: 0.5rem 0 0.25rem; }
+.adr-timeline { list-style: none; margin: 0 0 1rem; padding: 0 0 0 1rem; border-left: 2px solid var(--border); display: grid; gap: 0.75rem; }
+.adr-timeline-item { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.6rem; overflow-wrap: anywhere; }
+.adr-timeline-item::before { content: ""; position: absolute; left: calc(-1rem - 6px); top: 0.45rem; width: 10px; height: 10px; border-radius: 50%; background: var(--text-muted); }
+.adr-timeline-item.adr-status-accepted::before { background: var(--success); }
+.adr-timeline-item.adr-status-proposed::before { background: var(--warning); }
+.adr-timeline-item.adr-status-rejected::before, .adr-timeline-item.adr-status-deprecated::before, .adr-timeline-item.adr-status-superseded::before { background: var(--danger); }
+.adr-timeline-item time { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.adr-timeline-item p { flex-basis: 100%; margin: 0; }
+
+@media (max-width: 639px) {
+  .wiki-toc-toggle { display: inline-flex; align-items: center; }
+  .wiki-toc { display: none; padding: 0.75rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-2); }
+  .wiki-toc.is-open { display: grid; }
+  .wiki-toc-list a, .wiki-toc-folder > summary { min-height: var(--tap); }
+  .wiki-collapse { min-width: var(--tap); min-height: var(--tap); }
+}
+@media (max-width: 860px), (pointer: coarse) {
+  .wiki-copy-code { min-height: var(--tap); }
+}
+@media (min-width: 640px) {
+  .wiki-browser { grid-template-columns: minmax(12rem, 16rem) minmax(0, 1fr); }
+  .wiki-browser .wiki-meta { grid-column: 2; }
+}
+@media (min-width: 1281px) {
+  .wiki-browser.has-meta { grid-template-columns: minmax(12rem, 16rem) minmax(0, 1fr) minmax(14rem, 18rem); }
+  .wiki-browser.has-meta .wiki-meta { grid-column: 3; grid-row: 1; position: sticky; top: 1rem; }
+}
+
+/* Chat -> Backlog capture (task 57): per-message select toggles and the bar
+   that appears once something is selected. */
+.chat-message-actions { display: flex; justify-content: flex-end; margin-top: 0.3rem; }
+.chat-capture-toggle { padding: 0.1rem 0.6rem; font-size: 0.75rem; border-radius: 999px; background: transparent; color: var(--text-muted); border: 1px solid var(--border); opacity: 0.75; }
+.chat-capture-toggle[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); opacity: 1; }
+.chat-message.is-selected { outline: 2px solid var(--accent); outline-offset: 2px; }
+.capture-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; padding: 0.5rem 0.75rem; border: 1px solid var(--accent); border-radius: var(--radius); background: var(--accent-soft); }
+.capture-bar[hidden] { display: none; }
+.capture-bar span { flex: 1 1 10rem; }
+#captureModal .modal-panel { width: min(36rem, 100%); overflow-y: auto; }
+#captureModal textarea { width: 100%; }
+.discussion-banner { margin: 0.4rem 0 0; padding: 0.4rem 0.75rem; border-radius: var(--radius); background: var(--surface-3); overflow-wrap: anywhere; }
+/* Sprint eligibility (task 59): why a sprint's membership is frozen. */
+.sprint-locked-banner { padding: 0.6rem 0.8rem; border: 1px solid var(--warning); border-radius: var(--radius); background: var(--warning-soft); overflow-wrap: anywhere; }
+button[disabled][aria-disabled="true"] { cursor: not-allowed; opacity: 0.6; }
+
+/* Sprint release & execution queue on the sprint page (task 60). */
+.release-queue { margin: 1.5rem 0; }
+.release-state { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; }
+.release-next { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; overflow-wrap: anywhere; }
+.badge-next { display: inline-block; padding: 0.05rem 0.5rem; border-radius: 999px; background: var(--accent); color: var(--accent-contrast); font-size: 0.75rem; font-weight: 700; }
+.release-actions { margin: 0.5rem 0 0.75rem; }
+@media (max-width: 480px) {
+  .release-button { width: 100%; justify-content: center; }
+  .release-table thead { display: none; }
+  .release-table tr { display: grid; gap: 0.2rem; padding: 0.5rem 0; border-bottom: 1px solid var(--border); }
+  .release-table td { display: block; border: 0; padding: 0; }
+  .release-table td[data-label]::before { content: attr(data-label) ": "; color: var(--text-muted); font-size: 0.8rem; }
+}

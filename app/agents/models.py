@@ -397,10 +397,18 @@ def list_sessions(
     archived: bool = False,
     running_only: bool = False,
     limit: int | None = None,
+    role: str | None = None,
 ) -> list[AgentSession]:
     """Sessions across projects (or one), most recently active first."""
-    where = "WHERE project_id = ?" if project_id is not None else ""
-    args = (project_id,) if project_id is not None else ()
+    clauses = []
+    args: list = []
+    if project_id is not None:
+        clauses.append("project_id = ?")
+        args.append(project_id)
+    if role is not None:
+        clauses.append("role = ?")
+        args.append(role)
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
     rows = db.execute(
         f"SELECT * FROM agent_sessions {where} ORDER BY last_activity_at DESC, id DESC", args
     ).fetchall()

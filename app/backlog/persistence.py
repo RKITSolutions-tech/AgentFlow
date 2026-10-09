@@ -64,24 +64,33 @@ def get_item(db: sqlite3.Connection, item_id: int) -> BacklogItem | None:
 
 def list_items(
     db: sqlite3.Connection,
-    project_id: int,
+    project_id: int | None = None,
     status: str | None = None,
     priority: str | None = None,
     sprint_id: int | None = None,
     limit: int = 50,
     offset: int = 0,
+    order_by: str = "id",
 ) -> list[BacklogItem]:
-    sql, params = "SELECT * FROM backlog_items WHERE project_id = ?", [project_id]
+    sql, params = "SELECT * FROM backlog_items", []
+    clauses = []
+    if project_id is not None:
+        clauses.append("project_id = ?")
+        params.append(project_id)
     if status:
-        sql += " AND status = ?"
+        clauses.append("status = ?")
         params.append(status)
     if priority:
-        sql += " AND priority = ?"
+        clauses.append("priority = ?")
         params.append(priority)
     if sprint_id is not None:
-        sql += " AND sprint_id = ?"
+        clauses.append("sprint_id = ?")
         params.append(sprint_id)
-    sql += " ORDER BY id DESC LIMIT ? OFFSET ?"
+    if order_by not in ("id", "created_at", "updated_at"):
+        raise ValueError(f"Invalid order_by {order_by!r}")
+    if clauses:
+        sql += " WHERE " + " AND ".join(clauses)
+    sql += f" ORDER BY {order_by} DESC LIMIT ? OFFSET ?"
     params += [limit, offset]
     return [BacklogItem(**dict(r)) for r in db.execute(sql, params).fetchall()]
 

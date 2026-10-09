@@ -13,7 +13,7 @@ from flask import (
 )
 
 from app.agents import models as agent_models
-from app.backlog import attachments, design, persistence, research
+from app.backlog import attachments, design, discussion, persistence, research
 from app.backlog.models import (
     BACKLOG_PRIORITIES,
     BACKLOG_STATUSES,
@@ -21,6 +21,7 @@ from app.backlog.models import (
     InvalidTransitionError,
 )
 from app.db import get_db
+from app.sprints import persistence as sprint_persistence
 from app.projects import models as project_models
 from app.runs import artifacts as run_artifacts
 
@@ -112,6 +113,7 @@ def inbox(project_id: int):
         page=page,
         pages=max((counts.get(status, 0) + PAGE_SIZE - 1) // PAGE_SIZE, 1),
         priorities=BACKLOG_PRIORITIES,
+        sprints_by_id={s.id: s for s in sprint_persistence.list_sprints(get_db(), project_id)},
     )
 
 
@@ -201,7 +203,80 @@ def view_item(project_id: int, item_id: int):
         design_history=design.item_design_history(db, item_id),
         next_statuses=TRANSITIONS[item.status],
         priorities=BACKLOG_PRIORITIES,
+        discussions=[(s, agent_models.session_title(db, s)) for s in discussion.discussions_for_item(db, item_id)],
+        sprint_choices=_sprint_choices(db, project_id, item),
+        current_sprint=sprint_persistence.get_sprint(db, item.sprint_id) if item.sprint_id else None,
     )
+
+
+def _sprint_choices(db, project_id: int, item) -> list[dict]:
+    """Sprints this item could join, each marked editable or not with the
+    reason (task 59); only unassigned INBOX/TRIAGED items can join one."""
+    from app.sprints import workflow
+
+    if item.sprint_id or item.status not in ("INBOX", "TRIAGED"):
+        return []
+    return [
+        {"sprint": s, "editable": workflow.is_sprint_editable(s), "reason": workflow.membership_closed_message(s)}
+        for s in sprint_persistence.list_sprints(db, project_id) if s.status not in ("COMPLETE", "CANCELLED")
+    ]
+
+
+DISCUSSION_AGENTS = ("codex", "claude", "fake")
+
+
+@bp.post("/items/<int:item_id>/chat")
+def discuss_item(project_id: int, item_id: int):
+    """Start an interactive session about this item (task 58), preloaded with
+    its text, attachments and triage history. Several discussions per item are
+    fine; each is listed on the item page."""
+    from app.sessions import starter
+
+    project = _project(project_id)
+    item = _item(project_id, item_id)
+    back = url_for("backlog.view_item", project_id=project_id, item_id=item_id)
+    if not project.repositories:
+        return _reply("Add a repository to the project before starting a discussion", False, back)
+    agent_type = request.form.get("agent_type", "codex").lower()
+    if agent_type not in DISCUSSION_AGENTS:
+        return _reply("Choose Codex, Claude or Fake", False, back)
+    repo = next((r for r in project.repositories if r.is_primary), project.repositories[0])
+    db = get_db()
+    try:
+        session_id = starter.start_interactive_session(
+            current_app.config, db, project_id, repo.path, agent_type,
+            model=request.form.get("model", "").strip() or None,
+            mcp_tools=request.form.get("mcp_tools") == "1",
+            extra_context=discussion.item_context(db, item),
+            extra_metadata={"backlog_item_id": item_id, "title": f"Discuss backlog #{item_id}: {item.title or item.text[:40]}"[:80]},
+        )
+    except Exception as exc:  # noqa: BLE001 -- adapter/CLI failures are user-facing
+        return _reply(f"Could not start the discussion: {exc}", False, back, 502)
+    persistence.record_note(db, item_id, f"{discussion.SOURCE}: chat session #{session_id} started", _actor())
+    url = url_for("sessions.view_session", session_id=session_id)
+    if _wants_json():
+        return {"status": "success", "message": "Discussion started", "session_id": session_id, "redirect": url}, 200
+    return redirect(url)
+
+
+@bp.post("/items/<int:item_id>/chat/<int:session_id>/apply")
+def apply_discussion(project_id: int, item_id: int, session_id: int):
+    """Apply the selected agent replies of an item discussion to the item --
+    the explicit, person-confirmed step; nothing changes the item otherwise."""
+    _project(project_id)
+    item = _item(project_id, item_id)
+    db = get_db()
+    back = url_for("sessions.view_session", session_id=session_id)
+    session = agent_models.get_agent_session(db, session_id)
+    if session is None or discussion.session_item_id(session) != item_id:
+        return _reply("That session is not a discussion of this item", False, back, 404)
+    try:
+        event_ids = [int(v) for v in request.form.getlist("event_id")]
+        text = discussion.proposal_text(db, session_id, event_ids)
+        status = discussion.apply_to_item(db, item, session_id, text, request.form.get("mode", "replace"))
+    except (ValueError, InvalidTransitionError) as exc:
+        return _reply(str(exc), False, back)
+    return _reply(f"Backlog #{item_id} updated ({status.lower()})", True, back, item_status=status)
 
 
 @bp.post("/items/<int:item_id>/research")

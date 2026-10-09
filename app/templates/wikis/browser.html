@@ -1,0 +1,226 @@
+{% extends "base.html" %}
+{% from "_project_tabs.html" import project_tabs %}
+{% block title %}{% if meta %}{{ meta.title }} - {% endif %}{{ project.name }} - Wiki - AgentFlow{% endblock %}
+
+{% macro tree(nodes, root_key, depth=0) %}
+  <ul class="wiki-toc-list">
+    {% for node in nodes %}
+      {% if node.is_dir %}
+        <li>
+          <details class="wiki-toc-folder"{% if open_all or (path and path.startswith(node.path ~ '/')) %} open{% endif %}>
+            <summary>{{ node.name }}</summary>
+            {{ tree(node.children, root_key, depth + 1) }}
+          </details>
+        </li>
+      {% else %}
+        <li data-wiki-toc-item>
+          <a href="{{ page_url(root_key, node.path) }}"{% if root and root.key == root_key and node.path == path %} aria-current="page"{% endif %}>
+            {{ node.name }}{% if node.meta.is_decision %} <span class="wiki-type-tag">{{ node.meta.wiki_type|upper }}</span>{% endif %}
+          </a>
+        </li>
+      {% endif %}
+    {% endfor %}
+  </ul>
+{% endmacro %}
+
+{% macro status_badge(record) %}
+  <span class="adr-status adr-status-{{ record.status_key }}">{{ record.status or 'No status' }}</span>
+{% endmacro %}
+
+{% block content %}
+  {{ project_tabs(project, none, 'wiki') }}
+
+  <div class="wiki-browser-bar">
+    <button type="button" class="wiki-toc-toggle" data-drawer-toggle="wikiToc" aria-controls="wikiToc" aria-expanded="false">&#9776; Pages</button>
+    <form class="wiki-browser-search" method="get" action="{{ url_for('project_wiki.search', project_id=project.id) }}" role="search">
+      <input type="search" name="q" value="{{ query }}" placeholder="Search this project's wiki" aria-label="Search this project's wiki"
+             autocomplete="off" data-wiki-search="{{ url_for('project_wiki.search', project_id=project.id) }}">
+      <button type="submit">Search</button>
+    </form>
+  </div>
+  <div class="wiki-live-results" data-wiki-live-results aria-live="polite" hidden></div>
+
+  <div class="wiki-browser{% if view == 'page' %} has-meta{% endif %}">
+    <aside id="wikiToc" class="wiki-toc" aria-label="Wiki pages">
+      <div class="wiki-toc-tools">
+        <label>Sort
+          <select data-nav-select>
+            <option value="{{ sort_urls['name'] }}"{% if sort == 'name' %} selected{% endif %}>Alphabetical</option>
+            <option value="{{ sort_urls['modified'] }}"{% if sort == 'modified' %} selected{% endif %}>Recently modified</option>
+          </select>
+        </label>
+        <button type="button" data-ajax-reload="{{ url_for('project_wiki.rescan', project_id=project.id) }}">Rescan</button>
+      </div>
+      <p class="wiki-toc-empty" data-wiki-toc-empty hidden>No page titles match.</p>
+      {% for entry in toc %}
+        <section class="wiki-toc-root">
+          <h2><a href="{{ page_url(entry.root.key, '') }}">{{ entry.root.label }}</a> <span class="count">{{ entry.count }}</span></h2>
+          {% if entry.recent is defined %}
+            <ul class="wiki-toc-list">
+              {% for m in entry.recent %}
+                <li data-wiki-toc-item>
+                  <a href="{{ page_url(entry.root.key, m.path) }}"{% if root and root.key == entry.root.key and m.path == path %} aria-current="page"{% endif %}>{{ m.title }}</a>
+                  <span class="wiki-toc-date">{{ m.modified_display[:10] }}</span>
+                </li>
+              {% endfor %}
+            </ul>
+          {% else %}
+            {{ tree(entry.tree, entry.root.key) }}
+          {% endif %}
+        </section>
+      {% endfor %}
+    </aside>
+
+    <article class="wiki-main">
+      <nav class="wiki-breadcrumb" aria-label="Breadcrumb">
+        <a href="{{ url_for('project_wiki.index', project_id=project.id) }}">{{ project.name }} wiki</a>
+        {% for crumb in crumbs %}
+          {% if loop.last %}<span aria-current="page">/ {{ crumb.label }}</span>
+          {% else %}<span>/ <a href="{{ page_url(crumb.root_key, crumb.path) }}">{{ crumb.label }}</a></span>{% endif %}
+        {% endfor %}
+      </nav>
+
+      {% if view == 'overview' %}
+        <h1>{{ project.name }} wiki</h1>
+        {% if not roots %}
+          <p>
+            No wiki pages yet. Markdown files in a repository's <code>docs/</code> folder show up here,
+            as do this project's <a href="{{ url_for('wiki.sources', project_id=project.id) }}">wiki folders</a> on this machine.
+          </p>
+        {% else %}
+          <ul class="wiki-cards">
+            {% for o in overview %}
+              <li class="wiki-card">
+                <h3><a href="{{ page_url(o.root.key, o.start or '') }}">{{ o.root.label }}</a></h3>
+                <p>{{ o.count }} page{{ '' if o.count == 1 else 's' }}{% if o.decisions %}, {{ o.decisions }} decision record{{ '' if o.decisions == 1 else 's' }}{% endif %}
+                  &middot; {{ 'Repository docs' if o.root.kind == 'repo' else 'Wiki folder' }}</p>
+              </li>
+            {% endfor %}
+          </ul>
+          {% if recent %}
+            <h2>Recently changed</h2>
+            <ul class="wiki-recent">
+              {% for r, m in recent %}
+                <li><a href="{{ page_url(r.key, m.path) }}">{{ m.title }}</a> <span class="form-hint">{{ r.label }} &middot; {{ m.modified_display }}</span></li>
+              {% endfor %}
+            </ul>
+          {% endif %}
+        {% endif %}
+
+      {% elif view == 'search' %}
+        <h1>Search</h1>
+        {% if query %}
+          <p>{{ results|length }} result{{ '' if results|length == 1 else 's' }} for &ldquo;{{ query }}&rdquo;</p>
+          <ol class="wiki-results">
+            {% for r in results %}
+              <li>
+                <a href="{{ r.url }}">{{ r.title }}</a> <span class="form-hint">{{ r.root_label }} / {{ r.page_path }}</span>
+                <p class="wiki-snippet">{{ r.snippet|safe }}</p>
+              </li>
+            {% endfor %}
+          </ol>
+        {% else %}
+          <p class="form-hint">Type words to find across every page.</p>
+        {% endif %}
+
+      {% elif view == 'folder' %}
+        <h1>{{ path.rsplit('/', 1)[-1] if path else root.label }}</h1>
+        {% if timeline %}
+          <h2>Decision log</h2>
+          <ol class="adr-timeline">
+            {% for m, record in timeline %}
+              <li class="adr-timeline-item adr-status-{{ record.status_key }}">
+                <time>{{ record.date }}</time>
+                <a href="{{ page_url(root.key, m.path) }}">{{ m.title }}</a>
+                {{ status_badge(record) }}
+                {% if record.sections.get('decision') %}<p class="form-hint">{{ record.sections['decision'][:160] }}{% if record.sections['decision']|length > 160 %}&hellip;{% endif %}</p>{% endif %}
+              </li>
+            {% endfor %}
+          </ol>
+        {% endif %}
+        {% if subfolders %}
+          <h2>Folders</h2>
+          <ul class="wiki-recent">
+            {% for name, sub in subfolders %}<li><a href="{{ page_url(root.key, sub) }}">{{ name }}/</a></li>{% endfor %}
+          </ul>
+        {% endif %}
+        {% if folder_pages and not timeline %}
+          <h2>Pages</h2>
+          <ul class="wiki-recent">
+            {% for m in folder_pages %}<li><a href="{{ page_url(root.key, m.path) }}">{{ m.title }}</a> <span class="form-hint">{{ m.modified_display }}</span></li>{% endfor %}
+          </ul>
+        {% endif %}
+
+      {% elif view == 'missing' %}
+        <h1>Page not found</h1>
+        <p>There is no page <code class="wrap-cell">{{ path }}</code> in {{ root.label }}.</p>
+
+      {% elif view == 'page' %}
+        {% if meta.too_large %}
+          <h1>{{ meta.title }}</h1>
+          <p class="flash flash-error">This page is too large to display.</p>
+        {% elif record %}
+          <article class="adr-card adr-status-{{ record.status_key }}">
+            <header class="adr-head">
+              <span class="adr-badge">{{ 'ADR' if meta.wiki_type == 'adr' else 'Decision' }}</span>
+              <h1>{{ record.title }}</h1>
+              {{ status_badge(record) }}
+            </header>
+            <dl class="adr-facts">
+              <dt>Date</dt><dd>{{ record.date or '—' }}</dd>
+              <dt>Author</dt><dd>{{ record.author or (author.name if author else '—') }}</dd>
+              {% if record.stakeholders %}<dt>Stakeholders</dt><dd>{{ record.stakeholders|join(', ') }}</dd>{% endif %}
+            </dl>
+            {% for label, html in sections %}
+              <section class="adr-section">
+                <h2>{{ label }}</h2>
+                <div class="wiki-content wiki-rendered">{{ html|safe }}</div>
+              </section>
+            {% endfor %}
+          </article>
+        {% else %}
+          <div class="wiki-content wiki-rendered" data-wiki-collapsible>{{ body_html|safe }}</div>
+        {% endif %}
+      {% endif %}
+    </article>
+
+    {% if view == 'page' %}
+      <aside class="wiki-meta" aria-label="Page information">
+        <details class="wiki-meta-panel" open data-wiki-meta>
+          <summary>Page information</summary>
+          <dl class="run-meta">
+            <dt>Last modified</dt><dd>{{ meta.modified_display }}</dd>
+            {% if author %}<dt>Last commit</dt><dd>{{ author.name }}, {{ author.date }} <code>{{ author.commit }}</code></dd>{% endif %}
+            <dt>Type</dt><dd>{{ meta.wiki_type }}</dd>
+            <dt>File</dt><dd class="wrap-cell"><code>{{ root.label }}/{{ meta.path }}</code></dd>
+          </dl>
+          <div class="wiki-meta-actions">
+            {% if edit_url %}<a class="btn-primary" href="{{ edit_url }}">Edit</a>{% endif %}
+            <button type="button" data-copy="{{ share_url }}">Copy link</button>
+            <button type="button" data-copy="{{ share_markdown }}" title="Copy a markdown link to this page">Share</button>
+          </div>
+          {% if related_tasks %}
+            <h2>Related tasks</h2>
+            <ul class="wiki-meta-list">
+              {% for t in related_tasks %}<li><span class="wiki-type-tag">#{{ t.id }}</span> {{ t.title }} <span class="form-hint">({{ t.status }})</span></li>{% endfor %}
+            </ul>
+          {% endif %}
+          {% if related %}
+            <h2>Links to</h2>
+            <ul class="wiki-meta-list">
+              {% for m in related %}<li><a href="{{ page_url(root.key, m.path) }}">{{ m.title }}</a>{% if m.is_decision %} <span class="wiki-type-tag">{{ m.wiki_type|upper }}</span>{% endif %}</li>{% endfor %}
+            </ul>
+          {% endif %}
+          <h2>Linked from</h2>
+          {% if backlinks %}
+            <ul class="wiki-meta-list">
+              {% for m in backlinks %}<li><a href="{{ page_url(root.key, m.path) }}">{{ m.title }}</a>{% if m.is_decision %} <span class="wiki-type-tag">{{ m.wiki_type|upper }}</span>{% endif %}</li>{% endfor %}
+            </ul>
+          {% else %}
+            <p class="form-hint">No other page links here.</p>
+          {% endif %}
+        </details>
+      </aside>
+    {% endif %}
+  </div>
+{% endblock %}

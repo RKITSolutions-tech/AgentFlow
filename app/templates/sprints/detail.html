@@ -16,7 +16,13 @@
   {% endif %}
   <p><a href="{{ url_for('sprints.qa_view', project_id=project.id, sprint_id=sprint.id) }}">QA checklist</a></p>
 
-  {% set locked = sprint.status not in ('DRAFT', 'PLANNING', 'REVIEW') %}
+  {% set locked = not editable %}
+  {% if locked %}
+    <p class="sprint-locked-banner" role="status">
+      <strong>{{ sprint.status|capitalize }}:</strong> this sprint no longer accepts or releases backlog items.
+      Only {% for s in editable_statuses %}{{ s|capitalize }}{{ ', ' if loop.revindex > 2 else (' and ' if loop.revindex == 2 else '') }}{% endfor %} sprints are editable.
+    </p>
+  {% endif %}
 
   <h2>Backlog items</h2>
   <ul class="backlog-cards">
@@ -32,12 +38,17 @@
       <li class="form-hint">None selected.</li>
     {% endfor %}
   </ul>
-  {% if candidates and not locked %}
+  {% if candidates %}
     <form method="post" action="{{ url_for('sprints.add_items', project_id=project.id, sprint_id=sprint.id) }}" class="stacked" data-ajax-form>
       <label>Add backlog item
-        <select name="item_ids">{% for c in candidates %}<option value="{{ c.id }}">#{{ c.id }} {{ (c.title or c.text)[:60] }}</option>{% endfor %}</select>
+        <select name="item_ids"{% if locked %} disabled{% endif %}>{% for c in candidates %}<option value="{{ c.id }}">#{{ c.id }} {{ (c.title or c.text)[:60] }}</option>{% endfor %}</select>
       </label>
-      <button type="submit">Add to sprint</button>
+      {% if locked %}
+        <button type="button" disabled aria-disabled="true" aria-describedby="addItemsLocked" title="{{ closed_message }}">Add to sprint</button>
+        <p class="form-hint" id="addItemsLocked">{{ closed_message }}</p>
+      {% else %}
+        <button type="submit">Add to sprint</button>
+      {% endif %}
     </form>
   {% endif %}
 
@@ -156,6 +167,51 @@
       <button type="submit">Revoke approval</button>
     </form>
   {% endif %}
+
+  <section class="release-queue" aria-labelledby="releaseQueueHeading">
+    <h2 id="releaseQueueHeading">Release &amp; execution queue</h2>
+    <p class="release-state">{{ sprint_badge(sprint.status) }} {{ execution.state }}</p>
+    {% if execution.rows and sprint.status not in ('DRAFT', 'PLANNING', 'REVIEW') %}
+      <ul class="queue-progress">
+        {% for label, count in execution.progress %}<li><strong>{{ count }}</strong> {{ label }}</li>{% endfor %}
+      </ul>
+    {% endif %}
+    {% if execution.next %}
+      <p class="release-next"><span class="badge-next">Next</span> {{ execution.next.work.seq }}. {{ execution.next.work.title }}
+        <span class="form-hint">verifies with {{ execution.next.pipeline or 'no pipeline yet' }}</span></p>
+    {% endif %}
+    <div class="row-actions release-actions">
+      {% if sprint.status == 'READY' %}
+        <button type="button" class="btn-primary release-button"{% if not execution.can_release %} disabled aria-disabled="true" title="No tasks are ready to release"{% endif %}
+                data-ajax-reload="{{ url_for('sprints.release', project_id=project.id, sprint_id=sprint.id) }}"
+                data-confirm="Release this sprint and start executing tasks?">Release sprint</button>
+      {% elif sprint.status in ('EXECUTING', 'VERIFYING') %}
+        <button type="button" class="release-button" disabled aria-disabled="true" title="Already released">Released</button>
+      {% endif %}
+      {% if sprint.status in ('READY', 'EXECUTING', 'VERIFYING', 'COMPLETE') %}
+        <a href="{{ url_for('sprints.queue_view', project_id=project.id, sprint_id=sprint.id) }}">Open execution queue</a>
+      {% endif %}
+    </div>
+    {% if execution.rows %}
+      <table class="table-compact release-table">
+        <thead><tr><th>Task</th><th>State</th><th>Pipeline</th><th>Depends on</th><th><span class="visually-hidden">Run</span></th></tr></thead>
+        <tbody>
+          {% for row in execution.rows %}
+            {% set w = row.work %}
+            <tr{% if row.next %} class="queue-next"{% endif %}>
+              <td class="wrap-cell" data-label="Task">{{ w.seq }}. {{ w.title }}{% if row.next %} <span class="badge-next">Next</span>{% endif %}</td>
+              <td data-label="State"><span class="run-status run-status-{{ {'COMPLETE': 'completed', 'IN_PROGRESS': 'running', 'BLOCKED': 'blocked', 'FAILED': 'failed', 'RELEASED': 'paused'}.get(w.task_state, 'created') }}">{{ w.task_state|replace('_', ' ')|capitalize }}</span></td>
+              <td class="wrap-cell" data-label="Pipeline"><span class="form-hint">{{ row.pipeline or '—' }}{% if row.pipeline and not row.own_pipeline %} (project default){% endif %}</span></td>
+              <td class="wrap-cell" data-label="Depends on">{% for d in w.depends_on %}{{ execution.titles.get(d, '#' ~ d) }}{% if d in row.waiting_on %} <span class="form-hint">(waiting)</span>{% endif %}{% if not loop.last %}, {% endif %}{% else %}<span class="form-hint">—</span>{% endfor %}</td>
+              <td class="row-actions">{% if row.run_id %}<a href="{{ url_for('ralph.view_run', project_id=project.id, run_id=row.run_id) }}">View run #{{ row.run_id }}</a>{% endif %}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="form-hint">No planned tasks yet.</p>
+    {% endif %}
+  </section>
 
   {% if approvals %}
     <h2>Approval history</h2>

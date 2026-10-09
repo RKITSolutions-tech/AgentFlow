@@ -156,7 +156,38 @@ def view_sprint(project_id: int, sprint_id: int):
         candidates=candidates,
         layers=_layers(work),
         planning=sprint.status == "PLANNING",
+        editable=workflow.is_sprint_editable(sprint),
+        execution=_execution_summary(db, project_id, sprint),
+        closed_message=workflow.membership_closed_message(sprint),
+        editable_statuses=workflow.EDITABLE_MEMBERSHIP,
     )
+
+
+def _execution_summary(db, project_id: int, sprint) -> dict:
+    """Release & execution-queue state for the sprint page (task 60): where the
+    sprint is in release, the next eligible task and which pipeline each task
+    verifies with (its own, else the project's default)."""
+    rows = queue.describe(db, sprint.id)
+    ready = sum(1 for r in rows if r["work"].task_state == "READY")
+    if sprint.status in ("DRAFT", "PLANNING", "REVIEW"):
+        state = "Not released yet: the sprint has to be approved first."
+    elif sprint.status == "READY":
+        state = f"Approved and ready to release: {ready} task(s) waiting." if ready else "Approved; no tasks are ready to release."
+    elif sprint.status == "EXECUTING":
+        state = "Released and executing."
+    elif sprint.status == "VERIFYING":
+        state = "Every task has finished; the sprint is being verified."
+    else:
+        state = f"Sprint {sprint.status.lower()}."
+    for row in rows:
+        row["pipeline"] = queue.default_pipeline(db, project_id, row["work"])
+        row["own_pipeline"] = bool(row["work"].verification_pipeline)
+    nxt = next((r for r in rows if r["next"]), None)
+    return {
+        "state": state, "rows": rows, "next": nxt, "ready_count": ready,
+        "can_release": sprint.status == "READY" and ready > 0,
+        "progress": queue.progress(db, sprint.id), "titles": {r["work"].id: r["work"].title for r in rows},
+    }
 
 
 def _layers(work):
@@ -201,6 +232,15 @@ def add_items(project_id: int, sprint_id: int):
     ids = [int(v) for v in request.values.getlist("item_ids") if v.isdigit()]
     if not ids:
         return _reply("Select at least one backlog item", False, back)
+    sprint = _sprint(project_id, sprint_id)
+    if not workflow.is_sprint_editable(sprint):
+        # Same rule select_items enforces, answered before trying so the reply
+        # can say which state the sprint is in and which ones would work.
+        message = workflow.membership_closed_message(sprint)
+        if _wants_json():
+            return {"status": "error", "error": message, "message": message, "sprint_status": sprint.status,
+                    "editable_statuses": list(workflow.EDITABLE_MEMBERSHIP)}, 409
+        return _reply(message, False, back, 409)
     added, failed = _guard(lambda: workflow.select_items(get_db(), sprint_id, ids), back)
     return failed or _reply(f"{len(added)} item(s) added", True, back)
 
@@ -386,9 +426,16 @@ def release(project_id: int, sprint_id: int):
     """Manual release: every READY task becomes RELEASED and the Sprint starts executing."""
     _project(project_id)
     _sprint(project_id, sprint_id)
-    back = url_for("sprints.queue_view", project_id=project_id, sprint_id=sprint_id)
+    back = request.referrer or url_for("sprints.queue_view", project_id=project_id, sprint_id=sprint_id)
     count, failed = _guard(lambda: queue.release_sprint(get_db(), sprint_id), back)
-    return failed or _reply(f"{count} task(s) released", True, back, count=count)
+    if failed:
+        return failed
+    nxt = queue.eligible_task(get_db(), sprint_id)
+    next_task = None
+    if nxt is not None:
+        next_task = {"id": nxt.id, "seq": nxt.seq, "title": nxt.title,
+                     "pipeline": queue.default_pipeline(get_db(), project_id, nxt)}
+    return _reply(f"{count} task(s) released", True, back, status="released", count=count, next_task=next_task)
 
 
 @bp.post("/<int:sprint_id>/tasks/<int:work_id>/release")

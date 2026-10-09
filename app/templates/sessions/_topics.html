@@ -1,0 +1,26 @@
+{#
+  Session Topics helpers (docs/SESSION_TOPICS.md).
+  topic_chip(project_id, topic_id, name): the badge linking a session to its Topic page.
+  topic_select(topics, selected, field_id): "No topic" / existing Topics / "New topic..."
+  plus the inline name field it reveals (wired by app.js's [data-topic-select] handler).
+#}
+{% macro topic_chip(project_id, topic_id, name) %}
+  {%- if topic_id and name -%}
+    <a class="topic-chip" href="{{ url_for('topics.view_topic', project_id=project_id, topic_id=topic_id) }}" title="Topic: {{ name }}">{{ name }}</a>
+  {%- endif -%}
+{% endmacro %}
+
+{% macro topic_select(topics, selected, field_id) %}
+  <label>Topic
+    <select name="topic" id="{{ field_id }}" data-topic-select>
+      <option value="">No topic</option>
+      {% for t in topics %}
+        <option value="{{ t.id }}"{% if t.id == selected %} selected{% endif %}>{{ t.name }}</option>
+      {% endfor %}
+      <option value="new">New topic&hellip;</option>
+    </select>
+  </label>
+  <label data-topic-new-field hidden>New topic name
+    <input type="text" name="new_topic_name" maxlength="80" placeholder="e.g. Auth rework">
+  </label>
+{% endmacro %}

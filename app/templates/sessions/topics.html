@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% from "_project_tabs.html" import project_tabs %}
+{% block title %}{{ project.name }} - Topics - AgentFlow{% endblock %}
+{% block content %}
+  {{ project_tabs(project, none, 'topics') }}
+  <h1>{{ project.name }} - Topics</h1>
+  <p class="form-hint">
+    A topic groups the sessions about one feature or thread of work. Each archived session adds a
+    line to the topic's running summary, and a new session started in the topic begins from that
+    summary instead of the whole project's recent chat.
+  </p>
+
+  <nav class="view-switch" aria-label="Topic views">
+    <a href="{{ url_for('topics.list_topics', project_id=project.id) }}"{% if not show_archived %} aria-current="page"{% endif %}>Active</a>
+    <a href="{{ url_for('topics.list_topics', project_id=project.id, archived=1) }}"{% if show_archived %} aria-current="page"{% endif %}>Archived</a>
+  </nav>
+
+  <table class="table-compact" id="topics-table" {% if not topics %}hidden{% endif %}>
+    <thead><tr><th>Topic</th><th>Sessions</th><th>Last activity</th><th>Latest summary</th><th>Actions</th></tr></thead>
+    <tbody>
+      {% for t in topics %}
+        <tr data-row>
+          <td class="wrap-cell"><a href="{{ url_for('topics.view_topic', project_id=project.id, topic_id=t.id) }}" data-topic-name>{{ t.name }}</a></td>
+          <td>{{ t.session_count }}</td>
+          <td>{{ t.last_activity_at }}</td>
+          <td class="wrap-cell topic-summary-cell">
+            {% for line in t.latest_lines(2) %}<span>{{ line }}</span>{% else %}<span class="form-hint">No summary yet</span>{% endfor %}
+          </td>
+          <td class="row-actions">
+            {% if not show_archived %}
+              <a href="{{ url_for('sessions.project_sessions', project_id=project.id, topic=t.id) }}#startSessionForm">Start session</a>
+            {% endif %}
+            <button type="button" data-topic-rename="{{ url_for('topics.rename_topic', project_id=project.id, topic_id=t.id) }}" data-name="{{ t.name }}">Rename</button>
+            {% if show_archived %}
+              <button type="button" data-ajax-action="{{ url_for('topics.restore_topic', project_id=project.id, topic_id=t.id) }}"
+                      data-on-removed="topics:row-removed">Restore</button>
+            {% else %}
+              <button type="button" data-ajax-action="{{ url_for('topics.archive_topic', project_id=project.id, topic_id=t.id) }}"
+                      data-confirm="Archive the topic {{ t.name }}? Its sessions keep it; it just leaves the pickers."
+                      data-on-removed="topics:row-removed">Archive</button>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p id="no-topics-message" {% if topics %}hidden{% endif %}>{% if show_archived %}No archived topics.{% else %}No topics yet. Create one below, pick "New topic" when starting a session, or use "Add to Topic" on a session.{% endif %}</p>
+  <script>
+    window.addEventListener("topics:row-removed", function () {
+      var table = document.getElementById("topics-table");
+      if (table.querySelectorAll("tbody tr").length === 0) {
+        table.hidden = true;
+        document.getElementById("no-topics-message").hidden = false;
+      }
+    });
+  </script>
+
+  {% if not show_archived %}
+    <h2>New topic</h2>
+    <form class="stacked" method="post" action="{{ url_for('topics.create_topic', project_id=project.id) }}" data-ajax-form>
+      <label>Name <input type="text" name="name" maxlength="80" required placeholder="e.g. Auth rework"></label>
+      <button type="submit" class="btn-primary">Create topic</button>
+    </form>
+  {% endif %}
+{% endblock %}

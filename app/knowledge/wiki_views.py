@@ -11,6 +11,7 @@ from app.instances import models as instance_models
 from app.knowledge import maintenance, models, search, wiki_folders, wiki_sources
 from app.knowledge.wiki_folders import WikiFolderError
 from app.projects import models as project_models
+from app.wikis import renderer
 
 bp = Blueprint("wiki", __name__, url_prefix="/wiki")
 
@@ -175,8 +176,18 @@ def view_source(source_id: int):
                 content = wiki_sources.read_page(db, roots, source, page)
     except WikiFolderError as exc:
         error = str(exc)
+    rendered = None
+    if content is not None:
+        known = set(pages)
+
+        def link_for(target: str) -> str | None:
+            if target in known:
+                return url_for("wiki.view_source", source_id=source.id, page=target)
+            return None
+
+        rendered = renderer.render_markdown(content, page, link_for)
     return render_template(
-        "knowledge/wiki_source.html", source=source, pages=pages, page=page, content=content,
+        "knowledge/wiki_source.html", source=source, pages=pages, page=page, content=content, rendered=rendered,
         query=query, hits=hits, error=error,
     )
 

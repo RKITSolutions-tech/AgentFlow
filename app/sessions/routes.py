@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from flask import Blueprint, current_app, flash, redirect, render_template, request, url_for, jsonify, stream_with_context
 
 from app.db import get_db
@@ -13,6 +15,7 @@ from app.agents.models import (
     session_title,
     session_usage,
     set_session_archived,
+    set_session_topic,
     update_session_metadata,
     create_agent_session,
     delete_agent_session,
@@ -24,12 +27,11 @@ from app.agents.models import (
 )
 from app.agents.claude import PERMISSION_MODES as CLAUDE_PERMISSION_MODES, ClaudeAdapter
 from app.agents.codex import PERMISSION_MODES as CODEX_PERMISSION_MODES, CodexAdapter
-from app.sessions import composer
+from app.sessions import composer, starter, topics as topic_models
 from app.agents.fake import FakeAgentAdapter
 from app.knowledge import wiki_sources
 from app.notifications import models as notification_models
 from app.projects import models as project_models
-from app.runs.models import now
 from app.settings import models as settings_models
 
 bp = Blueprint("sessions", __name__, url_prefix="/sessions")
@@ -72,8 +74,10 @@ def list_sessions():
             db, archived=view == "archived", running_only=view == "running", limit=50
         )
     ]
+    topic_names = topic_models.topic_names(db, [r["session"].topic_id for r in rows + hits])
     return render_template(
-        "sessions/list.html", projects=projects, rows=rows, hits=hits, query=query, view=view
+        "sessions/list.html", projects=projects, rows=rows, hits=hits, query=query, view=view,
+        topic_names=topic_names,
     )
 
 
@@ -126,14 +130,14 @@ def project_sessions(project_id: int):
         model_providers_by_agent=_MODEL_PROVIDERS_BY_AGENT,
         warm_start_default=current_app.config.get("SESSION_WARM_START_DEFAULT", False),
         project_wikis=wiki_sources.list_for_project(db, project_id),
+        topics=topic_models.list_topics(db, project_id),
+        selected_topic=request.args.get("topic", type=int),
+        topic_names=topic_models.topic_names(db, [s.topic_id for s in sessions]),
     )
 
 
 @bp.post("/project/<int:project_id>/create")
 def create_session(project_id: int):
-    from app.agents.base import AgentContext
-    from app.execution.host import HostExecutionProvider
-
     db = get_db()
     project = project_models.get_project(db, project_id)
     if project is None:
@@ -146,6 +150,13 @@ def create_session(project_id: int):
     agent_type = request.form.get("agent_type", "codex").lower()
     model = request.form.get("model", "").strip() or None
     mcp_tools = request.form.get("mcp_tools") == "1"
+    try:
+        topic_id = topic_models.resolve_topic_choice(
+            db, project_id, request.form.get("topic", ""), request.form.get("new_topic_name", "")
+        )
+    except topic_models.TopicError as e:
+        flash(str(e), "error")
+        return redirect(url_for("sessions.project_sessions", project_id=project_id))
 
     # Get repo_id from form, handling both integer IDs and missing values
     repo_id_str = request.form.get("repo_id", "").strip()
@@ -172,66 +183,13 @@ def create_session(project_id: int):
         repo_id = primary_repo.id
 
     try:
-        # Initialize execution provider
-        execution_provider = HostExecutionProvider(
-            current_app.config["DATABASE_PATH"], current_app.config["ALLOWED_PROJECT_ROOTS"]
+        session_id = starter.start_interactive_session(
+            current_app.config, db, project_id, execution_target, agent_type,
+            model=model, mcp_tools=mcp_tools,
+            warm_start=request.form.get("warm_start") == "1",
+            wiki_context=request.form.get("wiki_context") == "1",
+            topic_id=topic_id,
         )
-
-        # Create an execution context for the repository
-        context_config = {
-            "working_directory": execution_target,
-            "environment": {},
-            "target": "",
-        }
-        exec_context = execution_provider.create_context(context_config)
-
-        if agent_type == "codex":
-            adapter = CodexAdapter(db=db, execution_provider=execution_provider)
-        elif agent_type == "claude":
-            adapter = ClaudeAdapter(db=db, execution_provider=execution_provider)
-        else:
-            adapter = FakeAgentAdapter(db=db)
-
-        # Start the session with the execution context
-        context = AgentContext(
-            project_id=project_id,
-            working_directory=execution_target,
-            execution_provider="host",
-            execution_target=str(exec_context.id),  # Pass context ID as string
-            model=model if agent_type in ("codex", "claude") else None,
-        )
-
-        from app.agents.models import PLACEHOLDER_PROMPT
-        from app.prompts import assembler as prompt_assembler
-        from app.sessions import chat as chat_module
-
-        skills_text, skill_names = prompt_assembler.skill_context(
-            db, role="GENERAL", agent_type=agent_type, project_id=project_id,
-        )
-        warm_start = request.form.get("warm_start") == "1"
-        warm_start_context = chat_module.get_session_context(db, project_id) if warm_start else ""
-        wiki_context_on = request.form.get("wiki_context") == "1"
-        wiki_context = (
-            wiki_sources.session_context(db, current_app.config["ALLOWED_PROJECT_ROOTS"], project_id)
-            if wiki_context_on else ""
-        )
-        preamble = "\n\n".join(p for p in (wiki_context, warm_start_context, skills_text) if p)
-        initial_prompt = f"{preamble}\n\n{PLACEHOLDER_PROMPT}" if preamble else PLACEHOLDER_PROMPT
-
-        session = adapter.start(context, initial_prompt, options={"mcp_tools": mcp_tools})
-        session_id = session.id
-        # Compliance/audit trail (docs/AGENT_ADAPTER.md §23.2, task 53): interactive
-        # sessions never pass through execution_prompts, so the injected skill
-        # manifest is recorded on the session itself instead.
-        update_session_metadata(
-            db, session_id,
-            injected_context={
-                "role": "GENERAL", "agent_type": agent_type, "skills": skill_names,
-                "mcp_tools": mcp_tools, "warm_start": warm_start,
-                "wiki_context": bool(wiki_context), "assembled_at": now(),
-            },
-        )
-
         flash(f"Session {session_id} started successfully.", "info")
     except Exception as e:
         flash(f"Error starting session: {e}", "error")
@@ -252,8 +210,15 @@ def view_session(session_id: int):
     repo = project_models.get_repository(db, session.project_id, repo_id) if repo_id else None
 
     capabilities = _adapter_for(session).capabilities()
+    from app.backlog import discussion, persistence as backlog
+
+    item_id = discussion.session_item_id(session)
+    discussed_item = backlog.get_item(db, item_id) if item_id else None
     return render_template(
         "sessions/chat.html",
+        discussed_item=discussed_item,
+        topic=topic_models.get_topic(db, session.topic_id) if session.topic_id else None,
+        topics=topic_models.list_topics(db, session.project_id),
         session=session,
         project=project,
         repo=repo,
@@ -299,8 +264,6 @@ def send_prompt(session_id: int):
 
 @bp.get("/<int:session_id>/stream")
 def stream_output(session_id: int):
-    import json
-
     db = get_db()
     session = get_agent_session(db, session_id)
     if session is None:
@@ -494,6 +457,7 @@ def archive_session(session_id: int):
             return jsonify({"error": str(e)}), 400
         flash(str(e), "error")
         return redirect(url_for("sessions.view_session", session_id=session_id))
+    topic_models.summarize_on_archive(current_app.config, get_db(), session_id)
     return _session_action_response(
         session_id,
         {"status": "archived", "message": "Session archived."},
@@ -530,6 +494,113 @@ def fork(session_id: int):
     return _session_action_response(
         new_id, {"status": "forked", "session_id": new_id, "url": url, "message": "Session forked."}, url
     )
+
+
+@bp.post("/<int:session_id>/topic")
+def assign_topic(session_id: int):
+    """Put the session in a Topic -- an existing one, a "new" one named in
+    `new_topic_name`, or none (empty `topic`) -- at any point in the
+    conversation (docs/SESSION_TOPICS.md §5.2). Only sets topic_id; the
+    rolling summary picks the session up when it is next archived."""
+    session, error = _session_or_404(session_id)
+    if error:
+        return error
+    db = get_db()
+    try:
+        topic_id = topic_models.resolve_topic_choice(
+            db, session.project_id, request.form.get("topic", ""), request.form.get("new_topic_name", "")
+        )
+    except topic_models.TopicError as e:
+        if _wants_json():
+            return jsonify({"error": str(e)}), 400
+        flash(str(e), "error")
+        return redirect(url_for("sessions.view_session", session_id=session_id))
+    set_session_topic(db, session_id, topic_id)
+    topic = topic_models.get_topic(db, topic_id) if topic_id else None
+    payload = {
+        "status": "updated",
+        "topic_id": topic_id,
+        "topic_name": topic.name if topic else None,
+        "message": f"Session added to topic {topic.name}." if topic else "Session removed from its topic.",
+    }
+    return _session_action_response(session_id, payload)
+
+
+# Chat events that are conversation (not tool chatter) and may seed a Backlog item.
+_CAPTURABLE_EVENTS = ("PromptSubmitted", "AgentText", "ClarifyingQuestion")
+CAPTURE_TEXT_MAX = 8000
+
+
+@bp.post("/<int:session_id>/backlog-item")
+def capture_backlog_item(session_id: int):
+    """Create an INBOX Backlog item from chat messages (task 57): `event_id`
+    (repeatable) names the selected messages; `title`/`description` default
+    to the first message's first line / the messages themselves. The item
+    records the session as its source and links back to it."""
+    from app.agents.models import derive_title, list_agent_events
+    from app.backlog import persistence as backlog
+
+    session, error = _session_or_404(session_id)
+    if error:
+        return error
+    db = get_db()
+
+    def fail(message: str, status: int = 400):
+        if _wants_json():
+            return jsonify({"status": "error", "error": message}), status
+        flash(message, "error")
+        return redirect(url_for("sessions.view_session", session_id=session_id))
+
+    wanted = []
+    for raw in request.form.getlist("event_id"):
+        if not raw.strip().isdigit():
+            return fail("Invalid message id.")
+        wanted.append(int(raw))
+    events = {e.id: e for e in list_agent_events(db, session_id) if e.event_type in _CAPTURABLE_EVENTS}
+    missing = [i for i in wanted if i not in events]
+    if missing:
+        return fail("Some selected messages are not part of this session.", 404)
+    selected = [events[i] for i in sorted(set(wanted))]
+
+    def message_text(event) -> str:
+        if event.event_type == "ClarifyingQuestion":
+            question = get_clarifying_question(db, json.loads(event.data).get("question_id", 0))
+            return question.question if question else ""
+        return event.data
+
+    roles = {"PromptSubmitted": "Developer", "AgentText": "Agent", "ClarifyingQuestion": "Agent (question)"}
+    description = request.form.get("description", "").strip()
+    if not description:
+        description = "\n\n".join(f"{roles[e.event_type]}: {message_text(e).strip()}" for e in selected)
+    if len(description) > CAPTURE_TEXT_MAX:
+        description = description[:CAPTURE_TEXT_MAX].rstrip() + "\n[...truncated]"
+    title = request.form.get("title", "").strip()
+    if not title and selected:
+        title = derive_title(message_text(selected[0]).strip().splitlines()[0] if message_text(selected[0]).strip() else "")
+    if not title and not description:
+        return fail("Select a message or enter a title or description.")
+
+    session_url = url_for("sessions.view_session", session_id=session_id)
+    try:
+        item_id = backlog.create_item(
+            db, session.project_id, text=description, title=title[:120],
+            priority=request.form.get("priority") or None, created_by="chat",
+            source_type="chat_session", source_reference=str(session_id),
+        )
+    except ValueError as exc:
+        return fail(str(exc))
+    backlog.add_attachment(db, item_id, "LINK", f"Chat session #{session_id}", session_url)
+    if selected:
+        backlog.record_note(
+            db, item_id, "captured from chat session #%d (messages %s)" % (session_id, ", ".join(str(e.id) for e in selected)),
+            "chat",
+        )
+    item_url = url_for("backlog.view_item", project_id=session.project_id, item_id=item_id)
+    if _wants_json():
+        return jsonify({"status": "success", "message": f"Backlog item #{item_id} created.",
+                        "backlog_item_id": item_id, "url": item_url}), 201
+    flash(f"Backlog item #{item_id} created.", "info")
+    return redirect(session_url)
 
 
 @bp.post("/<int:session_id>/model")
@@ -599,6 +670,14 @@ def upload_attachment(session_id: int):
         )
     except composer.ComposerError as e:
         return jsonify({"error": str(e)}), 413 if "larger" in str(e) else 400
+    from app.backlog import discussion
+
+    item_id = discussion.session_item_id(session)
+    if item_id:
+        # Files shared in an item discussion also become the item's attachments (task 58).
+        saved["backlog_attachment_id"] = discussion.attach_upload(
+            current_app.config, get_db(), session, item_id, saved["id"], saved["name"],
+        )
     return jsonify(saved), 201
 
 
@@ -658,6 +737,7 @@ def run_command(session_id: int):
             set_session_archived(db, session_id, True)
         except ValueError as e:
             return fail(str(e))
+        topic_models.summarize_on_archive(current_app.config, db, session_id)
         return done(
             "Session archived.",
             redirect=url_for("sessions.project_sessions", project_id=session.project_id),

@@ -87,6 +87,7 @@ class _LiveServerThread(threading.Thread):
 
     def shutdown(self):
         self._server.shutdown()
+        self._server.server_close()
 
 
 @pytest.fixture

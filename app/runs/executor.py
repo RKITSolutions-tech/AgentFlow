@@ -86,6 +86,7 @@ class RunManager:
         conn = sqlite3.connect(self._database_path, timeout=30)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
+        conn.execute("PRAGMA synchronous = NORMAL")
         return conn
 
     # -- control ---------------------------------------------------------

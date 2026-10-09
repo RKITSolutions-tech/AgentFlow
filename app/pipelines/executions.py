@@ -117,12 +117,25 @@ def get_execution(db: sqlite3.Connection, execution_id: int) -> Execution | None
 
 
 def list_executions(
-    db: sqlite3.Connection, project_id: int, limit: int = 50, offset: int = 0
+    db: sqlite3.Connection,
+    project_id: int | None = None,
+    limit: int = 50,
+    offset: int = 0,
+    status: list[str] | None = None,
 ) -> list[Execution]:
-    rows = db.execute(
-        "SELECT * FROM pipeline_executions WHERE project_id = ? ORDER BY id DESC LIMIT ? OFFSET ?",
-        (project_id, limit, offset),
-    ).fetchall()
+    sql, params = "SELECT * FROM pipeline_executions", []
+    clauses = []
+    if project_id is not None:
+        clauses.append("project_id = ?")
+        params.append(project_id)
+    if status:
+        clauses.append(f"status IN ({', '.join('?' for _ in status)})")
+        params.extend(status)
+    if clauses:
+        sql += " WHERE " + " AND ".join(clauses)
+    sql += " ORDER BY id DESC LIMIT ? OFFSET ?"
+    params += [limit, offset]
+    rows = db.execute(sql, params).fetchall()
     return [_execution(r) for r in rows]
 
 

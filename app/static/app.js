@@ -660,3 +660,219 @@ window.addEventListener("wiki-review-resolved", function () {
   badge.textContent = next;
   badge.hidden = next === 0;
 });
+
+// Topic pickers (`data-topic-select`, sessions/_topics.html): "New topic..."
+// reveals the form's inline name field and makes it required.
+(function () {
+  function sync(select) {
+    var form = select.closest("form");
+    var field = form && form.querySelector("[data-topic-new-field]");
+    if (!field) return;
+    var isNew = select.value === "new";
+    field.hidden = !isNew;
+    var input = field.querySelector("input");
+    if (input) input.required = isNew;
+    if (isNew && input) input.focus();
+  }
+  document.addEventListener("change", function (event) {
+    var select = event.target.closest("[data-topic-select]");
+    if (select) sync(select);
+  });
+  document.querySelectorAll("[data-topic-select]").forEach(function (select) {
+    if (select.value === "new") sync(select);
+  });
+})();
+
+// Topic rename buttons (`data-topic-rename="<url>"`, sessions/topics.html and
+// topic.html) prompt for the name and update the row/heading in place.
+document.addEventListener("click", function (event) {
+  var button = event.target.closest("[data-topic-rename]");
+  if (!button) return;
+  var name = window.prompt("Topic name:", button.dataset.name || "");
+  if (name === null || name.trim() === "" || name === button.dataset.name) return;
+  var body = new FormData();
+  body.append("name", name);
+  agentflowPost(button.dataset.topicRename, body)
+    .then(function (data) {
+      button.dataset.name = data.name;
+      var scope = button.closest("[data-row]") || document;
+      var label = scope.querySelector("[data-topic-name]");
+      if (label) label.textContent = data.name;
+      agentflowFlash(data.message || "Topic renamed.", "info");
+    })
+    .catch(function (err) { agentflowFlash(err.message || "Something went wrong.", "error"); });
+});
+
+// Copy-to-clipboard buttons (`data-copy="<text>"`), e.g. the wiki's Copy link /
+// Share. Falls back to a hidden textarea where the async clipboard API is
+// unavailable (plain-http hosts other than localhost).
+function agentflowCopy(text) {
+  if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text);
+  return new Promise(function (resolve, reject) {
+    var area = document.createElement("textarea");
+    area.value = text;
+    area.setAttribute("readonly", "");
+    area.style.position = "fixed";
+    area.style.opacity = "0";
+    document.body.appendChild(area);
+    area.select();
+    var ok = false;
+    try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
+    area.remove();
+    if (ok) resolve(); else reject(new Error("Copy failed; select and copy the text by hand."));
+  });
+}
+
+document.addEventListener("click", function (event) {
+  var button = event.target.closest("[data-copy]");
+  if (!button) return;
+  agentflowCopy(button.dataset.copy)
+    .then(function () { agentflowFlash("Copied to the clipboard.", "info"); })
+    .catch(function (err) { agentflowFlash(err.message, "error"); });
+});
+
+// Project wiki browser (app/templates/wikis/browser.html).
+(function () {
+  // Page-list drawer on narrow screens.
+  document.addEventListener("click", function (event) {
+    var toggle = event.target.closest("[data-drawer-toggle]");
+    if (!toggle) return;
+    var drawer = document.getElementById(toggle.dataset.drawerToggle);
+    if (!drawer) return;
+    var open = !drawer.classList.contains("is-open");
+    drawer.classList.toggle("is-open", open);
+    toggle.setAttribute("aria-expanded", open ? "true" : "false");
+  });
+
+  var content = document.querySelector("[data-wiki-collapsible]");
+  if (content) {
+    // Copy buttons on code blocks.
+    content.querySelectorAll("pre.wiki-code").forEach(function (pre) {
+      var button = document.createElement("button");
+      button.type = "button";
+      button.className = "wiki-copy-code";
+      button.textContent = "Copy";
+      button.addEventListener("click", function () {
+        agentflowCopy(pre.querySelector("code").innerText)
+          .then(function () { button.textContent = "Copied"; setTimeout(function () { button.textContent = "Copy"; }, 1500); })
+          .catch(function (err) { agentflowFlash(err.message, "error"); });
+      });
+      pre.appendChild(button);
+    });
+
+    // Collapsible sections: a toggle on each h2-h4 hides everything up to the
+    // next heading of the same or a higher level.
+    var headings = Array.prototype.slice.call(content.querySelectorAll("h2.wiki-heading, h3.wiki-heading, h4.wiki-heading"));
+    headings.forEach(function (heading) {
+      var level = parseInt(heading.tagName.substring(1), 10);
+      var toggle = document.createElement("button");
+      toggle.type = "button";
+      toggle.className = "wiki-collapse";
+      toggle.setAttribute("aria-expanded", "true");
+      toggle.setAttribute("aria-label", "Collapse section " + heading.textContent.replace(/#$/, "").trim());
+      toggle.innerHTML = "&#9662;";
+      heading.insertBefore(toggle, heading.firstChild);
+      toggle.addEventListener("click", function () {
+        var expand = toggle.getAttribute("aria-expanded") !== "true";
+        toggle.setAttribute("aria-expanded", expand ? "true" : "false");
+        var node = heading.nextElementSibling;
+        while (node) {
+          var match = /^H([1-6])$/.exec(node.tagName);
+          if (match && parseInt(match[1], 10) <= level) break;
+          node.classList.toggle("wiki-collapsed", !expand);
+          // Expanding opens nested sections too, so nothing stays hidden
+          // behind a heading whose toggle says it is open.
+          var nested = match && node.querySelector(".wiki-collapse");
+          if (nested && expand) nested.setAttribute("aria-expanded", "true");
+          node = node.nextElementSibling;
+        }
+      });
+    });
+  }
+
+  // Page information collapses on phones (it sits below the content there).
+  var metaPanel = document.querySelector("[data-wiki-meta]");
+  if (metaPanel && window.matchMedia("(max-width: 639px)").matches) metaPanel.open = false;
+
+  // Search box: filters the page list by title instantly and, after a 300ms
+  // pause, shows full-text results above the content.
+  var input = document.querySelector("[data-wiki-search]");
+  var panel = document.querySelector("[data-wiki-live-results]");
+  if (!input || !panel) return;
+  var items = Array.prototype.slice.call(document.querySelectorAll("[data-wiki-toc-item]"));
+  var empty = document.querySelector("[data-wiki-toc-empty]");
+  var timer = null;
+  var latest = 0;
+
+  function filterToc(query) {
+    var shown = 0;
+    items.forEach(function (item) {
+      var match = !query || item.textContent.toLowerCase().indexOf(query) !== -1;
+      item.hidden = !match;
+      if (match) shown += 1;
+    });
+    if (query) {
+      document.querySelectorAll(".wiki-toc-folder").forEach(function (folder) {
+        folder.open = !!folder.querySelector("[data-wiki-toc-item]:not([hidden])");
+      });
+    }
+    if (empty) empty.hidden = shown !== 0 || !query;
+  }
+
+  function showResults(query, results) {
+    panel.replaceChildren();
+    var heading = document.createElement("p");
+    heading.className = "form-hint";
+    heading.textContent = results.length + (results.length === 1 ? " page matches " : " pages match ") + "“" + query + "”";
+    panel.appendChild(heading);
+    if (results.length) {
+      var list = document.createElement("ol");
+      results.slice(0, 8).forEach(function (r) {
+        var li = document.createElement("li");
+        var a = document.createElement("a");
+        a.href = r.url;
+        a.textContent = r.title;
+        var where = document.createElement("span");
+        where.className = "form-hint";
+        where.textContent = " " + r.root_label + " / " + r.path;
+        var snippet = document.createElement("p");
+        snippet.className = "wiki-snippet";
+        snippet.innerHTML = r.snippet; // server-escaped text with <mark> only
+        li.append(a, where, snippet);
+        list.appendChild(li);
+      });
+      panel.appendChild(list);
+    }
+    panel.hidden = false;
+  }
+
+  input.addEventListener("input", function () {
+    var query = input.value.trim();
+    filterToc(query.toLowerCase());
+    clearTimeout(timer);
+    if (!query) { panel.hidden = true; return; }
+    timer = setTimeout(function () {
+      var ticket = ++latest;
+      fetch(input.dataset.wikiSearch + "?q=" + encodeURIComponent(query), {
+        headers: { "X-Requested-With": "XMLHttpRequest" },
+      })
+        .then(function (response) { return agentflowReadJson(response); })
+        .then(function (data) {
+          if (ticket !== latest) return; // a newer query is in flight
+          if (data.error) throw new Error(data.error);
+          showResults(query, data.results || []);
+        })
+        .catch(function (err) { agentflowFlash(err.message || "Search failed.", "error"); });
+    }, 300);
+  });
+})();
+
+// Backlog item "Add to sprint" picker: the form posts to the chosen sprint's
+// add-items URL (each option's value). Disabled options are sprints that no
+// longer accept items (task 59).
+document.addEventListener("submit", function (event) {
+  var form = event.target.closest("form[data-sprint-picker]");
+  if (!form) return;
+  var select = form.querySelector("[data-sprint-select]");
+  if (select && select.value) form.action = select.value;
+}, true);

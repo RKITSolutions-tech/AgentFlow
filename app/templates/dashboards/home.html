@@ -5,30 +5,48 @@
   <div class="dashboard-section" data-testid="recent-sessions">
     <h2>Recent Sessions</h2>
     <div class="dashboard-cards">
+      {% for session in sessions %}
       <div class="dashboard-card">
-        <h3>Sessions will load here</h3>
-        <p>Recent GENERAL-role sessions (limit 5)</p>
+        <h3><a href="{{ url_for('sessions.view_session', session_id=session.id) }}">{{ (session.title or 'Untitled session')|truncate(50, True, '…') }}</a></h3>
+        <p>{{ session.project_name }} &middot; {{ session.status }}</p>
       </div>
+      {% else %}
+      <div class="dashboard-card">
+        <p>No recent sessions.</p>
+      </div>
+      {% endfor %}
     </div>
   </div>
 
   <div class="dashboard-section" data-testid="active-pipelines">
     <h2>Active Pipelines</h2>
     <div class="dashboard-cards">
+      {% for pipeline in pipelines %}
       <div class="dashboard-card">
-        <h3>Pipelines will load here</h3>
-        <p>Active pipelines (status: RUNNING or PAUSED)</p>
+        <h3><a href="{{ url_for('pipelines.view_execution', project_id=pipeline.project_id, execution_id=pipeline.id) }}">{{ (pipeline.name or 'Pipeline')|truncate(50, True, '…') }}</a></h3>
+        <p>{{ pipeline.project_name }} &middot; {{ pipeline.status }}</p>
       </div>
+      {% else %}
+      <div class="dashboard-card">
+        <p>No active pipelines.</p>
+      </div>
+      {% endfor %}
     </div>
   </div>
 
   <div class="dashboard-section" data-testid="recent-backlog">
     <h2>Recent Backlog Items</h2>
     <div class="dashboard-cards">
+      {% for item in backlog_items %}
       <div class="dashboard-card">
-        <h3>Backlog items will load here</h3>
-        <p>Recent items across all projects (limit 5)</p>
+        <h3><a href="{{ url_for('backlog.view_item', project_id=item.project_id, item_id=item.id) }}">{{ (item.title or 'Untitled item')|truncate(50, True, '…') }}</a></h3>
+        <p>{{ item.project_name }} &middot; {{ item.status }}</p>
       </div>
+      {% else %}
+      <div class="dashboard-card">
+        <p>No recent backlog items.</p>
+      </div>
+      {% endfor %}
     </div>
   </div>
 </div>

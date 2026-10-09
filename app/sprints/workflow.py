@@ -13,6 +13,21 @@ from app.sprints.planning_agent import PlanningAgent
 EDITABLE_MEMBERSHIP = ("DRAFT", "PLANNING", "REVIEW")
 
 
+def is_sprint_editable(sprint: Sprint) -> bool:
+    """Whether backlog items may still be added to / removed from the sprint
+    (the same rule `select_items` enforces)."""
+    return sprint.status in EDITABLE_MEMBERSHIP
+
+
+def membership_closed_message(sprint: Sprint) -> str:
+    """User-facing explanation for a sprint that no longer accepts items."""
+    editable = ", ".join(s.capitalize() for s in EDITABLE_MEMBERSHIP[:-1]) + f" and {EDITABLE_MEMBERSHIP[-1].capitalize()}"
+    return (
+        f"Sprint '{sprint.name}' is {sprint.status.capitalize()} and cannot accept new items. "
+        f"Only {editable} sprints are editable."
+    )
+
+
 def _sprint(db: sqlite3.Connection, sprint_id: int) -> Sprint:
     sprint = sprints.get_sprint(db, sprint_id)
     if sprint is None:

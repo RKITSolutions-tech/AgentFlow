@@ -63,6 +63,7 @@ def _tail_pipe(
 ) -> None:
     db = sqlite3.connect(database_path, timeout=30)
     db.row_factory = sqlite3.Row
+    db.execute("PRAGMA synchronous = NORMAL")
     try:
         while not stop_event.is_set() and not os.path.exists(pipe_path):
             time.sleep(0.05)

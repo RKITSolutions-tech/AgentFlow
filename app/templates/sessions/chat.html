@@ -3,6 +3,7 @@
 {% block title %}{{ project.name }} - Chat - AgentFlow{% endblock %}
 {% block content_class %} content-fill{% endblock %}
 {% from "projects/_lock.html" import lock_status %}
+{% from "sessions/_topics.html" import topic_chip, topic_select %}
 {% block content %}
 {{ project_tabs(project, none, 'sessions') }}
 {{ lock_status(project.id, advisory=True) }}
@@ -15,6 +16,14 @@
         {% if can_fork %}
           <button type="button" data-ajax-post="{{ url_for('sessions.fork', session_id=session.id) }}">Fork</button>
         {% endif %}
+        <details class="topic-picker">
+          <summary>{{ 'Change topic' if topic else 'Add to Topic' }}</summary>
+          <form class="stacked topic-picker-panel" method="post" action="{{ url_for('sessions.assign_topic', session_id=session.id) }}" data-ajax-form>
+            {{ topic_select(topics, topic.id if topic else none, 'sessionTopicSelect') }}
+            <p class="form-hint">Later sessions in the topic start from its summary; this session joins that summary when it is archived.</p>
+            <button type="submit" class="btn-primary">Apply</button>
+          </form>
+        </details>
         {% if session.status not in ('RUNNING', 'STARTING') %}
           <form method="post" action="{{ url_for('sessions.restore_session' if archived else 'sessions.archive_session', session_id=session.id) }}">
             <button type="submit">{{ 'Restore' if archived else 'Archive' }}</button>
@@ -31,7 +40,12 @@
         </form>
       </div>
     </div>
-    <p class="chat-status">Status: {{ session.status }} | Started: {{ session.started_at }}{% if archived %} | Archived{% endif %}{% if session.metadata.get('forked_from') %} | Forked from <a href="{{ url_for('sessions.view_session', session_id=session.metadata['forked_from']) }}">#{{ session.metadata['forked_from'] }}</a>{% endif %}{% if usage %} | Tokens: {{ usage.get('input_tokens', 0) }} in / {{ usage.get('output_tokens', 0) }} out{% endif %}</p>
+    <p class="chat-status">{% if topic %}{{ topic_chip(project.id, topic.id, topic.name) }} {% endif %}Status: {{ session.status }} | Started: {{ session.started_at }}{% if archived %} | Archived{% endif %}{% if session.metadata.get('forked_from') %} | Forked from <a href="{{ url_for('sessions.view_session', session_id=session.metadata['forked_from']) }}">#{{ session.metadata['forked_from'] }}</a>{% endif %}{% if usage %} | Tokens: {{ usage.get('input_tokens', 0) }} in / {{ usage.get('output_tokens', 0) }} out{% endif %}</p>
+    {% if discussed_item %}
+      <p class="discussion-banner">Discussing
+        <a href="{{ url_for('backlog.view_item', project_id=project.id, item_id=discussed_item.id) }}">Backlog #{{ discussed_item.id }}{% if discussed_item.title %}: {{ discussed_item.title }}{% endif %}</a>
+        ({{ discussed_item.status|lower }}). Select an agent reply and use &ldquo;Apply to item&rdquo; to update it.</p>
+    {% endif %}
     {% if can_switch_model %}
       <label class="model-switch">Model
         <select id="modelSwitch" data-url="{{ url_for('sessions.switch_model', session_id=session.id) }}">
@@ -47,6 +61,46 @@
   <div id="chatContainer" class="chat-container">
     <p class="chat-placeholder">Loading conversation...</p>
   </div>
+
+  <div id="captureBar" class="capture-bar" role="region" aria-label="Selected messages" hidden>
+    <span id="captureCount"></span>
+    <button type="button" id="captureOpen" class="btn-primary">Create backlog item</button>
+    {% if discussed_item %}<button type="button" id="applyOpen">Apply to item #{{ discussed_item.id }}</button>{% endif %}
+    <button type="button" id="captureClear">Clear</button>
+  </div>
+  <div class="modal" id="captureModal" hidden>
+    <form class="modal-panel stacked" id="captureForm" role="dialog" aria-modal="true" aria-labelledby="captureHeading"
+          method="post" action="{{ url_for('sessions.capture_backlog_item', session_id=session.id) }}">
+      <h2 id="captureHeading">New backlog item</h2>
+      <label>Title <input type="text" name="title" id="captureTitle" maxlength="120"></label>
+      <label>Description <textarea name="description" id="captureDescription" rows="8"></textarea></label>
+      <label>Priority
+        <select name="priority"><option value="">None</option><option value="LOW">Low</option><option value="MEDIUM">Medium</option><option value="HIGH">High</option></select>
+      </label>
+      <p class="form-hint">Lands in the project's Backlog inbox, linked back to this session.</p>
+      <div class="modal-actions">
+        <button type="submit" class="btn-primary">Create</button>
+        <button type="button" id="captureCancel">Cancel</button>
+      </div>
+    </form>
+  </div>
+
+  {% if discussed_item %}
+  <div class="modal" id="applyModal" hidden>
+    <form class="modal-panel stacked" id="applyForm" role="dialog" aria-modal="true" aria-labelledby="applyHeading"
+          method="post" action="{{ url_for('backlog.apply_discussion', project_id=project.id, item_id=discussed_item.id, session_id=session.id) }}">
+      <h2 id="applyHeading">Update Backlog #{{ discussed_item.id }}</h2>
+      <p class="form-hint">Uses the selected agent replies (just the <code>backlog-item</code> block when a reply has one).
+        {% if discussed_item.status == 'INBOX' %}The item moves from Inbox to Triaged.{% endif %}</p>
+      <label><input type="radio" name="mode" value="replace" checked> Replace the item text</label>
+      <label><input type="radio" name="mode" value="append"> Append to the item text</label>
+      <div class="modal-actions">
+        <button type="submit" class="btn-primary">Apply</button>
+        <button type="button" id="applyCancel">Cancel</button>
+      </div>
+    </form>
+  </div>
+  {% endif %}
 
   <section id="questionPanel" class="question-panel" role="group" aria-labelledby="questionTitle" hidden>
     <div class="question-panel-head">
@@ -116,7 +170,7 @@
       }
     }
 
-    function addMessage(content, role) {
+    function addMessage(content, role, eventId) {
       role = role || 'assistant';
       const msgDiv = document.createElement('div');
       msgDiv.className = 'chat-message chat-message-' + role;
@@ -125,6 +179,22 @@
         msgDiv.innerHTML = agentflowRenderMarkdown(content);
       } else {
         msgDiv.textContent = content;
+      }
+      if (eventId) {
+        // Pick messages to turn into a Backlog item (task 57).
+        msgDiv.dataset.eventId = eventId;
+        msgDiv.dataset.role = role === 'user' ? 'Developer' : 'Agent';
+        msgDiv.dataset.text = content;
+        const actions = document.createElement('div');
+        actions.className = 'chat-message-actions';
+        const pick = document.createElement('button');
+        pick.type = 'button';
+        pick.className = 'chat-capture-toggle';
+        pick.setAttribute('aria-pressed', 'false');
+        pick.textContent = '+ Backlog';
+        pick.title = 'Select this message for a new backlog item';
+        actions.appendChild(pick);
+        msgDiv.appendChild(actions);
       }
 
       chatContainer.appendChild(msgDiv);
@@ -152,9 +222,9 @@
         const event = JSON.parse(line.substring(6));
         hideThinking();
         if (event.event_type === 'PromptSubmitted') {
-          addMessage(event.data, 'user');
+          addMessage(event.data, 'user', event.id);
         } else if (event.event_type === 'AgentText') {
-          addMessage(event.data, 'assistant');
+          addMessage(event.data, 'assistant', event.id);
           currentActivity = null;
         } else if (event.event_type === 'AgentToolCall') {
           currentActivity = event.data;
@@ -172,6 +242,82 @@
       } catch (e) {
         console.error('Failed to parse event:', e);
       }
+    }
+
+    // Backlog capture: toggle messages, then create one item from the selection.
+    const captureBar = document.getElementById('captureBar');
+    const captureModal = document.getElementById('captureModal');
+    const captureForm = document.getElementById('captureForm');
+    function selectedMessages() {
+      return Array.prototype.slice.call(chatContainer.querySelectorAll('.chat-message.is-selected'));
+    }
+    function refreshCaptureBar() {
+      const count = selectedMessages().length;
+      captureBar.hidden = count === 0;
+      document.getElementById('captureCount').textContent = count + (count === 1 ? ' message selected' : ' messages selected');
+    }
+    function clearSelection() {
+      selectedMessages().forEach(function (m) {
+        m.classList.remove('is-selected');
+        m.querySelector('.chat-capture-toggle').setAttribute('aria-pressed', 'false');
+      });
+      refreshCaptureBar();
+    }
+    chatContainer.addEventListener('click', function (event) {
+      const pick = event.target.closest('.chat-capture-toggle');
+      if (!pick) return;
+      const message = pick.closest('.chat-message');
+      const on = !message.classList.contains('is-selected');
+      message.classList.toggle('is-selected', on);
+      pick.setAttribute('aria-pressed', on ? 'true' : 'false');
+      refreshCaptureBar();
+    });
+    document.getElementById('captureClear').addEventListener('click', clearSelection);
+    document.getElementById('captureOpen').addEventListener('click', function () {
+      const messages = selectedMessages();
+      const first = (messages[0] && messages[0].dataset.text || '').trim().split('\n')[0];
+      document.getElementById('captureTitle').value = first.length > 80 ? first.slice(0, 79) + '…' : first;
+      document.getElementById('captureDescription').value = messages.map(function (m) {
+        return m.dataset.role + ': ' + m.dataset.text.trim();
+      }).join('\n\n');
+      captureModal.hidden = false;
+      document.getElementById('captureTitle').focus();
+    });
+    document.getElementById('captureCancel').addEventListener('click', function () { captureModal.hidden = true; });
+    captureForm.addEventListener('submit', function (event) {
+      event.preventDefault();
+      const body = new FormData(captureForm);
+      selectedMessages().forEach(function (m) { body.append('event_id', m.dataset.eventId); });
+      const submit = captureForm.querySelector('[type=submit]');
+      submit.disabled = true;
+      agentflowPost(captureForm.action, body)
+        .then(function (data) {
+          captureModal.hidden = true;
+          captureForm.reset();
+          clearSelection();
+          agentflowFlash(data.message, 'info');
+        })
+        .catch(function (err) { agentflowFlash(err.message, 'error'); })
+        .then(function () { submit.disabled = false; });
+    });
+
+    const applyModal = document.getElementById('applyModal');
+    if (applyModal) {
+      const applyForm = document.getElementById('applyForm');
+      document.getElementById('applyOpen').addEventListener('click', function () { applyModal.hidden = false; });
+      document.getElementById('applyCancel').addEventListener('click', function () { applyModal.hidden = true; });
+      applyForm.addEventListener('submit', function (event) {
+        event.preventDefault();
+        const body = new FormData(applyForm);
+        selectedMessages().forEach(function (m) { body.append('event_id', m.dataset.eventId); });
+        agentflowPost(applyForm.action, body)
+          .then(function (data) {
+            applyModal.hidden = true;
+            clearSelection();
+            agentflowFlash(data.message, 'info');
+          })
+          .catch(function (err) { agentflowFlash(err.message, 'error'); });
+      });
     }
 
     function loadHistory() {

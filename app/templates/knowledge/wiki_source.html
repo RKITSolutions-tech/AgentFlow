@@ -35,7 +35,7 @@
           {% endfor %}
         </ul>
       {% elif content is not none %}
-        <div class="wiki-content">{{ content }}</div>
+        <div class="wiki-content wiki-rendered">{{ rendered|safe }}</div>
       {% elif not error %}
         <p class="form-hint">{% if pages %}Pick a page.{% else %}This folder has no markdown pages yet.{% endif %}</p>
       {% endif %}

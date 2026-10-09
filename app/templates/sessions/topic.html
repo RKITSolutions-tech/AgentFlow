@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% from "_project_tabs.html" import project_tabs %}
+{% block title %}{{ topic.name }} - Topics - AgentFlow{% endblock %}
+{% block content %}
+  {{ project_tabs(project, none, 'topics') }}
+  <nav class="wiki-breadcrumb" aria-label="Breadcrumb">
+    <a href="{{ url_for('topics.list_topics', project_id=project.id) }}">Topics</a><span>/ {{ topic.name }}</span>
+  </nav>
+  <div class="chat-header-row">
+    <h1 class="wrap-cell" data-topic-name>{{ topic.name }}</h1>
+    <div class="chat-header-actions">
+      {% if not topic.archived %}
+        <a class="btn-primary" href="{{ url_for('sessions.project_sessions', project_id=project.id, topic=topic.id) }}#startSessionForm">Start session in this topic</a>
+      {% endif %}
+      <button type="button" data-topic-rename="{{ url_for('topics.rename_topic', project_id=project.id, topic_id=topic.id) }}" data-name="{{ topic.name }}">Rename</button>
+      {% if topic.archived %}
+        <button type="button" data-ajax-reload="{{ url_for('topics.restore_topic', project_id=project.id, topic_id=topic.id) }}">Restore</button>
+      {% else %}
+        <button type="button" data-ajax-reload="{{ url_for('topics.archive_topic', project_id=project.id, topic_id=topic.id) }}"
+                data-confirm="Archive this topic? Its sessions keep it; it just leaves the pickers.">Archive</button>
+      {% endif %}
+    </div>
+  </div>
+  <dl class="run-meta">
+    <dt>Status</dt><dd>{{ topic.status }}</dd>
+    <dt>Sessions</dt><dd>{{ topic.session_count }}</dd>
+    <dt>Created</dt><dd>{{ topic.created_at }}</dd>
+    <dt>Summary updated</dt><dd>{{ topic.updated_at }}</dd>
+  </dl>
+
+  <h2>Running summary</h2>
+  {% if topic.summary_lines %}
+    <ol class="topic-summary">
+      {% for line in topic.summary_lines %}<li>{{ line }}</li>{% endfor %}
+    </ol>
+  {% else %}
+    <p class="form-hint">Nothing summarized yet &mdash; a line is added each time a session in this topic is archived.</p>
+  {% endif %}
+
+  <h2>Sessions</h2>
+  <table class="table-compact" {% if not sessions %}hidden{% endif %}>
+    <thead><tr><th>Session</th><th>Agent</th><th>Status</th><th>Last activity</th></tr></thead>
+    <tbody>
+      {% for s in sessions %}
+        <tr>
+          <td class="wrap-cell"><a href="{{ url_for('sessions.view_session', session_id=s.id) }}">{{ titles[s.id] or ('Session #' ~ s.id) }}</a>{% if archived[s.id] %} <span class="question-badge">archived</span>{% endif %}</td>
+          <td>{{ s.agent_type|upper }}</td>
+          <td>{{ s.status }}</td>
+          <td>{{ s.last_activity_at }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if not sessions %}<p>No sessions in this topic yet.</p>{% endif %}
+{% endblock %}

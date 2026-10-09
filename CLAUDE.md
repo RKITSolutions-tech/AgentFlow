@@ -118,6 +118,21 @@ Key modules:
   latter served by that instance's `/federation/api/wiki/*` so its own
   `ALLOWED_PROJECT_ROOTS` apply). Sessions get it as optional starting context
   (`session_context()`) and through the `wiki_*` MCP tools (`app/mcp/tools/wiki.py`).
+- `app/sessions/topics.py` + `topic_views.py` — Session Topics
+  (docs/SESSION_TOPICS.md): `discussion_topics` groups GENERAL sessions via
+  `agent_sessions.topic_id`; a session started in a Topic gets its rolling
+  summary first (`app/sessions/starter.py` builds every interactive session's
+  starting prompt); archiving a Topic session appends a summary line.
+- `app/wikis/` — project wiki browser (docs/WIKI_INTEGRATION_AND_PRESENTATION.md
+  §16): read-only, repo-backed view of each repository's `docs/` plus local wiki
+  folders at `/projects/<id>/wiki/` — mtime-cached scanner, mistune renderer
+  (raw HTML escaped), in-memory search, ADR cards/timelines, metadata sidebar.
+  Settings in `app/settings/wiki_config.py`.
+- `app/backlog/discussion.py` — item-scoped chat: a session started from a
+  Backlog item carries `metadata.backlog_item_id`; agreed agent replies are
+  applied to the item only by an explicit user action (audit note
+  `agent_discussion`). Chat messages can also be captured as a new Backlog
+  item (`POST /sessions/<id>/backlog-item`, `source_type="chat_session"`).
 - `app/projects/` — Project and repository records; `app/security.py`
   validates repository paths against `ALLOWED_PROJECT_ROOTS`.
 
