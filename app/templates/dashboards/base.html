@@ -118,5 +118,178 @@
   display: flex;
   align-items: center;
 }
+
+/* Status badge */
+.status-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.status-badge.running {
+  background: rgba(34, 197, 94, 0.15);
+  color: #22c55e;
+}
+
+.status-badge.paused {
+  background: rgba(234, 179, 8, 0.15);
+  color: #eab308;
+}
+
+.status-badge.blocked {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+.status-badge.done {
+  background: rgba(107, 114, 128, 0.15);
+  color: #6b7280;
+}
+
+/* Dashboard sidebar layout (for Wikis on desktop) */
+.dashboard-sidebar-layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--gap);
+}
+
+@media (min-width: 1024px) {
+  .dashboard-sidebar-layout {
+    grid-template-columns: 250px 1fr;
+  }
+
+  .dashboard-sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: calc(var(--gap) / 2);
+    max-height: calc(100vh - 200px);
+    overflow-y: auto;
+  }
+
+  .dashboard-preview {
+    display: flex;
+    flex-direction: column;
+    gap: calc(var(--gap) / 2);
+  }
+}
+
+/* Sidebar items */
+.sidebar-item {
+  padding: calc(var(--gap) / 2);
+  border-radius: 4px;
+  cursor: pointer;
+  border-left: 3px solid transparent;
+  color: var(--text-secondary);
+  text-decoration: none;
+  transition: all 0.2s ease;
+}
+
+.sidebar-item:hover {
+  background: var(--bg-hover, rgba(255, 255, 255, 0.05));
+  color: var(--text-primary);
+}
+
+.sidebar-item.active {
+  background: var(--bg-tertiary, rgba(255, 255, 255, 0.08));
+  color: var(--link-color, #0066cc);
+  border-left-color: var(--link-color, #0066cc);
+  font-weight: 500;
+}
+
+/* Project dashboard grid layout */
+.project-dashboard-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--gap);
+}
+
+@media (min-width: 768px) {
+  .project-dashboard-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (min-width: 1024px) {
+  .project-dashboard-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+/* Status summary cards */
+.status-summary {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: calc(var(--gap) / 2);
+  margin-top: calc(var(--gap) / 2);
+}
+
+@media (min-width: 768px) {
+  .status-summary {
+    grid-template-columns: repeat(5, 1fr);
+  }
+}
+
+.status-item {
+  padding: calc(var(--gap) / 1.5);
+  background: var(--bg-tertiary, rgba(255, 255, 255, 0.04));
+  border-radius: 4px;
+  text-align: center;
+}
+
+.status-item .count {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1;
+}
+
+.status-item .label {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-top: 4px;
+}
+
+/* Card actions */
+.card-actions {
+  display: flex;
+  gap: calc(var(--gap) / 2);
+  margin-top: calc(var(--gap) / 2);
+  flex-wrap: wrap;
+}
+
+.card-action-btn {
+  padding: 6px 12px;
+  font-size: 0.875rem;
+  background: transparent;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--text-primary);
+  text-decoration: none;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.card-action-btn:hover {
+  background: var(--bg-hover, rgba(255, 255, 255, 0.05));
+  border-color: var(--link-color, #0066cc);
+  color: var(--link-color, #0066cc);
+}
+
+.card-action-btn.primary {
+  background: var(--link-color, #0066cc);
+  border-color: var(--link-color, #0066cc);
+  color: white;
+}
+
+.card-action-btn.primary:hover {
+  opacity: 0.9;
+}
 </style>
 {% endblock %}

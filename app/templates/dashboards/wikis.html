@@ -1,20 +1,151 @@
 {% extends "dashboards/base.html" %}
 
 {% block dashboard_content %}
-<div data-testid="dashboard-wikis">
-  <div class="dashboard-section">
-    <h2>Wiki Search</h2>
-    <input type="text" class="search-input" placeholder="Search wikis..." data-testid="wiki-search" style="width: 100%; padding: var(--gap); border: 1px solid var(--border-color); border-radius: 6px; font-size: 0.95rem;">
+<div class="dashboard-sidebar-layout" data-testid="dashboard-wikis">
+  <!-- Sidebar: Wiki navigation (mobile: hidden, desktop: 250px left column) -->
+  <div class="dashboard-sidebar" data-testid="wiki-list">
+    <div class="dashboard-section">
+      <h2 style="margin: 0 0 calc(var(--gap) / 2) 0;">Wikis</h2>
+      <input
+        type="text"
+        class="wiki-search"
+        placeholder="Search wikis..."
+        data-testid="wiki-search"
+        style="width: 100%; padding: calc(var(--gap) / 2); border: 1px solid var(--border-color); border-radius: 4px; font-size: 0.9rem; background: var(--bg-primary); color: var(--text-primary);"
+      >
+    </div>
+
+    {% if wikis %}
+      <!-- Project wikis -->
+      {% set project_wikis = wikis | selectattr('project_id') | list %}
+      {% if project_wikis %}
+      <div class="dashboard-section">
+        <h3 style="font-size: 0.875rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; margin: 0; padding: 0;">Project Wikis</h3>
+        {% for wiki in project_wikis %}
+        <a href="#wiki-{{ wiki.id }}" class="sidebar-item" data-testid="wiki-nav-{{ wiki.id }}" onclick="document.querySelector('[data-wiki-id=&quot;{{ wiki.id }}&quot;]')?.scrollIntoView()">
+          {{ wiki.project_name or wiki.name }}
+        </a>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      <!-- Shared wikis -->
+      {% set shared_wikis = wikis | rejectattr('project_id') | list %}
+      {% if shared_wikis %}
+      <div class="dashboard-section">
+        <h3 style="font-size: 0.875rem; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; margin: 0; padding: 0;">Shared Wikis</h3>
+        {% for wiki in shared_wikis %}
+        <a href="#wiki-{{ wiki.id }}" class="sidebar-item" data-testid="wiki-nav-{{ wiki.id }}">
+          {{ wiki.name }}
+        </a>
+        {% endfor %}
+      </div>
+      {% endif %}
+    {% else %}
+    <div class="dashboard-section">
+      <p style="color: var(--text-secondary); font-size: 0.875rem;">No wikis configured yet. Create a wiki to get started.</p>
+    </div>
+    {% endif %}
   </div>
 
-  <div class="dashboard-section">
-    <h2>Available Wikis</h2>
-    <div class="dashboard-cards">
+  <!-- Preview: Wiki content (desktop: right column) -->
+  <div class="dashboard-preview" data-testid="wiki-preview">
+    {% if wikis %}
+      <div class="dashboard-section">
+        <div style="display: flex; justify-content: space-between; align-items: baseline;">
+          <h2>Available Wikis</h2>
+          <a href="{{ url_for('settings.index') }}" class="card-action-btn" style="font-size: 0.875rem;">+ Add Wiki</a>
+        </div>
+      </div>
+
+      <div class="dashboard-cards">
+        {% for wiki in wikis %}
+        <div class="dashboard-card" data-wiki-id="{{ wiki.id }}" id="wiki-{{ wiki.id }}" data-testid="wiki-card-{{ wiki.id }}">
+          <div>
+            <h3>{{ wiki.project_name or wiki.name }}</h3>
+            <p>
+              {% if wiki.source_type %}
+                {{ wiki.source_type | title }} Wiki
+              {% else %}
+                Knowledge Base
+              {% endif %}
+              {% if wiki.project_name and wiki.name != wiki.project_name %}
+                • {{ wiki.name }}
+              {% endif %}
+            </p>
+          </div>
+          <div class="card-actions">
+            <a href="{{ url_for('wikis.view', project_id=wiki.project_id) if wiki.project_id else '#' }}" class="card-action-btn primary" data-testid="wiki-browse-{{ wiki.id }}">Browse</a>
+            <a href="#" class="card-action-btn" data-testid="wiki-search-{{ wiki.id }}">Search</a>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    {% else %}
+    <div class="dashboard-section">
       <div class="dashboard-card">
-        <h3>Wikis will load here</h3>
-        <p>Project and shared wikis sorted by name</p>
+        <div>
+          <h3>No wikis yet</h3>
+          <p>Create a wiki to organize knowledge and documentation for your projects.</p>
+        </div>
+        <div class="card-actions">
+          <a href="{{ url_for('settings.index') }}" class="card-action-btn primary">Create Wiki</a>
+        </div>
       </div>
     </div>
+    {% endif %}
   </div>
 </div>
+
+<style>
+/* Mobile-specific adjustments for wikis sidebar */
+@media (max-width: 1023px) {
+  .dashboard-sidebar {
+    display: none;
+  }
+
+  .dashboard-sidebar.mobile-open {
+    display: flex;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: var(--bg-primary);
+    z-index: 1000;
+    padding: var(--gap);
+  }
+
+  .dashboard-sidebar.mobile-open::before {
+    content: "✕";
+    position: absolute;
+    top: var(--gap);
+    right: var(--gap);
+    font-size: 1.5rem;
+    cursor: pointer;
+    color: var(--text-primary);
+  }
+}
+
+.wiki-search {
+  box-sizing: border-box;
+}
+
+.wiki-search:focus {
+  outline: none;
+  border-color: var(--link-color, #0066cc);
+  box-shadow: 0 0 0 2px rgba(0, 102, 204, 0.1);
+}
+</style>
+
+<script>
+// Search wikis by name
+document.querySelector('.wiki-search')?.addEventListener('input', (e) => {
+  const query = e.target.value.toLowerCase();
+  document.querySelectorAll('[data-testid^="wiki-card-"]').forEach(card => {
+    const text = card.textContent.toLowerCase();
+    card.style.display = text.includes(query) ? '' : 'none';
+  });
+});
+</script>
 {% endblock %}

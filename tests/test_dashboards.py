@@ -95,3 +95,92 @@ def test_home_dashboard_limits_recent_sessions_to_five(app, client, project_id):
     assert len(cards) == 5
     assert "Session 0" not in sessions.get_text()
     assert "Session 5" in sessions.get_text()
+
+
+def test_wikis_dashboard_loads(client):
+    """Test wikis dashboard loads without errors."""
+    resp = client.get("/dashboards/wikis")
+    assert resp.status_code == 200
+    soup = BeautifulSoup(resp.data, "html.parser")
+    assert soup.find(attrs={"data-testid": "dashboard-wikis"}) is not None
+
+
+def test_wikis_dashboard_empty_state(client):
+    """Test wikis dashboard shows empty state when no wikis exist."""
+    resp = client.get("/dashboards/wikis")
+    assert resp.status_code == 200
+    soup = BeautifulSoup(resp.data, "html.parser")
+    preview = soup.find(attrs={"data-testid": "wiki-preview"})
+    assert "No wikis" in preview.get_text() or "wikis configured" in preview.get_text().lower()
+
+
+def test_project_dashboard_loads(client, project_id):
+    """Test project dashboard loads without errors."""
+    resp = client.get(f"/dashboards/project/{project_id}")
+    assert resp.status_code == 200
+    soup = BeautifulSoup(resp.data, "html.parser")
+    assert soup.find(attrs={"data-testid": f"dashboard-project-{project_id}"}) is not None
+
+
+def test_project_dashboard_shows_sections(client, project_id):
+    """Test project dashboard shows all main sections."""
+    resp = client.get(f"/dashboards/project/{project_id}")
+    assert resp.status_code == 200
+    soup = BeautifulSoup(resp.data, "html.parser")
+
+    # Check for main sections
+    assert soup.find(attrs={"data-testid": "current-sprint"}) is not None
+    assert soup.find(attrs={"data-testid": "backlog-breakdown"}) is not None
+    assert soup.find(attrs={"data-testid": "active-pipelines"}) is not None
+
+
+def test_project_dashboard_no_sprint_empty_state(client, project_id):
+    """Test project dashboard shows no active sprint message when none exists."""
+    resp = client.get(f"/dashboards/project/{project_id}")
+    assert resp.status_code == 200
+    soup = BeautifulSoup(resp.data, "html.parser")
+    sprint_section = soup.find(attrs={"data-testid": "current-sprint"})
+    assert "No Active Sprint" in sprint_section.get_text()
+
+
+def test_project_dashboard_with_backlog_items(app, client, project_id):
+    """Test project dashboard displays backlog status summary."""
+    with app.app_context():
+        db = get_db()
+        backlog_persistence.create_item(db, project_id, text="Task 1", title="First task")
+        backlog_persistence.create_item(db, project_id, text="Task 2", title="Second task")
+
+        # Mark one as done
+        items = backlog_persistence.list_items(db)
+        if len(items) > 0:
+            backlog_persistence.update_item(db, items[0].id, status="done")
+
+    resp = client.get(f"/dashboards/project/{project_id}")
+    assert resp.status_code == 200
+    soup = BeautifulSoup(resp.data, "html.parser")
+    backlog_section = soup.find(attrs={"data-testid": "backlog-breakdown"})
+
+    # Should show backlog items
+    assert backlog_section is not None
+    text = backlog_section.get_text()
+    # Check for status indicators (count > 0)
+    assert "1" in text or "2" in text
+
+
+def test_project_dashboard_with_active_pipeline(app, client, project_id):
+    """Test project dashboard shows active pipelines."""
+    with app.app_context():
+        db = get_db()
+        pipeline = pipeline_persistence.list_pipelines(db)[0]
+        execution_id = pipeline_executions.create_execution(
+            db, pipeline.id, pipeline.current_version, project_id, elements=[]
+        )
+        pipeline_executions.update_execution(db, execution_id, status="RUNNING")
+
+    resp = client.get(f"/dashboards/project/{project_id}")
+    assert resp.status_code == 200
+    soup = BeautifulSoup(resp.data, "html.parser")
+    pipelines_section = soup.find(attrs={"data-testid": "active-pipelines"})
+
+    assert pipeline.name in pipelines_section.get_text()
+    assert "RUNNING" in pipelines_section.get_text()
