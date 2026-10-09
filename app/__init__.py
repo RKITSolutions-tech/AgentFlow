@@ -142,6 +142,6 @@ def create_app(config: Config | None = None) -> Flask:
     def index():
         from flask import redirect, url_for
 
-        return redirect(url_for("projects.list_projects"))
+        return redirect(url_for("dashboards.home"))
 
     return app
