@@ -1,89 +1,52 @@
 {% extends "dashboards/base.html" %}
 
 {% block dashboard_content %}
-<div data-testid="dashboard-home">
-  <!-- Header -->
-  <div class="dashboard-section" style="margin-bottom: 24px; gap: 0;">
-    <h1>AgentFlow</h1>
-    <p style="font-size: 1.125rem; color: var(--text-secondary); margin: 8px 0 0 0;">Your work at a glance</p>
+<div class="dashboard-grid" data-testid="dashboard-home">
+  <div class="dashboard-section" data-testid="recent-sessions">
+    <h2>Recent Sessions</h2>
+    <div class="dashboard-cards">
+      {% for session in sessions %}
+      <div class="dashboard-card">
+        <h3><a href="{{ url_for('sessions.view_session', session_id=session.id) }}">{{ (session.title or 'Untitled session')|truncate(50, True, '…') }}</a></h3>
+        <p>{{ session.project_name }} &middot; {{ session.status }}</p>
+      </div>
+      {% else %}
+      <div class="dashboard-card">
+        <p>No recent sessions.</p>
+      </div>
+      {% endfor %}
+    </div>
   </div>
 
-  <div class="dashboard-grid">
-    <!-- Recent Sessions -->
-    <div class="dashboard-section" data-testid="recent-sessions">
-      <h2>Sessions</h2>
-      <div class="dashboard-cards">
-        {% for session in sessions %}
-        <div class="dashboard-card">
-          <div>
-            <h3><a href="{{ url_for('sessions.view_session', session_id=session.id) }}" style="color: #00d9ff; font-size: 1.125rem;">{{ (session.title or 'Untitled session')|truncate(40, True, '…') }}</a></h3>
-            <p style="margin-top: 8px; font-size: 0.9375rem;">
-              <strong>{{ session.project_name }}</strong>
-              <br>
-              <span style="font-size: 0.875rem; color: var(--text-secondary);">{{ session.status }}</span>
-            </p>
-          </div>
-          <div class="card-actions">
-            <a href="{{ url_for('sessions.view_session', session_id=session.id) }}" class="card-action-btn primary">Resume</a>
-          </div>
-        </div>
-        {% else %}
-        <div class="dashboard-card">
-          <p style="color: var(--text-secondary); text-align: center; padding: 20px 0;">No recent sessions</p>
-        </div>
-        {% endfor %}
+  <div class="dashboard-section" data-testid="active-pipelines">
+    <h2>Active Pipelines</h2>
+    <div class="dashboard-cards">
+      {% for pipeline in pipelines %}
+      <div class="dashboard-card">
+        <h3><a href="{{ url_for('pipelines.view_execution', project_id=pipeline.project_id, execution_id=pipeline.id) }}">{{ (pipeline.name or 'Pipeline')|truncate(50, True, '…') }}</a></h3>
+        <p>{{ pipeline.project_name }} &middot; {{ pipeline.status }}</p>
       </div>
+      {% else %}
+      <div class="dashboard-card">
+        <p>No active pipelines.</p>
+      </div>
+      {% endfor %}
     </div>
+  </div>
 
-    <!-- Active Pipelines -->
-    <div class="dashboard-section" data-testid="active-pipelines">
-      <h2>Pipelines</h2>
-      <div class="dashboard-cards">
-        {% for pipeline in pipelines %}
-        <div class="dashboard-card">
-          <div>
-            <h3 style="display: flex; align-items: center; gap: 12px;">
-              <a href="{{ url_for('pipelines.view_execution', project_id=pipeline.project_id, execution_id=pipeline.id) }}" style="color: #00d9ff; flex: 1;">{{ (pipeline.name or 'Pipeline')|truncate(40, True, '…') }}</a>
-              <span class="status-badge {{ pipeline.status|lower }}">{{ pipeline.status }}</span>
-            </h3>
-            <p style="margin-top: 8px; font-size: 0.9375rem;"><strong>{{ pipeline.project_name }}</strong></p>
-          </div>
-          <div class="card-actions">
-            <a href="{{ url_for('pipelines.view_execution', project_id=pipeline.project_id, execution_id=pipeline.id) }}" class="card-action-btn primary">View</a>
-          </div>
-        </div>
-        {% else %}
-        <div class="dashboard-card">
-          <p style="color: var(--text-secondary); text-align: center; padding: 20px 0;">No active pipelines</p>
-        </div>
-        {% endfor %}
+  <div class="dashboard-section" data-testid="recent-backlog">
+    <h2>Recent Backlog Items</h2>
+    <div class="dashboard-cards">
+      {% for item in backlog_items %}
+      <div class="dashboard-card">
+        <h3><a href="{{ url_for('backlog.view_item', project_id=item.project_id, item_id=item.id) }}">{{ (item.title or 'Untitled item')|truncate(50, True, '…') }}</a></h3>
+        <p>{{ item.project_name }} &middot; {{ item.status }}</p>
       </div>
-    </div>
-
-    <!-- Recent Backlog -->
-    <div class="dashboard-section" data-testid="recent-backlog">
-      <h2>Backlog</h2>
-      <div class="dashboard-cards">
-        {% for item in backlog_items %}
-        <div class="dashboard-card">
-          <div>
-            <h3><a href="{{ url_for('backlog.view_item', project_id=item.project_id, item_id=item.id) }}" style="color: #00d9ff; font-size: 1.125rem;">{{ (item.title or 'Untitled item')|truncate(40, True, '…') }}</a></h3>
-            <p style="margin-top: 8px; font-size: 0.9375rem;">
-              <strong>{{ item.project_name }}</strong>
-              <br>
-              <span class="status-badge" style="background: rgba(255, 255, 255, 0.1); color: var(--text-secondary); font-size: 0.75rem; margin-top: 6px; display: inline-block;">{{ item.status }}</span>
-            </p>
-          </div>
-          <div class="card-actions">
-            <a href="{{ url_for('backlog.view_item', project_id=item.project_id, item_id=item.id) }}" class="card-action-btn primary">Open</a>
-          </div>
-        </div>
-        {% else %}
-        <div class="dashboard-card">
-          <p style="color: var(--text-secondary); text-align: center; padding: 20px 0;">No recent backlog items</p>
-        </div>
-        {% endfor %}
+      {% else %}
+      <div class="dashboard-card">
+        <p>No recent backlog items.</p>
       </div>
+      {% endfor %}
     </div>
   </div>
 </div>
