@@ -841,6 +841,39 @@ Task 54's own scoping text proposed a second parallel model set — `app/skills/
   authentication or admin-role concept to gate that on (§23.3's own note), so `skill_reviewed_by` and
   `skill_author` are both free text, not an account reference.
 
+### 23.5 Per-project skill activation overrides (follow-up to tasks 52-54)
+
+`assembler.skill_context(db, role, agent_type, project_id)` has taken a `project_id` parameter
+since task 52 (§23.3) but never used it — every project saw the identical global active-skill
+set, with no way to turn a skill off for one project. Closed by extending the **existing**
+per-project override mechanism (task 34, `project_prompt_overrides`, `models.set_override`/
+`clear_override`/`get_overrides`) that templates and Ralph blocks already use, rather than
+building a parallel per-skill-per-project table: `kind="skill"` is a new branch in
+`set_override`, the same generic `POST /prompts/projects/<id>/overrides/<kind>/<target_id>`
+route already handles it (it has never special-cased `kind`), and `project.html` gets a third
+`<details class="prompt-override">` section alongside the template/block ones.
+
+A skill override only ever carries `enabled` (`True`/`False`) — skills have no per-project
+content override, unlike templates/blocks, so `content` is always stored empty for this kind.
+`set_override` rejects an override on a `deprecated` skill outright (deprecation is terminal,
+§23.3/§23.4 — there is no reactivate path anywhere in this codebase, so a project overriding a
+deprecated skill back on would be the first one) and rejects `enabled=True` on anything but an
+`active` skill: letting one project force-enable a not-yet-promoted `draft` skill would be new,
+speculative flexibility nobody asked for and with no promotion workflow to make it coherent,
+which §23.2's "Open Questions" and §23.3/§23.4's own repeated choice to skip unbuilt capability
+(the web-search skill, the deployment skill) argue against. `models.effective_skills(db,
+project_id, role, adapter_type)` (replacing the `list_skills(..., status="active")` call inside
+`skill_context`) is nonetheless written in the fully symmetric shape — an override's `enabled`
+always wins over status when present, `True` would include even a draft — so a hand-edited
+database degrades the same way the rest of the skill system already does (§23.2 "graceful
+degradation") rather than hitting an unhandled case; in practice `set_override` is the only write
+path and never creates that row.
+
+`app/templates/prompts/project.html`'s new section only offers "On" for a skill whose global
+status is already `active` (the "Off" and "Same as global" choices are always offered, matching
+the block-override pattern) — server-side validation is the real guard, the UI just doesn't
+offer a choice it would reject.
+
 ## 24. MCP Tool Bridge (Backlog/Sprints/Pipelines/Ralph)
 
 An interactive `GENERAL`-role chat session (§5) is, by default, confined to editing code in its

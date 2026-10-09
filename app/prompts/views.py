@@ -393,6 +393,7 @@ def project_prompts(project_id: int):
         "prompts/project.html", project=project, templates=models.list_templates(db),
         blocks=models.list_blocks(db), template_overrides=models.get_overrides(db, project_id, "template"),
         block_overrides=models.get_overrides(db, project_id, "block"),
+        skills=models.list_skills(db), skill_overrides=models.get_overrides(db, project_id, "skill"),
         context_files=files, context_skipped=skipped,
         discovered=not [l for l in project.context_files.splitlines() if l.strip()],
         recorded=models.list_recorded(db, project_id, source if source in ("pipeline_step", "ralph_iteration") else ""),

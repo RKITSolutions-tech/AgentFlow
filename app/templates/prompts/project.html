@@ -60,6 +60,39 @@
     <p class="form-hint">No blocks.</p>
   {% endfor %}
 
+  <h2>Skill overrides</h2>
+  <p class="form-hint">Turn an active skill off for this project only (see
+    <a href="{{ url_for('prompts.skills') }}">Skills</a> for the global list). A draft or
+    deprecated skill cannot be turned on here.</p>
+  {% for s in skills %}
+    {% set o = skill_overrides.get(s.id) %}
+    <details class="prompt-override"{% if o %} open{% endif %}>
+      <summary>
+        {{ s.name }} <span class="form-hint">({{ s.skill_status|capitalize }}{% if s.skill_roles %}, roles: {{ s.skill_roles|join(', ') }}{% endif %}{% if s.skill_adapter_types %}, adapters: {{ s.skill_adapter_types|join(', ') }}{% endif %})</span>
+        {% if o %} <span class="form-hint">(overridden{% if o.enabled is not none %}, {{ 'on' if o.enabled else 'off' }}{% endif %})</span>{% endif %}
+      </summary>
+      {% if s.skill_status == 'deprecated' %}
+        <p class="form-hint">Deprecated skills cannot be overridden.</p>
+      {% else %}
+        <form method="post" action="{{ url_for('prompts.set_override', project_id=project.id, kind='skill', target_id=s.id) }}" class="stacked" data-ajax-form>
+          <label>State for this project
+            <select name="enabled">
+              <option value=""{% if not o or o.enabled is none %} selected{% endif %}>Same as global ({{ 'on' if s.skill_status == 'active' else 'off' }})</option>
+              {% if s.skill_status == 'active' %}<option value="1"{% if o and o.enabled is true %} selected{% endif %}>On</option>{% endif %}
+              <option value="0"{% if o and o.enabled is false %} selected{% endif %}>Off</option>
+            </select>
+          </label>
+          <div class="row-actions">
+            <button type="submit" class="btn-primary">Save override</button>
+            {% if o %}<button type="button" class="link-danger" data-ajax-action="{{ url_for('prompts.clear_override', project_id=project.id, kind='skill', target_id=s.id) }}" data-confirm="Remove the override for {{ s.name }}?">Remove override</button>{% endif %}
+          </div>
+        </form>
+      {% endif %}
+    </details>
+  {% else %}
+    <p class="form-hint">No skills.</p>
+  {% endfor %}
+
   <h2>Recorded prompts</h2>
   <p class="form-hint">The exact prompt each AGENT step and Ralph iteration sent (newest 100).
     Show: <a href="{{ url_for('prompts.project_prompts', project_id=project.id) }}">all</a> &middot;

@@ -488,7 +488,7 @@ CREATE INDEX IF NOT EXISTS idx_execution_prompts_source ON execution_prompts(sou
 CREATE TABLE IF NOT EXISTS project_prompt_overrides (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-    kind TEXT NOT NULL CHECK(kind IN ('template', 'block')),
+    kind TEXT NOT NULL CHECK(kind IN ('template', 'block', 'skill')),
     target_id INTEGER NOT NULL,
     content TEXT NOT NULL DEFAULT '',
     enabled INTEGER,
@@ -1108,6 +1108,7 @@ def _migrate(db: sqlite3.Connection) -> None:
         db.execute("CREATE INDEX IF NOT EXISTS idx_agent_sessions_topic ON agent_sessions(topic_id)")
     db.commit()
     _migrate_acceptance_sprint_check(db)
+    _migrate_project_prompt_overrides_kind_check(db)
 
 
 def _migrate_acceptance_sprint_check(db: sqlite3.Connection) -> None:
@@ -1170,6 +1171,43 @@ def _migrate_acceptance_sprint_check(db: sqlite3.Connection) -> None:
         db.execute("CREATE INDEX IF NOT EXISTS idx_acceptance_work_item ON acceptance_criteria(work_item_id)")
         db.execute("CREATE INDEX IF NOT EXISTS idx_acceptance_run ON acceptance_criteria(ralph_run_id)")
         db.execute("CREATE INDEX IF NOT EXISTS idx_acceptance_sprint ON acceptance_criteria(sprint_id)")
+        db.commit()
+    finally:
+        db.execute("PRAGMA foreign_keys = ON")
+
+
+def _migrate_project_prompt_overrides_kind_check(db: sqlite3.Connection) -> None:
+    """Widen project_prompt_overrides' `kind` CHECK to also allow 'skill' (per-project
+    skill activation, docs/AGENT_ADAPTER.md §23.5). Same rebuild-and-swap as
+    _migrate_acceptance_sprint_check above -- SQLite cannot ALTER a CHECK in place.
+    Guarded on the stored CREATE TABLE text so this runs at most once."""
+    row = db.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'project_prompt_overrides'"
+    ).fetchone()
+    if row is None or "'skill'" in row["sql"]:
+        return
+    db.commit()  # PRAGMA foreign_keys is a no-op inside a pending transaction
+    db.execute("PRAGMA foreign_keys = OFF")
+    try:
+        db.execute(
+            "CREATE TABLE project_prompt_overrides_new ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            "project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,"
+            "kind TEXT NOT NULL CHECK(kind IN ('template', 'block', 'skill')),"
+            "target_id INTEGER NOT NULL,"
+            "content TEXT NOT NULL DEFAULT '',"
+            "enabled INTEGER,"
+            "updated_at TEXT NOT NULL,"
+            "UNIQUE(project_id, kind, target_id)"
+            ")"
+        )
+        db.execute(
+            "INSERT INTO project_prompt_overrides_new (id, project_id, kind, target_id, content, "
+            "enabled, updated_at) SELECT id, project_id, kind, target_id, content, enabled, updated_at "
+            "FROM project_prompt_overrides"
+        )
+        db.execute("DROP TABLE project_prompt_overrides")
+        db.execute("ALTER TABLE project_prompt_overrides_new RENAME TO project_prompt_overrides")
         db.commit()
     finally:
         db.execute("PRAGMA foreign_keys = ON")

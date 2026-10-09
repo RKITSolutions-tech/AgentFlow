@@ -316,6 +316,26 @@ def list_skills(db, role: str | None = None, adapter_type: str | None = None, st
     return skills
 
 
+def effective_skills(db, project_id: int | None = None, role: str | None = None, adapter_type: str | None = None) -> list[PromptFragment]:
+    """Skills matching role/adapter with status active or draft, with the project's
+    on/off overrides applied on top (mirrors effective_blocks). An override's `enabled`
+    wins over status when present (True includes even a draft, False excludes even an
+    active skill); no override falls back to "active". `set_override` only ever lets a
+    project write enabled=True for an already-active skill -- force-enabling a draft is
+    out of scope (docs/AGENT_ADAPTER.md §23.5) -- but this stays symmetric so a
+    hand-edited database degrades the same way the rest of the skill system already does
+    (§23.2 "graceful degradation") instead of hitting an unhandled case."""
+    candidates = [s for s in list_skills(db, role=role, adapter_type=adapter_type) if s.skill_status in ("active", "draft")]
+    over = get_overrides(db, project_id, "skill") if project_id is not None else {}
+    result = []
+    for s in candidates:
+        o = over.get(s.id)
+        include = o["enabled"] if (o and o["enabled"] is not None) else (s.skill_status == "active")
+        if include:
+            result.append(s)
+    return result
+
+
 def resolve_skill_order(skills: list[PromptFragment]) -> list[PromptFragment]:
     """Dependencies before dependents (topological sort), ties broken by priority
     (higher first) then name. Cycle-safe: a hand-edited database must not hang
@@ -619,8 +639,19 @@ def set_override(db, project_id: int, kind: str, target_id: int, content: str = 
             raise LibraryError("Unknown block")
         if not content and enabled is None:
             raise LibraryError("Change the text or switch the block on/off")
+    elif kind == "skill":
+        fragment = get_fragment(db, target_id)
+        if fragment is None or not fragment.is_skill:
+            raise LibraryError("Unknown skill")
+        if fragment.skill_status == "deprecated":
+            raise LibraryError("Deprecated skills cannot be overridden; deprecation is terminal")
+        if enabled is None:
+            raise LibraryError("A skill override must turn the skill on or off")
+        if enabled and fragment.skill_status != "active":
+            raise LibraryError("Only an active skill can be turned on for a project")
+        content = ""  # skills have no per-project content override
     else:
-        raise LibraryError("Overrides apply to templates and blocks")
+        raise LibraryError("Overrides apply to templates, blocks and skills")
     if len(content) > CONTENT_MAX:
         raise LibraryError(f"Content is limited to {CONTENT_MAX} characters")
     db.execute(

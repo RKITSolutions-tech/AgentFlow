@@ -1,6 +1,7 @@
 import pytest
 
 from app.db import get_db
+from app.projects import models as project_models
 from app.prompts import assembler, models
 
 
@@ -77,3 +78,25 @@ def test_assemble_effective_prompt_skips_inactive_and_unmatched_skills(db):
     models.create_fragment(db, "wrong-role", "Wrong role.", skill_status="active", skill_roles=["planning"])
     out = assembler.assemble_effective_prompt(db, text="Task", role="GENERAL")
     assert "Draft skill." not in out.text and "Wrong role." not in out.text
+
+
+# -- per-project activation overrides (docs/AGENT_ADAPTER.md §23.5) --------------------------------
+
+
+def test_skill_context_project_override_disables_active_skill(db):
+    pid = project_models.create_project(db, "p")
+    sid = models.create_fragment(db, "proj-skill", "Skill text.", skill_status="active")
+    assert "proj-skill" in assembler.skill_context(db)[1]
+    models.set_override(db, pid, "skill", sid, enabled=False)
+    assert "proj-skill" not in assembler.skill_context(db, project_id=pid)[1]
+    assert "proj-skill" in assembler.skill_context(db)[1]  # global, unaffected
+    models.clear_override(db, pid, "skill", sid)
+    assert "proj-skill" in assembler.skill_context(db, project_id=pid)[1]
+
+
+def test_effective_skills_falls_back_to_global_when_no_override(db):
+    pid = project_models.create_project(db, "p")
+    models.create_fragment(db, "active-skill", "x", skill_status="active")
+    models.create_fragment(db, "draft-skill", "x", skill_status="draft")
+    assert [s.name for s in models.effective_skills(db, project_id=pid)] == ["active-skill"]
+    assert [s.name for s in models.effective_skills(db)] == ["active-skill"]

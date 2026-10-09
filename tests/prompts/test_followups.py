@@ -110,6 +110,31 @@ def test_override_validation(env):
         models.set_override(env.db, env.pid, "block", models.list_blocks(env.db)[0].id)  # nothing changed
 
 
+def test_skill_override_validation(env):
+    active_id = models.create_fragment(env.db, "skill-active", "content", skill_status="active")
+    draft_id = models.create_fragment(env.db, "skill-draft", "content", skill_status="draft")
+    deprecated_id = models.create_fragment(env.db, "skill-deprecated", "content", skill_status="active")
+    models.deprecate_skill(env.db, deprecated_id)
+
+    with pytest.raises(LibraryError):
+        models.set_override(env.db, env.pid, "skill", 9999, enabled=True)
+    with pytest.raises(LibraryError):
+        models.set_override(env.db, env.pid, "skill", deprecated_id, enabled=False)
+    with pytest.raises(LibraryError):
+        models.set_override(env.db, env.pid, "skill", active_id)  # no enabled given
+    with pytest.raises(LibraryError):
+        models.set_override(env.db, env.pid, "skill", draft_id, enabled=True)  # can't force-enable a draft
+
+
+def test_skill_override_disables_active_skill_for_project(env):
+    sid = models.create_fragment(env.db, "proj-skill", "content", skill_status="active")
+    models.set_override(env.db, env.pid, "skill", sid, enabled=False)
+    assert "proj-skill" not in assembler.skill_context(env.db, project_id=env.pid)[1]
+    assert "proj-skill" in assembler.skill_context(env.db)[1]  # global, unaffected
+    models.clear_override(env.db, env.pid, "skill", sid)
+    assert "proj-skill" in assembler.skill_context(env.db, project_id=env.pid)[1]
+
+
 # -- usage, recorded browser ---------------------------------------------------------------------
 
 
@@ -149,6 +174,14 @@ def test_project_pages_and_endpoints(client, env):
     assert "(overridden" in client.get(base).get_data(as_text=True)
     assert client.post(f"{base}/overrides/block/{b.id}/delete", headers=AJAX).status_code == 200
     assert models.get_overrides(env.db, env.pid, "block") == {}
+
+    sid = models.create_fragment(env.db, "proj-skill", "content", skill_status="active")
+    draft_sid = models.create_fragment(env.db, "proj-draft-skill", "content", skill_status="draft")
+    assert client.post(f"{base}/overrides/skill/{sid}", data={"enabled": "0"}, headers=AJAX).status_code == 200
+    assert "(overridden, off)" in client.get(base).get_data(as_text=True)
+    assert client.post(f"{base}/overrides/skill/{draft_sid}", data={"enabled": "1"}, headers=AJAX).status_code == 400
+    assert client.post(f"{base}/overrides/skill/{sid}/delete", headers=AJAX).status_code == 200
+    assert models.get_overrides(env.db, env.pid, "skill") == {}
 
     prompt_id = models.list_recorded(env.db, env.pid)[0]["id"]
     detail = client.get(f"{base}/recorded/{prompt_id}").get_data(as_text=True)

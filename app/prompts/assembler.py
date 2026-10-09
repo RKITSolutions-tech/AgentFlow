@@ -204,7 +204,7 @@ def skill_context(db, role: str | None = None, agent_type: str | None = None, pr
     a broken skill row must not be the reason a prompt fails to assemble
     (docs/AGENT_ADAPTER.md §23.2 "graceful degradation")."""
     try:
-        skills = models.list_skills(db, role=role, adapter_type=agent_type, status="active")
+        skills = models.effective_skills(db, project_id=project_id, role=role, adapter_type=agent_type)
         ordered = models.resolve_skill_order(skills)
     except Exception:
         logger.warning("Skill context assembly failed; continuing without skills", exc_info=True)
