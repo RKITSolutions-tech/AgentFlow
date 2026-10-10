@@ -150,10 +150,10 @@ def test_project_dashboard_with_backlog_items(app, client, project_id):
         backlog_persistence.create_item(db, project_id, text="Task 1", title="First task")
         backlog_persistence.create_item(db, project_id, text="Task 2", title="Second task")
 
-        # Mark one as done
+        # Mark one as triaged
         items = backlog_persistence.list_items(db)
         if len(items) > 0:
-            backlog_persistence.update_item(db, items[0].id, status="done")
+            backlog_persistence.transition(db, items[0].id, "TRIAGED")
 
     resp = client.get(f"/dashboards/project/{project_id}")
     assert resp.status_code == 200

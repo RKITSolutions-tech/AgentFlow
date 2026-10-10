@@ -23,7 +23,8 @@ ACTIVE_EXECUTION_STATUSES = ["RUNNING", "PAUSED"]
 def home():
     """Home dashboard with recent sessions, pipelines, and backlog items."""
     db = get_db()
-    project_names = {p.id: p.name for p in project_models.list_projects(db, archived=None)}
+    projects = project_models.list_projects(db, archived=None)
+    project_names = {p.id: p.name for p in projects}
 
     sessions = [
         {
@@ -66,11 +67,21 @@ def home():
         )
     ]
 
+    # Fetch topics for modal
+    from app.sessions import topics as topic_models
+    topics = []
+    try:
+        topics = topic_models.list_topics(db)
+    except Exception:
+        pass
+
     return render_template(
         "dashboards/home.html",
         sessions=sessions,
         pipelines=pipelines,
         backlog_items=backlog_items,
+        projects=projects,
+        topics=topics,
     )
 
 

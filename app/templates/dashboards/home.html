@@ -1,4 +1,5 @@
 {% extends "dashboards/base.html" %}
+{% from "sessions/_topics.html" import topic_select %}
 
 {% block dashboard_content %}
 <div data-testid="dashboard-home">
@@ -13,7 +14,7 @@
     <div class="dashboard-section" data-testid="recent-sessions">
       <div class="section-header">
         <h2>Active Sessions</h2>
-        <a href="{{ url_for('sessions.list_sessions') }}" class="card-action-btn secondary">+ New</a>
+        <button type="button" class="card-action-btn secondary" onclick="document.getElementById('newSessionModal').hidden=false">+ New</button>
       </div>
       <div class="dashboard-cards">
         {% set recent_sessions = sessions[:5] %}
@@ -42,7 +43,7 @@
           {% endfor %}
         {% else %}
         <div class="dashboard-card" style="text-align: center; padding: 40px 20px;">
-          <p style="color: var(--text-secondary); margin: 0 0 12px 0;">No sessions yet</p>
+          <p style="color: var(--text-secondary); margin: 0 0 12px 0;">No recent sessions.</p>
           <a href="{{ url_for('sessions.list_sessions') }}" class="card-action-btn secondary">View Sessions</a>
         </div>
         {% endif %}
@@ -78,7 +79,7 @@
           {% endfor %}
         {% else %}
         <div class="dashboard-card" style="text-align: center; padding: 40px 20px;">
-          <p style="color: var(--text-secondary); margin: 0 0 12px 0;">No active pipelines</p>
+          <p style="color: var(--text-secondary); margin: 0 0 12px 0;">No active pipelines.</p>
           <a href="{{ url_for('pipelines.list_pipelines', project_id=shell.active_project_id) if shell.active_project_id else '#' }}" class="card-action-btn secondary">Run One</a>
         </div>
         {% endif %}
@@ -114,12 +115,104 @@
           {% endfor %}
         {% else %}
         <div class="dashboard-card" style="text-align: center; padding: 40px 20px;">
-          <p style="color: var(--text-secondary); margin: 0 0 12px 0;">No backlog items</p>
+          <p style="color: var(--text-secondary); margin: 0 0 12px 0;">No recent backlog items.</p>
           <a href="{{ url_for('backlog.create_item', project_id=shell.active_project_id) if shell.active_project_id else '#' }}" class="card-action-btn secondary">Add One</a>
         </div>
         {% endif %}
       </div>
     </div>
   </div>
+
+  <!-- New Session Modal -->
+  <div class="modal" id="newSessionModal" hidden>
+    <div class="modal-panel">
+      <h2>Start New Session</h2>
+      {% if projects %}
+      <form method="post" id="modalSessionForm" style="display: flex; flex-direction: column; gap: 1rem;">
+        <label>
+          Project
+          <select name="project_id" id="projectSelect" required>
+            <option value="">Select a project...</option>
+            {% for p in projects %}
+            <option value="{{ p.id }}">{{ p.name }}</option>
+            {% endfor %}
+          </select>
+        </label>
+
+        <label>
+          Agent Type
+          <select name="agent_type" id="agentTypeSelect">
+            <option value="codex">Codex</option>
+            <option value="claude">Claude</option>
+            <option value="fake">Fake (Testing)</option>
+          </select>
+        </label>
+
+        {% if topics %}
+        <div id="topicField">
+          <label>Discussion Topic (optional)
+            <select name="topic" id="topicSelect">
+              <option value="">General discussion</option>
+              {% for topic in topics %}
+              <option value="{{ topic.id }}">{{ topic.name }}</option>
+              {% endfor %}
+            </select>
+          </label>
+        </div>
+        {% endif %}
+
+        <label class="backlog-select">
+          <input type="checkbox" name="warm_start" value="1" checked>
+          Include recent project context
+        </label>
+
+        <label class="backlog-select">
+          <input type="checkbox" name="wiki_context" value="1" checked>
+          Include project wiki
+        </label>
+
+        <label class="backlog-select">
+          <input type="checkbox" name="mcp_tools" value="1">
+          Let this session manage Backlog/Sprints/Pipelines
+        </label>
+
+        <div class="modal-actions">
+          <button type="button" onclick="document.getElementById('newSessionModal').hidden=true">Cancel</button>
+          <button type="submit" onclick="submitSessionForm(event)">Start Session</button>
+        </div>
+      </form>
+      {% else %}
+      <p style="color: var(--text-secondary);">No projects available. <a href="{{ url_for('projects.new_project') }}">Create one</a> to get started.</p>
+      <div class="modal-actions">
+        <button type="button" onclick="document.getElementById('newSessionModal').hidden=true">Close</button>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <script>
+  function submitSessionForm(event) {
+    event.preventDefault();
+    var projectId = document.getElementById('projectSelect').value;
+    if (!projectId) {
+      alert('Please select a project');
+      return;
+    }
+    var form = document.getElementById('modalSessionForm');
+    var formData = new FormData(form);
+    formData.delete('project_id');
+    var createUrl = '/sessions/project/' + projectId + '/create';
+
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', createUrl, true);
+    xhr.onload = function() {
+      if (xhr.status === 302 || xhr.status === 200) {
+        // Redirect to the new session or show message
+        window.location.href = xhr.responseURL || '/';
+      }
+    };
+    xhr.send(formData);
+  }
+  </script>
 </div>
 {% endblock %}

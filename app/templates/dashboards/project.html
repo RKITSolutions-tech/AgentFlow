@@ -9,8 +9,8 @@
         <h1 style="margin: 0; font-size: 1.75rem; font-weight: 700; color: var(--text-primary);">{{ project.name }}</h1>
       </div>
       <div style="display: flex; gap: calc(var(--gap) / 2); flex-wrap: wrap;">
-        <a href="{{ url_for('sessions.create', project_id=project.id) }}" class="card-action-btn primary" data-testid="project-start-session">+ Start Session</a>
-        <a href="{{ url_for('projects.settings', project_id=project.id) }}" class="card-action-btn">Settings</a>
+        <a href="{{ url_for('sessions.create_session', project_id=project.id) }}" class="card-action-btn primary" data-testid="project-start-session">+ Start Session</a>
+        <a href="{{ url_for('projects.edit_project', project_id=project.id) }}" class="card-action-btn">Settings</a>
       </div>
     </div>
   </div>
@@ -67,7 +67,7 @@
           <p>Create or activate a sprint to get started with planning.</p>
         </div>
         <div class="card-actions">
-          <a href="{{ url_for('sprints.create', project_id=project.id) }}" class="card-action-btn primary" data-testid="sprint-create">Start Sprint</a>
+          <a href="{{ url_for('sprints.create_sprint', project_id=project.id) }}" class="card-action-btn primary" data-testid="sprint-create">Start Sprint</a>
         </div>
       </div>
       {% endif %}
