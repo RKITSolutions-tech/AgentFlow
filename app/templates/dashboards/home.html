@@ -13,7 +13,7 @@
     <div class="dashboard-section" data-testid="recent-sessions">
       <div class="section-header">
         <h2>Active Sessions</h2>
-        <a href="{{ url_for('sessions.create') }}" class="card-action-btn secondary">+ New</a>
+        <a href="{{ url_for('sessions.create_session') }}" class="card-action-btn secondary">+ New</a>
       </div>
       <div class="dashboard-cards">
         {% set recent_sessions = sessions[:5] %}
@@ -43,7 +43,7 @@
         {% else %}
         <div class="dashboard-card" style="text-align: center; padding: 40px 20px;">
           <p style="color: var(--text-secondary); margin: 0 0 12px 0;">No sessions yet</p>
-          <a href="{{ url_for('sessions.create') }}" class="card-action-btn secondary">Create One</a>
+          <a href="{{ url_for('sessions.create_session') }}" class="card-action-btn secondary">Create One</a>
         </div>
         {% endif %}
       </div>
